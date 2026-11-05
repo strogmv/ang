@@ -24,7 +24,17 @@ type PaintedBerthDoor struct {
 	Platform PaintedPoint `json:"platform"`
 }
 
+// PaintedRailMetric connects a fixed longitudinal scene-rail metre coordinate
+// to an authored canvas path point. It never defines vehicle visibility/time.
+type PaintedRailMetric struct {
+	CellMeters   float64 `json:"cell_meters"`
+	TrackM       float64 `json:"track_m"`
+	PathProgress float64 `json:"path_progress"`
+}
+
 type PaintedAmbientPassage struct {
+	MotionSource       string               `json:"motion_source,omitempty"`
+	MetricRail         *PaintedRailMetric   `json:"metric_rail,omitempty"`
 	ID                 string               `json:"id"`
 	Image              string               `json:"image"`
 	SourceRect         *ArtSceneSourceRect  `json:"source_rect,omitempty"`
@@ -153,37 +163,53 @@ func checkPaintedAmbient(s PaintedScene, walkable map[string]bool) error {
 			return bad("empty/duplicate identity")
 		}
 		ids[p.ID] = true
+		if m := p.MetricRail; m != nil {
+			if !finitePainted(m.CellMeters, m.TrackM, m.PathProgress) || m.CellMeters <= 0 || m.CellMeters > 100 || math.Abs(m.TrackM) > 1000000 || m.PathProgress < 0 || m.PathProgress > 1 {
+				return bad("invalid metric rail datum")
+			}
+		}
 		if s.FloorElevationM == nil || !finitePainted(*s.FloorElevationM, p.ElevationM) || p.ElevationM > *s.FloorElevationM {
 			return bad("passage elevation must be explicitly at or below the floor")
 		}
-		if !ambientImage(p.Image, p.SourceRect) || !finitePainted(p.Width, p.Height, p.FeetX, p.FeetY) || p.Width <= 0 || p.Height <= 0 || p.Width > 4096 || p.Height > 4096 || p.FeetX < 0 || p.FeetX > p.Width || p.FeetY < 0 || p.FeetY > p.Height {
-			return bad("invalid sprite/image feet")
+
+		external := p.MotionSource == "train_motion"
+		if p.MotionSource != "" && p.MotionSource != "calendar" && !external {
+			return bad("unknown motion source")
 		}
-		if p.PeriodSeconds < 1 || p.PeriodSeconds > 86400 || p.DurationSeconds < 1 || p.DurationSeconds > p.PeriodSeconds || p.OffsetSeconds < 0 || p.OffsetSeconds >= p.PeriodSeconds {
-			return bad("invalid authoritative schedule")
-		}
-		if !finitePainted(p.ShearY, p.StopProgress) || math.Abs(p.ShearY) > .1 {
-			return bad("invalid calibrated sprite shear")
-		}
-		if p.StopProgress != 0 || p.ApproachSeconds != 0 || p.DwellSeconds != 0 {
-			if p.StopProgress < .05 || p.StopProgress > .95 || p.ApproachSeconds <= 0 || p.ApproachSeconds >= p.DurationSeconds || p.DwellSeconds <= 0 || p.DwellSeconds >= p.DurationSeconds || p.ApproachSeconds+p.DwellSeconds >= p.DurationSeconds {
-				return bad("invalid berth approach/dwell/departure")
+		if external {
+			if p.MetricRail == nil || p.Image != "" || p.SourceRect != nil || p.Width != 0 || p.Height != 0 || p.FeetX != 0 || p.FeetY != 0 || p.PeriodSeconds != 0 || p.NightPeriodSeconds != 0 || p.DayStartSecond != 0 || p.DayEndSecond != 0 || p.DurationSeconds != 0 || p.OffsetSeconds != 0 || p.StopProgress != 0 || p.ApproachSeconds != 0 || p.DwellSeconds != 0 || p.ShearY != 0 || len(p.BerthDoors) > 0 || p.Track != nil {
+				return bad("external rail must have metric geometry and no independent sprite/timetable/berth")
 			}
-		}
-		if p.NightPeriodSeconds != 0 || p.DayStartSecond != 0 || p.DayEndSecond != 0 {
-			if p.NightPeriodSeconds < 1 || p.NightPeriodSeconds > 86400 || p.DurationSeconds > p.NightPeriodSeconds || p.OffsetSeconds >= p.NightPeriodSeconds || p.DayStartSecond < 0 || p.DayEndSecond <= p.DayStartSecond || p.DayEndSecond >= 86400 {
-				return bad("invalid day/night authoritative schedule")
+		} else {
+			if !ambientImage(p.Image, p.SourceRect) || !finitePainted(p.Width, p.Height, p.FeetX, p.FeetY) || p.Width <= 0 || p.Height <= 0 || p.Width > 4096 || p.Height > 4096 || p.FeetX < 0 || p.FeetX > p.Width || p.FeetY < 0 || p.FeetY > p.Height {
+				return bad("invalid sprite/image feet")
 			}
-			if p.StopProgress > 0 {
-				dayLength := p.DayEndSecond - p.DayStartSecond
-				for _, window := range [][2]int64{{dayLength, p.PeriodSeconds}, {86400 - dayLength, p.NightPeriodSeconds}} {
-					if p.OffsetSeconds >= window[0] {
-						return bad("berth offset leaves an operational window without a departure")
-					}
-					lastIndex := (window[0] - 1 - p.OffsetSeconds) / window[1]
-					gap := window[0] - lastIndex*window[1]
-					if gap < p.DurationSeconds {
-						return bad("berth service intervals overlap at a day/night boundary")
+			if p.PeriodSeconds < 1 || p.PeriodSeconds > 86400 || p.DurationSeconds < 1 || p.DurationSeconds > p.PeriodSeconds || p.OffsetSeconds < 0 || p.OffsetSeconds >= p.PeriodSeconds {
+				return bad("invalid authoritative schedule")
+			}
+			if !finitePainted(p.ShearY, p.StopProgress) || math.Abs(p.ShearY) > .1 {
+				return bad("invalid calibrated sprite shear")
+			}
+			if p.StopProgress != 0 || p.ApproachSeconds != 0 || p.DwellSeconds != 0 {
+				if p.StopProgress < .05 || p.StopProgress > .95 || p.ApproachSeconds <= 0 || p.ApproachSeconds >= p.DurationSeconds || p.DwellSeconds <= 0 || p.DwellSeconds >= p.DurationSeconds || p.ApproachSeconds+p.DwellSeconds >= p.DurationSeconds {
+					return bad("invalid berth approach/dwell/departure")
+				}
+			}
+			if p.NightPeriodSeconds != 0 || p.DayStartSecond != 0 || p.DayEndSecond != 0 {
+				if p.NightPeriodSeconds < 1 || p.NightPeriodSeconds > 86400 || p.DurationSeconds > p.NightPeriodSeconds || p.OffsetSeconds >= p.NightPeriodSeconds || p.DayStartSecond < 0 || p.DayEndSecond <= p.DayStartSecond || p.DayEndSecond >= 86400 {
+					return bad("invalid day/night authoritative schedule")
+				}
+				if p.StopProgress > 0 {
+					dayLength := p.DayEndSecond - p.DayStartSecond
+					for _, window := range [][2]int64{{dayLength, p.PeriodSeconds}, {86400 - dayLength, p.NightPeriodSeconds}} {
+						if p.OffsetSeconds >= window[0] {
+							return bad("berth offset leaves an operational window without a departure")
+						}
+						lastIndex := (window[0] - 1 - p.OffsetSeconds) / window[1]
+						gap := window[0] - lastIndex*window[1]
+						if gap < p.DurationSeconds {
+							return bad("berth service intervals overlap at a day/night boundary")
+						}
 					}
 				}
 			}

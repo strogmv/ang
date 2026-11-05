@@ -1,0 +1,678 @@
+package poc
+
+import (
+	behavior "angelsdemons/server/internal/behavior"
+	pb "angelsdemons/server/internal/transport/grpc/pb/game/v1"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
+)
+
+func sanitaryFixture(t *testing.T, kind string) (*Runtime, sanitaryUnit) {
+	t.Helper()
+	r := medicalFixture(t)
+	r.world.Life.Brain.Enabled = true
+	r.canonicalWorld.Life.Brain.Enabled = true
+	r.world.SanitaryServices.NPCHygiene = false
+	var u sanitaryUnit
+	for _, v := range r.world.SanitaryServices.Units {
+		if v.Kind == kind {
+			u = v
+			break
+		}
+	}
+	if u.ID == "" {
+		t.Fatal("missing unit")
+	}
+	a := r.state.Life.Actor(playerActorID)
+	a.Position = u.EntryCell
+	a.Goal = a.Position
+	a.Level = u.LevelID
+	a.Body = nil
+	a.Brain = behavior.LifeBrain{}
+	a.Brain.AdvanceServiceNeeds(r.world.Life.Brain, a.ID, r.state.Life.Seconds, r.state.Seed, 0)
+	a.Brain.Needs[2] = 700000
+	r.syncLifeHero()
+	return r, u
+}
+func sanitaryAdvance(t *testing.T, r *Runtime, seconds int64) {
+	t.Helper()
+	r.state.Tick += seconds * int64(r.world.Config.TickHz)
+	r.state.Life.Tick = r.state.Tick
+	if err := r.state.Inventory.Advance(r.state.Tick); err != nil {
+		t.Fatal(err)
+	}
+	r.state.Life.Seconds += seconds
+	if err := r.advanceSanitaryServices(); err != nil {
+		t.Fatal(err)
+	}
+	r.syncLifeHero()
+}
+func sanitaryUsing(t *testing.T, r *Runtime, u sanitaryUnit) {
+	t.Helper()
+	if err := r.sanitaryRequest(playerActorID, u.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.advanceSanitaryServices(); err != nil {
+		t.Fatal(err)
+	}
+	if r.state.Sanitary.Users[playerActorID].Phase != "opening" {
+		t.Fatal("not opening")
+	}
+	if r.state.Life.Actor(playerActorID).ServiceAttachment != "" {
+		t.Fatal("entry before door open")
+	}
+	sanitaryAdvance(t, r, 1)
+	if !r.sanitaryAttached(playerActorID) {
+		t.Fatal("no physical entry")
+	}
+	sanitaryAdvance(t, r, 2)
+	if r.state.Sanitary.Users[playerActorID].Phase != "sealing" {
+		t.Fatal("door closing before using")
+	}
+	sanitaryAdvance(t, r, 1)
+	if r.state.Sanitary.Users[playerActorID].Phase != "using" {
+		t.Fatal("not using")
+	}
+}
+func TestSanitaryShowerRealNeedsAndMeter(t *testing.T) {
+	r, u := sanitaryFixture(t, "shower")
+	sanitaryUsing(t, r, u)
+	a := r.state.Life.Actor(playerActorID)
+	before := a.Brain.Needs
+	rem := a.Brain.Remainder
+	for i := 0; i < 180; i++ {
+		sanitaryAdvance(t, r, 1)
+	}
+	p := r.state.Sanitary.Users[playerActorID]
+	if p.UseElapsed != 180 || p.WaterML != 25000 || p.WaterRemainder != 0 || r.state.Sanitary.WaterML[u.ID] != 25000 || p.Phase != "opening_exit" {
+		t.Fatalf("bad water/time %+v", p)
+	}
+	expected := before[2] + ((r.world.Life.Brain.Rates[2]-r.world.Life.Brain.HygieneRecovery)*180+rem[2])/86400
+	if a.Brain.Needs[2] != expected {
+		t.Fatalf("hygiene %d expected %d", a.Brain.Needs[2], expected)
+	}
+	if a.Brain.Needs[1] <= before[1] {
+		t.Fatal("other needs froze")
+	}
+	if err := r.validateSanitary(r.state); err != nil {
+		t.Fatal(err)
+	}
+	sanitaryAdvance(t, r, 1)
+	sanitaryAdvance(t, r, 2)
+	sanitaryAdvance(t, r, 1)
+	if r.sanitaryReserved(playerActorID) || !a.OnFloor() || a.Position != u.EntryCell {
+		t.Fatal("failed physical exit")
+	}
+	if r.state.Sanitary.Completed[u.ID] != 1 {
+		t.Fatal("completion repeated")
+	}
+}
+func TestSanitaryPauseAvailabilityAndSave(t *testing.T) {
+	r, u := sanitaryFixture(t, "shower")
+	sanitaryUsing(t, r, u)
+	sanitaryAdvance(t, r, 7)
+	saved := r.state.Sanitary.clone()
+	r.state.Paused = true
+	for i := 0; i < 5; i++ {
+		if err := r.advanceSanitaryServices(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !reflect.DeepEqual(saved, r.state.Sanitary) {
+		t.Fatal("pause consumed water")
+	}
+	r.state.Paused = false
+	r.world.SanitaryServices.ServiceAvailable = false
+	sanitaryAdvance(t, r, 30)
+	if r.state.Sanitary.Users[playerActorID].UseElapsed != 7 || r.state.Sanitary.WaterML[u.ID] != saved.WaterML[u.ID] {
+		t.Fatal("dry supply still flowed")
+	}
+	r.world.SanitaryServices.ServiceAvailable = true
+	slot := r.world.Config.SaveSlots[0]
+	if err := r.writeSave(slot, r.snapshotState()); err != nil {
+		t.Fatal(err)
+	}
+	loaded, _, err := r.readSave(slot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.state = loaded
+	if err := r.validateSanitary(r.state); err != nil {
+		t.Fatal(err)
+	}
+	sanitaryAdvance(t, r, 173)
+	if r.state.Sanitary.WaterML[u.ID] != 25000 {
+		t.Fatal("saved fraction lost")
+	}
+}
+func TestSanitaryWCNoNewNeedAndFlush(t *testing.T) {
+	r, u := sanitaryFixture(t, "wc")
+	sanitaryUsing(t, r, u)
+	a := r.state.Life.Actor(playerActorID)
+	need := a.Brain.Needs[2]
+	sanitaryAdvance(t, r, 239)
+	if r.state.Sanitary.WaterML[u.ID] != 0 || a.Brain.Needs[2] < need {
+		t.Fatal("WC invented hygiene or early flush")
+	}
+	sanitaryAdvance(t, r, 1)
+	if r.state.Sanitary.WaterML[u.ID] != 3000 {
+		t.Fatal("missing actual flush")
+	}
+	sanitaryAdvance(t, r, 1)
+	if r.state.Sanitary.WaterML[u.ID] != 3000 {
+		t.Fatal("duplicate flush")
+	}
+}
+func TestSanitaryCrossServiceAndCommands(t *testing.T) {
+	r, u := sanitaryFixture(t, "shower")
+	sanitaryUsing(t, r, u)
+	serial := r.state.Sanitary.Serial
+	if err := r.sanitaryRequest(playerActorID, u.ID); err != nil || serial != r.state.Sanitary.Serial {
+		t.Fatal("request not idempotent")
+	}
+	if err := r.medicalRequest(playerActorID, r.world.MedicalCapsules.Units[0].ID); err == nil {
+		t.Fatal("medical stole sanitary user")
+	}
+	if err := r.lifeCommand(&pb.PocLifeCommand{Action: "travel", Destination: "level.poc_housing"}); err == nil {
+		t.Fatal("ordinary command stole attachment")
+	}
+	if err := r.sanitaryCommand(&pb.PocLifeCommand{Action: "sanitary_cancel"}); err != nil {
+		t.Fatal(err)
+	}
+	if r.state.Sanitary.Users[playerActorID].Phase != "opening_exit" {
+		t.Fatal("cancel teleported out")
+	}
+}
+
+func TestSanitaryFIFOBlockedExitAndSaveValidation(t *testing.T) {
+	r, u := sanitaryFixture(t, "shower")
+	sanitaryUsing(t, r, u)
+	ids := []string{"char.market_granny", "char.market_resident_01"}
+	for i, id := range ids {
+		a := r.state.Life.Actor(id)
+		if a == nil {
+			t.Fatal("missing real NPC")
+		}
+		a.Trip = nil
+		a.ResidenceID = ""
+		a.Level = u.LevelID
+		a.Position = behavior.Cell{X: 12 + i, Y: 41}
+		a.Goal = a.Position
+		a.Path = nil
+		a.PendingPath = nil
+		a.Body = nil
+		a.Manual = false
+		a.CombatHold = false
+		if err := r.sanitaryRequest(id, u.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, id := range ids {
+		if r.state.Sanitary.Users[id].Phase != "queued" {
+			t.Fatal("queue stole occupied unit")
+		}
+	}
+	if err := r.validateSanitary(r.state); err != nil {
+		t.Fatal(err)
+	}
+	before := r.snapshotState()
+	bad := r.snapshotState()
+	p := bad.Sanitary.Users[ids[0]]
+	p.Phase = "using"
+	bad.Sanitary.Users[ids[0]] = p
+	if r.validateSanitary(bad) == nil {
+		t.Fatal("duplicate occupancy accepted")
+	}
+	if !reflect.DeepEqual(before.Sanitary, r.state.Sanitary) {
+		t.Fatal("snapshot aliases state")
+	}
+	blocker := r.state.Life.Actor(ids[1])
+	blocker.Position = u.EntryCell
+	blocker.Goal = blocker.Position
+	sanitaryAdvance(t, r, 180)
+	sanitaryAdvance(t, r, 1)
+	if !r.state.Sanitary.Users[playerActorID].ExitBlocked || r.state.Life.Actor(playerActorID).OnFloor() {
+		t.Fatal("blocked exit teleported")
+	}
+	blocker.Position = behavior.Cell{X: 13, Y: 41}
+	blocker.Goal = blocker.Position
+	sanitaryAdvance(t, r, 1)
+	sanitaryAdvance(t, r, 2)
+	sanitaryAdvance(t, r, 1)
+	if r.state.Sanitary.Users[ids[1]].Phase != "queued" {
+		t.Fatal("FIFO overtaken")
+	}
+	if r.state.Sanitary.Users[ids[0]].Phase != "queued" {
+		t.Fatal("occupied return anchor should retain FIFO waiting")
+	}
+	hero := r.state.Life.Actor(playerActorID)
+	hero.Position = behavior.Cell{X: 12, Y: 43}
+	hero.Goal = hero.Position
+	sanitaryAdvance(t, r, 1)
+	if p := r.state.Sanitary.Users[ids[0]]; p.Phase != "approach" {
+		t.Fatalf("first queue not admitted: %+v", p)
+	}
+}
+func TestSanitaryPhysicalHeroApproachAndUnloadedNPC(t *testing.T) {
+	r, u := sanitaryFixture(t, "basin")
+	var original worldData
+	if err := json.Unmarshal(compiledJSON, &original); err != nil {
+		t.Fatal(err)
+	}
+	r.world.Life.HeroBody = original.Life.HeroBody
+	r.canonicalWorld.Life.HeroBody = original.Life.HeroBody
+	hero := r.state.Life.Actor(playerActorID)
+	hero.Position = behavior.Cell{X: r.world.SanitaryServices.CommonEntryCell.X + 1, Y: r.world.SanitaryServices.CommonEntryCell.Y}
+	hero.Goal = hero.Position
+	r.state.Life.EnsureHeroBody(r.world.Life)
+	if hero.Body == nil {
+		t.Fatal("missing real body")
+	}
+	if err := r.sanitaryRequest(playerActorID, u.ID); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 500 && r.state.Sanitary.Users[playerActorID].Phase != "using"; i++ {
+		r.state.Tick++
+		r.state.Inventory.Advance(r.state.Tick)
+		if err := r.advanceLifeFrameBy(1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !r.sanitaryAttached(playerActorID) || r.state.Sanitary.Users[playerActorID].Phase != "using" || hero.Position != u.EntryCell {
+		t.Fatal("hero did not physically arrive")
+	}
+	slot := r.world.Config.SaveSlots[0]
+	if err := r.writeSave(slot, r.snapshotState()); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := r.readSave(slot); err != nil {
+		t.Fatal(err)
+	}
+	// Real named NPC, normal existing hygiene goal; no NPC command or visual double.
+	id := "char.market_granny"
+	npc := r.state.Life.Actor(id)
+	v := r.world.SanitaryServices.Units[5]
+	npc.Trip = nil
+	npc.ResidenceID = ""
+	npc.Level = v.LevelID
+	npc.Position = v.EntryCell
+	npc.Goal = npc.Position
+	npc.Path = nil
+	npc.PendingPath = nil
+	npc.Body = nil
+	npc.Manual = false
+	npc.CombatHold = false
+	npc.Brain.Place = behavior.LifeAffordance{ID: r.world.SanitaryServices.ManagedAffordance, Kind: "hygiene"}
+	r.world.SanitaryServices.NPCHygiene = true
+	r.sanitaryNPCRequests()
+	p, ok := r.state.Sanitary.Users[id]
+	if !ok {
+		t.Fatal("ordinary NPC hygiene policy not hosted")
+	}
+	r.world.SanitaryServices.NPCHygiene = false
+	// Finish hero then move observation away; NPC service continues from saved clocks.
+	if err := r.sanitaryCommand(&pb.PocLifeCommand{Action: "sanitary_cancel"}); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 500 && r.sanitaryReserved(playerActorID); i++ {
+		r.state.Tick++
+		r.state.Inventory.Advance(r.state.Tick)
+		if err := r.advanceLifeFrameBy(1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	hero = r.state.Life.Actor(playerActorID)
+	hero.Level = "level.poc_housing"
+	for _, person := range r.world.Life.Actors {
+		if person.ID == playerActorID {
+			for _, step := range person.Steps {
+				if step.Level == hero.Level {
+					hero.Position = step.At
+					break
+				}
+			}
+		}
+	}
+	hero.Goal = hero.Position
+	hero.Body = nil
+	hero.Path = nil
+	hero.PendingPath = nil
+	hero.Manual = true
+	for i := 0; i < 1000 && r.sanitaryReserved(id); i++ {
+		r.state.Tick++
+		r.state.Inventory.Advance(r.state.Tick)
+		if err := r.advanceLifeFrameBy(1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if r.sanitaryReserved(id) || r.state.Sanitary.Completed[p.UnitID] != 1 {
+		t.Fatal("unloaded service stalled")
+	}
+}
+func TestSanitaryNoWallRecovery(t *testing.T) {
+	r, u := sanitaryFixture(t, "basin")
+	a := r.state.Life.Actor(playerActorID)
+	a.Activity = "hygiene"
+	a.Arrived = true
+	a.Brain.Place = behavior.LifeAffordance{ID: r.world.SanitaryServices.ManagedAffordance, Kind: "hygiene"}
+	a.Brain.Target = behavior.LifeStep{Level: u.LevelID, At: u.EntryCell, Activity: "hygiene"}
+	a.Manual = true
+	r.state.Life.BrainServices = r.npcServices()
+	before := a.Brain.Needs[2]
+	r.state.Tick++
+	r.state.Life.AdvanceWithTravelBy(r.world.Life, r.state.Tick, 60, nil, nil)
+	if a.Brain.Needs[2] < before {
+		t.Fatal("outside affordance granted free hygiene")
+	}
+}
+
+func TestSanitaryRejectForgedDoorAndFlow(t *testing.T) {
+	r, u := sanitaryFixture(t, "shower")
+	sanitaryUsing(t, r, u)
+	sanitaryAdvance(t, r, 2)
+	for _, mutate := range []func(*state){func(s *state) { d := s.Sanitary.Doors[u.ID]; d.To = 1; s.Sanitary.Doors[u.ID] = d }, func(s *state) {
+		p := s.Sanitary.Users[playerActorID]
+		p.WaterRemainder++
+		s.Sanitary.Users[playerActorID] = p
+	}, func(s *state) { s.Life.Actor(playerActorID).ServiceAttachment = "invented" }, func(s *state) { s.Sanitary.Completed = map[string]uint64{u.ID: 1} }} {
+		s := r.snapshotState()
+		mutate(&s)
+		if r.validateSanitary(s) == nil {
+			t.Fatal("forged service save accepted")
+		}
+	}
+}
+
+func TestSanitaryCommonEntranceTopology(t *testing.T) {
+	r, _ := sanitaryFixture(t, "wc")
+	cfg := r.world.SanitaryServices
+	m := r.state.Life.GateModel(r.world.Life)
+	level := "level.c7_market"
+	for _, u := range cfg.Units {
+		path := m.Space(level, nil).Path(cfg.CommonEntryCell, u.EntryCell, behavior.Cell{}, 0)
+		if len(path) == 0 {
+			t.Fatalf("unit unreachable from shared entrance: %s", u.ID)
+		}
+		portal := false
+		for _, c := range path {
+			if c.X == 10 && (c.Y == 44 || c.Y == 45) {
+				portal = true
+			}
+		}
+		if !portal {
+			t.Fatalf("route bypassed common entry: %s %v", u.ID, path)
+		}
+		blocked := map[behavior.Cell]bool{{X: 10, Y: 44}: true, {X: 10, Y: 45}: true}
+		if p := m.Space(level, blocked).Path(cfg.CommonEntryCell, u.EntryCell, behavior.Cell{}, 0); len(p) > 0 {
+			t.Fatalf("unintended exterior access to %s: %v", u.ID, p)
+		}
+	}
+}
+func TestSanitaryWoundsAdvanceAndStaffBudget(t *testing.T) {
+	r, u := sanitaryFixture(t, "shower")
+	sanitaryUsing(t, r, u)
+	medicalInjure(t, r, playerActorID, true)
+	before := combatBody(r.state.CombatRoster[playerActorID])
+	count := len(r.state.Life.Actors)
+	for i := 0; i < 10; i++ {
+		r.state.Tick++
+		r.state.Inventory.Advance(r.state.Tick)
+		if err := r.advanceLifeFrameBy(1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	after := combatBody(r.state.CombatRoster[playerActorID])
+	if after.Clock-before.Clock != 10 || after.Care != nil || len(r.state.Life.Actors) != count || !r.sanitaryAttached(playerActorID) {
+		t.Fatal("sanitary service froze wounds, created care/body or lost actor")
+	}
+	id := "char.market_granny"
+	npc := r.state.Life.Actor(id)
+	npc.Level = u.LevelID
+	npc.Trip = nil
+	npc.ResidenceID = ""
+	npc.Position = behavior.Cell{X: 12, Y: 44}
+	npc.Goal = npc.Position
+	npc.Path = nil
+	npc.Body = nil
+	npc.Manual = false
+	npc.CombatHold = false
+	npc.Brain.Place = behavior.LifeAffordance{ID: r.world.SanitaryServices.ManagedAffordance, Kind: "hygiene"}
+	npc.Brain.BreakKind = "hygiene"
+	npc.Brain.BreakReturnAt = r.state.Life.Seconds + 1
+	r.world.SanitaryServices.NPCHygiene = true
+	needs, position, deadline := npc.Brain.Needs, npc.Position, npc.Brain.BreakReturnAt
+	r.sanitaryNPCRequests()
+	if r.sanitaryReserved(id) {
+		t.Fatal("service exceeded existing staff break budget")
+	}
+	if !npc.Brain.Returning || npc.Brain.Needs != needs || npc.Position != position || npc.Brain.BreakReturnAt != deadline {
+		t.Fatal("unavailable duty service must return normally without recovery, teleport or a new budget")
+	}
+	npc.Brain.Returning = false
+	r.world.SanitaryServices.ServiceAvailable = false
+	r.sanitaryNPCRequests()
+	if !npc.Brain.Returning || r.sanitaryReserved(id) || npc.Brain.Needs != needs || npc.Position != position || npc.Brain.BreakReturnAt != deadline {
+		t.Fatal("closed water service must preserve needs and the existing physical return budget")
+	}
+}
+
+// Explicit native source fixture: same hero and an existing named NPC, using
+// the ordinary hygiene provider policy; never installed into ordinary New Game.
+func TestSanitaryNativeFixture(t *testing.T) {
+	dir := os.Getenv("ANG_SANITARY_NATIVE_DIR")
+	if dir == "" {
+		t.Skip("set output directory for an explicit native sanitary save")
+	}
+	r, u := sanitaryFixture(t, "shower")
+	var original worldData
+	if err := json.Unmarshal(compiledJSON, &original); err != nil {
+		t.Fatal(err)
+	}
+	r.world.Life.HeroBody = original.Life.HeroBody
+	r.canonicalWorld.Life.HeroBody = original.Life.HeroBody
+	r.state.Life.SecondsPerTick = 1
+	hero := r.state.Life.Actor(playerActorID)
+	hero.Position = behavior.Cell{X: 12, Y: 44}
+	hero.Goal = hero.Position
+	hero.Body = nil
+	hero.Path = nil
+	hero.Manual = true
+	hero.Brain.Needs[2] = 700000
+	npc := r.state.Life.Actor("char.market_granny")
+	npc.Trip = nil
+	npc.ResidenceID = ""
+	npc.ServiceAttachment = ""
+	npc.Level = u.LevelID
+	npc.Position = behavior.Cell{X: 13, Y: 45}
+	npc.Goal = npc.Position
+	npc.Path = nil
+	npc.PendingPath = nil
+	npc.Body = nil
+	npc.Manual = false
+	npc.CombatHold = false
+	npc.Brain.AdvanceServiceNeeds(r.world.Life.Brain, npc.ID, r.state.Life.Seconds, r.state.Seed, 0)
+	npc.Brain.Needs[2] = 800000
+	npc.Brain.Place = behavior.LifeAffordance{ID: r.world.SanitaryServices.ManagedAffordance, Kind: "hygiene"}
+	npc.Brain.BreakKind = ""
+	r.world.SanitaryServices.NPCHygiene = true
+	r.sanitaryNPCRequests()
+	if !r.sanitaryReserved(npc.ID) {
+		t.Fatal("native fixture needs ordinary NPC service policy")
+	}
+	r.syncLifeHero()
+	if err := r.writeSave("slot3", r.snapshotState()); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := r.readSave("slot3"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(r.data, "slot3.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(dir, "slot3.json"), raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Exercise the actual publication path and canonical compiled translations, not
+// a client key lookup. Another occupant cannot populate the hero's status text.
+func TestSanitaryHeroPhaseTextLocalizedAndPrivate(t *testing.T) {
+	r, u := sanitaryFixture(t, "shower")
+	hero := r.state.Life.Actor(playerActorID)
+	npcID := "char.market_granny"
+	private := r.world.SanitaryServices.Units[0]
+	r.state.Sanitary.Users = map[string]sanitaryUser{}
+	r.state.Sanitary.Users[npcID] = sanitaryUser{ActorID: npcID, UnitID: private.ID, Phase: "using"}
+	type view struct {
+		HeroPhase     string             `json:"hero_phase"`
+		HeroPhaseText string             `json:"hero_phase_text"`
+		Units         []sanitaryUnitView `json:"units"`
+	}
+	publish := func(locale string) view {
+		t.Helper()
+		msg := &pb.PocGameState{Life: &pb.PocLifeView{}, SceneAgents: []*pb.PocAgentState{{Id: npcID}}}
+		r.appendSanitaryServices(msg, hero, locale)
+		if len(msg.SceneAgents) != 0 || strings.Contains(msg.Life.SanitaryServicesJson, npcID) {
+			t.Fatal("private NPC identity escaped publication")
+		}
+		var v view
+		if err := json.Unmarshal([]byte(msg.Life.SanitaryServicesJson), &v); err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	for _, tt := range []struct{ phase, ru, en string }{
+		{"queued", "Очередь", "Queued"}, {"approach", "Подход", "Approaching"}, {"opening", "Открытие двери", "Opening door"},
+		{"entry", "Вход", "Entering"}, {"sealing", "Закрытие двери", "Closing door"}, {"using", "Занято", "In use"},
+		{"opening_exit", "Открытие для выхода", "Opening for exit"}, {"exit", "Выход", "Exiting"}, {"closing", "Закрытие двери", "Closing door"},
+	} {
+		r.state.Sanitary.Users[playerActorID] = sanitaryUser{ActorID: playerActorID, UnitID: u.ID, Phase: tt.phase}
+		for locale, want := range map[string]string{"ru": tt.ru, "en": tt.en} {
+			v := publish(locale)
+			if v.HeroPhase != tt.phase || v.HeroPhaseText != want || strings.HasPrefix(v.HeroPhaseText, "sanitary.") {
+				t.Fatalf("%s/%s got %q, want %q", locale, tt.phase, v.HeroPhaseText, want)
+			}
+		}
+	}
+	delete(r.state.Sanitary.Users, playerActorID)
+	for _, locale := range []string{"ru", "en"} {
+		v := publish(locale)
+		if v.HeroPhase != "" || v.HeroPhaseText != "" {
+			t.Fatalf("NPC phase leaked into hero status: %+v", v)
+		}
+	}
+	for locale, expected := range map[string][2]string{"ru": {"Отменить", "Завершить"}, "en": {"Cancel", "Finish"}} {
+		if r.localText(locale, "ui.sanitary.cancel", "") != expected[0] || r.localText(locale, "ui.sanitary.finish", "") != expected[1] {
+			t.Fatalf("short action labels missing in %s", locale)
+		}
+	}
+}
+
+func TestSanitaryDutyBreakSurvivesServiceSaveAndPhysicalReturn(t *testing.T) {
+	r, u := sanitaryFixture(t, "basin")
+	r.state.Life.SecondsPerTick = 1
+	id := "char.market_resident_09"
+	a := r.state.Life.Actor(id)
+	hero := r.state.Life.Actor(playerActorID)
+	hero.Position = behavior.Cell{X: 12, Y: 44}
+	hero.Goal = hero.Position
+	hero.Body = nil
+	r.syncLifeHero()
+	post := behavior.LifeStep{}
+	for _, step := range r.world.Life.Person(id).Steps {
+		if step.Level == u.LevelID && step.Activity == "service" {
+			post = step
+			break
+		}
+	}
+	if post.Level == "" {
+		t.Fatal("missing authored shop post")
+	}
+	a.Level = u.LevelID
+	a.Position = behavior.Cell{X: 11, Y: 43}
+	a.Goal = a.Position
+	a.Path = nil
+	a.PendingPath = nil
+	a.Trip = nil
+	a.ResidenceID = ""
+	a.Body = nil
+	a.Manual = false
+	a.CombatHold = false
+	a.RoutineOverride = &post
+	a.Brain.AdvanceServiceNeeds(r.world.Life.Brain, id, r.state.Life.Seconds, r.state.Seed, 0)
+	a.Brain.Needs[2] = 800000
+	a.Brain.BreakKind = "hygiene"
+	a.Brain.BreakStarted = r.state.Life.Seconds
+	a.Brain.BreakUntil = r.state.Life.Seconds + r.world.Life.Brain.HygieneSeconds
+	a.Brain.BreakReturnAt = a.Brain.BreakUntil - 120
+	a.Brain.BreakPost = post
+	a.Brain.Returning = false
+	a.Brain.HygieneAt = a.Brain.BreakStarted
+	started, until, returnAt := a.Brain.BreakStarted, a.Brain.BreakUntil, a.Brain.BreakReturnAt
+	if err := r.sanitaryRequest(id, u.ID); err != nil {
+		t.Fatal(err)
+	}
+	if a.Brain.BreakKind != "hygiene" || a.Brain.Returning {
+		t.Fatal("service erased the already authorized duty break")
+	}
+	forged := r.snapshotState()
+	forged.Life.Actor(id).Brain.BreakReturnAt++
+	if r.validateSanitary(forged) == nil {
+		t.Fatal("forged duty return deadline accepted")
+	}
+	saved, used, released, returned := false, false, false, false
+	for r.state.Life.Seconds <= until {
+		r.state.Tick++
+		if err := r.state.Inventory.Advance(r.state.Tick); err != nil {
+			t.Fatal(err)
+		}
+		if err := r.advanceLifeFrameBy(1); err != nil {
+			t.Fatal(err)
+		}
+		a = r.state.Life.Actor(id)
+		lease, held := r.state.Sanitary.Users[id]
+		if held {
+			if a.Brain.BreakKind != "hygiene" || a.Brain.BreakStarted != started || a.Brain.BreakUntil != until || a.Brain.BreakReturnAt != returnAt || a.Brain.BreakPost != post {
+				t.Fatal("service rewrote the duty budget/post")
+			}
+			if !r.state.Inventory.Shopfronts["tenant09"].Break {
+				t.Fatal("real service is misclassified as unplanned shop closure")
+			}
+			used = used || lease.UseElapsed == u.ServiceSeconds && lease.WaterML == u.WaterML
+			if lease.Phase == "using" && !saved {
+				slot := r.world.Config.SaveSlots[0]
+				if err := r.writeSave(slot, r.snapshotState()); err != nil {
+					t.Fatal(err)
+				}
+				loaded, _, err := r.readSave(slot)
+				if err != nil {
+					t.Fatal(err)
+				}
+				r.state = loaded
+				saved = true
+			}
+		} else {
+			if !released {
+				if a.Manual || a.CombatHold || a.ServiceAttachment != "" || a.Brain.BreakKind != "hygiene" || !a.Brain.Returning {
+					t.Fatal("release lost the ordinary return-to-post obligation")
+				}
+				released = true
+			}
+			if a.Position == post.At && a.Arrived && len(a.Path) == 0 && !a.Manual && a.Brain.BreakKind == "" && r.state.Inventory.Shopfronts["tenant09"].Open {
+				returned = true
+				break
+			}
+		}
+	}
+	if !saved || !used || !released || !returned || r.state.Sanitary.Completed[u.ID] != 1 {
+		t.Fatalf("incomplete actual duty break: saved=%v used=%v released=%v returned=%v now=%d at=%v post=%+v manual=%v break=%s returning=%v arrived=%v shop=%+v enabled=%v hold=%v goal=%+v last=%d", saved, used, released, returned, r.state.Life.Seconds, a.Position, post, a.Manual, a.Brain.BreakKind, a.Brain.Returning, a.Arrived, r.state.Inventory.Shopfronts["tenant09"], r.world.Life.Brain.Enabled, a.CombatHold, a.Brain.Goal, a.Brain.LastSecond)
+	}
+}

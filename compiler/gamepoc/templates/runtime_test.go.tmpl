@@ -137,3 +137,36 @@ func TestSchedulerSustainsMaximumSpeed(t *testing.T){
  want:=int64(100)*int64(r.world.Config.TickHz)*10/int64(r.world.Config.SchedulerHz)
  if r.state.Tick!=want||r.lagMS!=0{t.Fatalf("max speed fell behind: tick=%d want=%d lag=%f",r.state.Tick,want,r.lagMS)}
 }
+
+// A snapshot exposes exactly the same fractional domain as a persisted save.
+// Scheduler backlog remains in memory for catch-up, but cannot expose a future
+// tick boundary which the canonical saved phase (0..step-1) cannot represent.
+func TestClockPausedSaveLoadCanonicalPhase(t *testing.T) {
+ for _, name := range []string{"fractional", "last_nanosecond", "exact_boundary", "overloaded"} {
+  t.Run(name, func(t *testing.T) {
+   r, err := New(t.TempDir(), "token")
+   if err != nil { t.Fatal(err) }
+   step := r.tickNS()
+   phases := map[string]int64{"fractional": step/3+17, "last_nanosecond": step-1, "exact_boundary": step, "overloaded": step*7+19}
+   phase := phases[name]
+   r.state = state{Wounds: cloneWoundSave(r.state.Wounds), Inventory:r.state.Inventory.Clone(), Active:true, Epoch:newEpoch(), Tick:84, Seed:777, Player:r.world.Spawn, Paused:true, Speed:1, PhaseNS:phase}
+   before := r.simNS()
+   wantPhase := phase
+   if wantPhase >= step { wantPhase = step-1 }
+   if before != 84*step+wantPhase { t.Fatalf("public clock=%d; canonical=%d", before, 84*step+wantPhase) }
+   start := time.Now()
+   r.advance(start); r.advance(start.Add(time.Second))
+   if r.simNS() != before || r.state.PhaseNS != phase { t.Fatal("paused sampling consumed backlog or changed clock") }
+   c := &connection{out:make(chan *pb.ServerMessage,32), stop:make(chan struct{})}
+   slot := r.world.Config.SaveSlots[0]
+   r.command(input{client:c,msg:&pb.ClientMessage{Msg:&pb.ClientMessage_SaveGame{SaveGame:&pb.PocSaveRequest{Epoch:r.state.Epoch,RequestId:"clock-save",Slot:slot}}}})
+   var job diskJob
+   select {case job=<-r.jobs: default:t.Fatal("ordinary save was not queued")}
+   if job.state.PhaseNS != wantPhase || r.state.PhaseNS != phase { t.Fatal("save changed live backlog or persisted a noncanonical phase") }
+   if err:=r.writeSave(slot,job.state);err!=nil {t.Fatal(err)}
+   saved,_,err:=r.readSave(slot);if err!=nil {t.Fatal(err)}
+   r.diskComplete(diskResult{job:diskJob{client:c,id:"clock-load",action:"load",slot:slot,epoch:r.state.Epoch},loaded:saved})
+   if !r.state.Paused || r.state.Tick!=84 || r.state.PhaseNS!=wantPhase || r.simNS()!=before {t.Fatalf("paused load moved physical clock: before=%d after=%d phase=%d",before,r.simNS(),r.state.PhaseNS)}
+  })
+ }
+}

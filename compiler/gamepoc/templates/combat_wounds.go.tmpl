@@ -453,7 +453,7 @@ func (r *Runtime) advanceWoundCare() error {
 		// loop advances real seconds and is bounded by supplies and treatment work.
 		for elapsed > 0 {
    if c.Aid!=nil&&r.woundCareThreatened(c){c.Aid=nil;for i:=range b.Wounds{b.Wounds[i].Pressure=""}}
-			if id != playerActorID && combatWounds.Status(b).Conscious && c.Aid == nil {
+			if id != playerActorID && b.Care == nil && !r.serviceOwnsActor(id) && combatWounds.Status(b).Conscious && c.Aid == nil {
 				c.Controlled = false
 				c.AP = r.world.CombatRuntime.Rules.APPerTurn
 				c.FightResponse = ""

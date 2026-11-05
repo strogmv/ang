@@ -1,0 +1,942 @@
+package poc
+
+import (
+	behavior "angelsdemons/server/internal/behavior"
+	pb "angelsdemons/server/internal/transport/grpc/pb/game/v1"
+	"encoding/json"
+	"os"
+	"reflect"
+	"testing"
+)
+
+func medicalFixture(t *testing.T) *Runtime {
+	t.Helper()
+	r := lifeRuntimeFixture(t)
+	r.world.MedicalCapsules.NPCSelfCare = false
+	u := r.world.MedicalCapsules.Units[0]
+	a := r.state.Life.Actor(playerActorID)
+	a.Level = u.LevelID
+	a.Position = u.ScanCell
+	a.Goal = a.Position
+	a.Path = nil
+	a.PendingPath = nil
+	a.Trip = nil
+	a.ResidenceID = ""
+	a.Body = nil
+	a.Manual = true
+	r.syncLifeHero()
+	return r
+}
+func TestMedicalCatalogueAndScanGuard(t *testing.T) {
+	r := medicalFixture(t)
+	u := r.world.MedicalCapsules.Units[0]
+	if err := r.medicalRequest(playerActorID, u.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.advanceMedicalCapsules(); err != nil {
+		t.Fatal(err)
+	}
+	p := r.state.Medical.Patients[playerActorID]
+	if p.Phase != "scan" {
+		t.Fatalf("phase %+v", p)
+	}
+	if err := r.medicalAccept(playerActorID, u.ID, "fake"); err == nil {
+		t.Fatal("entry before scan")
+	}
+	if r.state.Life.Actor(playerActorID).ServiceAttachment != "" {
+		t.Fatal("premature attachment")
+	}
+}
+
+func medicalInjure(t *testing.T, r *Runtime, id string, rich bool) {
+	t.Helper()
+	c := r.combatant(id, "player")
+	b := combatBody(c)
+	if _, err := combatWounds.ApplyCondition(&b, "burn.contact", "", r.state.Seed); err != nil {
+		t.Fatal(err)
+	}
+	projectWoundBody(&c, b)
+	if r.state.CombatRoster == nil {
+		r.state.CombatRoster = map[string]behavior.Combatant{}
+	}
+	r.state.CombatRoster[id] = c
+	r.storeWoundBody(c)
+	r.combatCareTrack()
+	a, ok := r.medicalAccount(id)
+	if !ok {
+		t.Fatalf("no account %s", id)
+	}
+	a.Balance = 0
+	if rich {
+		a.Balance = 100000
+	}
+	r.state.Inventory.Accounts[a.ID] = a
+}
+func medicalAdvance(t *testing.T, r *Runtime, seconds float64) {
+	t.Helper()
+	n := int(seconds * float64(r.world.Config.TickHz))
+	for i := 0; i < n; i++ {
+		r.state.Tick++
+		r.state.Life.Tick = r.state.Tick
+		if err := r.state.Inventory.Advance(r.state.Tick); err != nil {
+			t.Fatal(err)
+		}
+		if err := r.advanceMedicalCapsules(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+func medicalEnter(t *testing.T, r *Runtime) medicalPatient {
+	t.Helper()
+	u := r.world.MedicalCapsules.Units[0]
+	if err := r.medicalRequest(playerActorID, u.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.advanceMedicalCapsules(); err != nil {
+		t.Fatal(err)
+	}
+	medicalAdvance(t, r, r.world.MedicalCapsules.ScanSeconds)
+	p := r.state.Medical.Patients[playerActorID]
+	if p.Phase != "offer" {
+		t.Fatalf("no offer %+v", p)
+	}
+	if err := r.medicalAccept(playerActorID, u.ID, p.OfferID); err != nil {
+		t.Fatal(err)
+	}
+	return r.state.Medical.Patients[playerActorID]
+}
+func TestMedicalRealDebitHealSaveNoFloor(t *testing.T) {
+	r := medicalFixture(t)
+	medicalInjure(t, r, playerActorID, true)
+	before, _ := r.medicalAccount(playerActorID)
+	receiver := r.state.Inventory.Accounts[r.world.MedicalCapsules.ReceiverAccount]
+	p := medicalEnter(t, r)
+	hero := r.state.Life.Actor(playerActorID)
+	if hero.OnFloor() {
+		t.Fatal("patient still on floor")
+	}
+	r.state.Life.EnsureHeroBody(r.world.Life)
+	if hero.Body != nil {
+		t.Fatal("duplicate floor body")
+	}
+	medicalAdvance(t, r, r.world.MedicalCapsules.EntrySeconds)
+	p = r.state.Medical.Patients[playerActorID]
+	if p.Phase != "treatment" {
+		t.Fatalf("care not started %+v", p)
+	}
+	after, _ := r.medicalAccount(playerActorID)
+	if before.Balance-after.Balance != p.Quote.PriceMinor || p.Quote.PriceMinor <= 0 {
+		t.Fatal("missing real debit")
+	}
+	if r.state.Inventory.Accounts[receiver.ID].Balance-receiver.Balance != p.Quote.PriceMinor {
+		t.Fatal("money not conserved")
+	}
+	snapshot := r.snapshotState()
+	if err := r.medicalAccept(playerActorID, p.UnitID, p.OfferID); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(snapshot.Inventory, r.state.Inventory) {
+		t.Fatal("accept replay charged twice")
+	}
+	if err := r.validateMedical(snapshot); err != nil {
+		t.Fatal(err)
+	}
+	slot := r.world.Config.SaveSlots[0]
+	if err := r.writeSave(slot, snapshot); err != nil {
+		t.Fatal(err)
+	}
+	loaded, _, err := r.readSave(slot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(loaded.Medical.clone(), snapshot.Medical.clone()) {
+		t.Fatal("lost service save")
+	}
+	r.state = loaded
+	old := combatBody(r.state.CombatRoster[playerActorID])
+	r.state.Life.Seconds += p.Quote.Seconds
+	if err := r.advanceWoundCare(); err != nil {
+		t.Fatal(err)
+	}
+	b := combatBody(r.state.CombatRoster[playerActorID])
+	if b.Clock-old.Clock != p.Quote.Seconds || b.Care != nil || len(b.Conditions) != 0 {
+		t.Fatalf("not healed exactly once: %+v", b)
+	}
+	if err := r.advanceWoundCare(); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(b, combatBody(r.state.CombatRoster[playerActorID])) {
+		t.Fatal("double wound tick")
+	}
+	if err := r.advanceMedicalCapsules(); err != nil {
+		t.Fatal(err)
+	}
+	medicalAdvance(t, r, r.world.MedicalCapsules.ExitSeconds)
+	if _, ok := r.state.Medical.Patients[playerActorID]; ok {
+		t.Fatal("not released")
+	}
+	if !r.state.Life.Actor(playerActorID).OnFloor() {
+		t.Fatal("no floor on release")
+	}
+}
+func TestMedicalFreeStabilizationAndPause(t *testing.T) {
+	r := medicalFixture(t)
+	medicalInjure(t, r, playerActorID, false)
+	p := medicalEnter(t, r)
+	if p.Quote.Mode != "stabilize" || p.Quote.PriceMinor != 0 {
+		t.Fatalf("wrong core fallback %+v", p.Quote)
+	}
+	r.state.Paused = true
+	s := r.snapshotState()
+	r.step()
+	if !reflect.DeepEqual(s.Medical, r.snapshotState().Medical) || s.Tick != r.state.Tick || !reflect.DeepEqual(s.Wounds, r.snapshotState().Wounds) {
+		t.Fatal("pause advanced patient")
+	}
+	r.state.Paused = false
+	cursor := r.state.Inventory.Cursors[playerActorID]
+	medicalAdvance(t, r, r.world.MedicalCapsules.EntrySeconds)
+	if r.state.Medical.Patients[playerActorID].Phase != "treatment" {
+		t.Fatal("stabilization not started")
+	}
+	if !reflect.DeepEqual(r.state.Inventory.Cursors[playerActorID], cursor) {
+		t.Fatal("free stabilization debited")
+	}
+}
+func TestMedicalDeadNoChipStaleQuoteAndLease(t *testing.T) {
+	r := medicalFixture(t)
+	medicalInjure(t, r, playerActorID, true)
+	u := r.world.MedicalCapsules.Units[0]
+	c := r.state.CombatRoster[playerActorID]
+	b := combatBody(c)
+	b.Dead = true
+	projectWoundBody(&c, b)
+	r.state.CombatRoster[playerActorID] = c
+	r.storeWoundBody(c)
+	if err := r.medicalRequest(playerActorID, u.ID); err == nil {
+		t.Fatal("dead entered")
+	}
+	b.Dead = false
+	b.Chip = "none"
+	projectWoundBody(&c, b)
+	r.state.CombatRoster[playerActorID] = c
+	r.storeWoundBody(c)
+	q, err := r.medicalQuote(playerActorID, u)
+	if err != nil || q.Reason != "wounds.care.no_chip" {
+		t.Fatalf("no-chip core refusal %+v %v", q, err)
+	}
+	r = medicalFixture(t)
+	medicalInjure(t, r, playerActorID, true)
+	if err := r.medicalRequest(playerActorID, u.ID); err != nil {
+		t.Fatal(err)
+	}
+	r.advanceMedicalCapsules()
+	medicalAdvance(t, r, r.world.MedicalCapsules.ScanSeconds)
+	p := r.state.Medical.Patients[playerActorID]
+	a, _ := r.medicalAccount(playerActorID)
+	a.Balance = 0
+	r.state.Inventory.Accounts[a.ID] = a
+	if err := r.medicalAccept(playerActorID, u.ID, p.OfferID); err == nil {
+		t.Fatal("stale quote entered")
+	}
+	if r.medicalAttached(playerActorID) {
+		t.Fatal("stale attachment")
+	}
+	medicalAdvance(t, r, float64(r.world.MedicalCapsules.LeaseSeconds))
+	if r.medicalReserved(playerActorID) {
+		t.Fatal("expired lease retained")
+	}
+}
+
+func medicalPlaceNPC(t *testing.T, r *Runtime) string {
+	t.Helper()
+	id := "char.market_granny"
+	a := r.state.Life.Actor(id)
+	if a == nil {
+		t.Fatal("missing actual NPC")
+	}
+	u := r.world.MedicalCapsules.Units[1]
+	a.Level = u.LevelID
+	a.Position = u.ScanCell
+	a.Goal = a.Position
+	a.Path = nil
+	a.PendingPath = nil
+	a.Trip = nil
+	a.ResidenceID = ""
+	a.Manual = false
+	a.CombatHold = false
+	a.Body = nil
+	a.OverrideLevel = ""
+	a.OverrideEdge = ""
+	medicalInjure(t, r, id, true)
+	return id
+}
+func TestMedicalTwoActualPatientsNPCPolicyAndBlockedExit(t *testing.T) {
+	r := medicalFixture(t)
+	medicalInjure(t, r, playerActorID, true)
+	p := medicalEnter(t, r)
+	id := medicalPlaceNPC(t, r)
+	r.world.MedicalCapsules.NPCSelfCare = true
+	r.medicalNPCRequests()
+	np, ok := r.state.Medical.Patients[id]
+	if !ok || np.UnitID != r.world.MedicalCapsules.Units[1].ID {
+		t.Fatal("NPC did not select free second unit")
+	}
+	r.advanceMedicalCapsules()
+	medicalAdvance(t, r, r.world.MedicalCapsules.ScanSeconds+r.world.MedicalCapsules.EntrySeconds+.2)
+	np = r.state.Medical.Patients[id]
+	if np.Phase != "treatment" || !r.medicalAttached(id) {
+		t.Fatalf("NPC did not enter real care %+v", np)
+	}
+	conn := &connection{out: make(chan *pb.ServerMessage, 8), stop: make(chan struct{})}
+	r.sendLifeState(conn)
+	msg := (<-conn.out).GetGameState()
+	count := 0
+	for _, agent := range msg.SceneAgents {
+		if agent.Id == id {
+			count++
+			if agent.ServiceAttachment != np.UnitID {
+				t.Fatal("NPC lost public service attachment")
+			}
+		}
+	}
+	if count != 1 {
+		t.Fatalf("expected one existing NPC body, got %d", count)
+	}
+	var projected struct {
+		Units []map[string]any `json:"units"`
+	}
+	if err := json.Unmarshal([]byte(msg.Life.MedicalCapsulesJson), &projected); err != nil {
+		t.Fatal(err)
+	}
+	for _, unit := range projected.Units {
+		if unit["patient_id"] == id && unit["quote"] != nil {
+			t.Fatal("NPC clinical quote leaked")
+		}
+	}
+	if len(r.state.Medical.Receipts) != 2 {
+		t.Fatal("missing actual patient receipts")
+	}
+	hero := r.state.Life.Actor(playerActorID)
+	u := r.world.MedicalCapsules.Units[0]
+	blocker := r.state.Life.Actor(id)
+	blocker.ServiceAttachment = ""
+	blocker.Position = u.ScanCell
+	blocker.Body = nil
+	p = r.state.Medical.Patients[playerActorID]
+	r.medicalSetPhase(&p, "exit", r.world.MedicalCapsules.ExitSeconds)
+	r.state.Medical.Patients[playerActorID] = p
+	medicalAdvance(t, r, r.world.MedicalCapsules.ExitSeconds+1)
+	p = r.state.Medical.Patients[playerActorID]
+	if !p.ExitBlocked || hero.ServiceAttachment == "" || r.medicalPatientPose(p, u) != u.InsidePose {
+		t.Fatal("egress overlapped occupied floor")
+	}
+	blocker.Position = r.world.MedicalCapsules.Units[1].ScanCell
+	medicalAdvance(t, r, r.world.MedicalCapsules.ExitSeconds+.2)
+	if r.medicalReserved(playerActorID) || !hero.OnFloor() {
+		t.Fatal("free exit not released")
+	}
+}
+func TestMedicalExclusiveQueueAndSavedOwnership(t *testing.T) {
+	r := medicalFixture(t)
+	medicalInjure(t, r, playerActorID, true)
+	p := medicalEnter(t, r)
+	id := medicalPlaceNPC(t, r)
+	if err := r.medicalRequest(id, p.UnitID); err != nil {
+		t.Fatal(err)
+	}
+	if r.state.Medical.Patients[id].Phase != "queued" || r.state.Life.Actor(id).ServiceAttachment != "" {
+		t.Fatal("queue acquired occupied capsule")
+	}
+	s := r.snapshotState()
+	a := s.Life.Actor(playerActorID)
+	a.ServiceAttachment = "capsule.market.b"
+	if r.validateMedical(s) == nil {
+		t.Fatal("mismatched attachment loaded")
+	}
+	s = r.snapshotState()
+	p = s.Medical.Patients[playerActorID]
+	p.Accepted = false
+	s.Medical.Patients[playerActorID] = p
+	if r.validateMedical(s) == nil {
+		t.Fatal("entry without consent loaded")
+	}
+	if !r.state.Life.BlockedCells(a.Level, id)[r.world.MedicalCapsules.Units[0].ScanCell] {
+		t.Fatal("attachment return anchor not reserved")
+	}
+}
+
+func TestMedicalPhysicalHeroApproachAndFrameContinuation(t *testing.T) {
+	r := medicalFixture(t)
+	var original worldData
+	if err := json.Unmarshal(compiledJSON, &original); err != nil {
+		t.Fatal(err)
+	}
+	r.world.Life.HeroBody = original.Life.HeroBody
+	r.canonicalWorld.Life.HeroBody = original.Life.HeroBody
+	r.world.Life.Brain = original.Life.Brain
+	r.canonicalWorld.Life.Brain = original.Life.Brain
+	hero := r.state.Life.Actor(playerActorID)
+	u := r.world.MedicalCapsules.Units[0]
+	hero.Position = behavior.Cell{X: u.ScanCell.X + 2, Y: u.ScanCell.Y}
+	hero.Goal = hero.Position
+	r.state.Life.EnsureHeroBody(r.world.Life)
+	if hero.Body == nil {
+		t.Fatal("fixture has no continuous hero body")
+	}
+	medicalInjure(t, r, playerActorID, true)
+	if err := r.medicalRequest(playerActorID, u.ID); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 300 && r.state.Medical.Patients[playerActorID].Phase == "approach"; i++ {
+		r.state.Tick++
+		r.state.Inventory.Advance(r.state.Tick)
+		if err := r.advanceLifeFrameBy(1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p := r.state.Medical.Patients[playerActorID]
+	if p.Phase != "scan" || hero.Position != u.ScanCell || hero.Body != nil {
+		t.Fatalf("body did not arrive at scan: phase=%s body=%+v pos=%v", p.Phase, hero.Body, hero.Position)
+	}
+	for i := 0; i < int(r.world.MedicalCapsules.ScanSeconds*float64(r.world.Config.TickHz))+1; i++ {
+		r.state.Tick++
+		r.state.Inventory.Advance(r.state.Tick)
+		if err := r.advanceLifeFrameBy(1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p = r.state.Medical.Patients[playerActorID]
+	if err := r.medicalAccept(playerActorID, u.ID, p.OfferID); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < int(r.world.MedicalCapsules.EntrySeconds*float64(r.world.Config.TickHz))+1; i++ {
+		r.state.Tick++
+		r.state.Inventory.Advance(r.state.Tick)
+		if err := r.advanceLifeFrameBy(1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if r.state.Medical.Patients[playerActorID].Phase != "treatment" {
+		t.Fatalf("frame did not start treatment %+v", r.state.Medical.Patients[playerActorID])
+	}
+	slot := r.world.Config.SaveSlots[0]
+	if err := r.writeSave(slot, r.snapshotState()); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := r.readSave(slot); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Explicit developer clinical fixture: actual named people, core burn condition,
+// funded real CRD accounts. It is never installed into ordinary New Game.
+func TestMedicalNativeFixture(t *testing.T) {
+	dir := os.Getenv("ANG_MEDICAL_NATIVE_DIR")
+	if dir == "" {
+		t.Skip("set output directory for an explicit native clinical save")
+	}
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	r, err := New(dir, "token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.state.Active = true
+	r.state.Speed = 1
+	r.initLife()
+	r.state.Life.SecondsPerTick = 30
+	u := r.world.MedicalCapsules.Units[0]
+	h := r.state.Life.Actor(playerActorID)
+	h.Level = u.LevelID
+	h.Position = behavior.Cell{X: u.ScanCell.X + 2, Y: u.ScanCell.Y}
+	h.Goal = h.Position
+	h.Trip = nil
+	h.ResidenceID = ""
+	h.Path = nil
+	h.PendingPath = nil
+	h.Body = nil
+	h.Manual = true
+	h.OverrideLevel = ""
+	h.OverrideEdge = ""
+	r.syncLifeHero()
+	medicalInjure(t, r, playerActorID, true)
+	id := medicalPlaceNPC(t, r)
+	n := r.state.Life.Actor(id)
+	n.Position = behavior.Cell{X: u.ScanCell.X + 2, Y: r.world.MedicalCapsules.Units[1].ScanCell.Y}
+	n.Goal = n.Position
+	n.Brain.InterruptService()
+	third := r.state.Life.Actor("char.market_resident_01")
+	if third == nil {
+		t.Fatal("missing third actual resident")
+	}
+	third.Level = u.LevelID
+	third.Position = behavior.Cell{X: 11, Y: 70}
+	third.Goal = third.Position
+	third.Trip = nil
+	third.ResidenceID = ""
+	third.Path = nil
+	third.PendingPath = nil
+	third.RestFootprint = nil
+	third.Body = nil
+	third.Manual = false
+	third.OverrideLevel = ""
+	third.OverrideEdge = ""
+	third.Brain.InterruptService()
+	medicalInjure(t, r, third.ID, true)
+	r.state.Life.EnsureHeroBody(r.world.Life)
+	if err := r.medicalCommand(&pb.PocLifeCommand{Action: "medical_request", Destination: u.ID}); err != nil {
+		t.Fatal(err)
+	}
+	// Keep the entire approach and top-to-bottom scan behind an explicit native-review resume.
+	// Ordinary New Game and the service clock itself are unchanged.
+	r.state.Paused = true
+	slot := "slot3"
+	if err := r.writeSave(slot, r.snapshotState()); err != nil {
+		t.Fatal(err)
+	}
+	loaded, _, err := r.readSave(slot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !loaded.Paused || loaded.Tick != r.state.Tick {
+		t.Fatal("native fixture must retain its paused initial simulation tick during loading")
+	}
+	t.Logf("native clinical save: dir=%s slot=%s NPC=%s; paused; hero reserved a and approaches after ordinary resume; ordinary NPC policy chooses b and queues char.market_resident_01", dir, slot, id)
+}
+
+func TestMedicalScanDoesNotStopActualBleeding(t *testing.T) {
+	r, _, id := combatCareInjury(t, false, false)
+	r.world.MedicalCapsules.NPCSelfCare = false
+	u := r.world.MedicalCapsules.Units[0]
+	a := r.state.Life.Actor(id)
+	a.Level = u.LevelID
+	a.Position = u.ScanCell
+	a.Goal = a.Position
+	a.Path = nil
+	a.PendingPath = nil
+	a.Trip = nil
+	a.ResidenceID = ""
+	a.Body = nil
+	a.CombatHold = false
+	delete(r.state.CombatCare.ShowUntil, id)
+	if err := r.medicalRequest(id, u.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.advanceMedicalCapsules(); err != nil {
+		t.Fatal(err)
+	}
+	before := combatBody(r.state.CombatRoster[id])
+	r.state.Life.Seconds += 2
+	if err := r.advanceWoundCare(); err != nil {
+		t.Fatal(err)
+	}
+	after := combatBody(r.state.CombatRoster[id])
+	if after.LostUL <= before.LostUL || after.Clock-before.Clock != 2 || after.Care != nil {
+		t.Fatal("scan stopped or duplicated actual bleeding")
+	}
+}
+func TestMedicalDoorClosesAfterReleaseAndRejectsUnsafeSavedPose(t *testing.T) {
+	r := medicalFixture(t)
+	medicalInjure(t, r, playerActorID, true)
+	p := medicalEnter(t, r)
+	medicalAdvance(t, r, r.world.MedicalCapsules.EntrySeconds)
+	u := r.world.MedicalCapsules.Units[0]
+	p = r.state.Medical.Patients[playerActorID]
+	r.state.Life.Seconds += p.Quote.Seconds
+	if err := r.advanceWoundCare(); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.advanceMedicalCapsules(); err != nil {
+		t.Fatal(err)
+	}
+	medicalAdvance(t, r, r.world.MedicalCapsules.ExitSeconds)
+	d := r.state.Medical.Doors[u.ID]
+	if d.To != 0 || d.From != 1 || d.EndNS <= r.simNS() {
+		t.Fatalf("idle close not saved %+v", d)
+	}
+	saved := r.snapshotState()
+	half := (d.StartNS + d.EndNS) / 2
+	if medicalDoorValue(saved.Medical.Doors[u.ID], half) != .5 {
+		t.Fatal("load changed door phase")
+	}
+	if err := r.validateMedical(saved); err != nil {
+		t.Fatal(err)
+	}
+	bad := saved.Medical.Doors[u.ID]
+	bad.To = 2
+	saved.Medical.Doors[u.ID] = bad
+	if r.validateMedical(saved) == nil {
+		t.Fatal("invalid door loaded")
+	}
+}
+
+func TestMedicalFundsChangedDuringEntryDoesNotCharge(t *testing.T) {
+	r := medicalFixture(t)
+	medicalInjure(t, r, playerActorID, true)
+	medicalEnter(t, r)
+	a, _ := r.medicalAccount(playerActorID)
+	a.Balance = 0
+	r.state.Inventory.Accounts[a.ID] = a
+	before := r.state.Inventory.Clone()
+	medicalAdvance(t, r, r.world.MedicalCapsules.EntrySeconds)
+	p := r.state.Medical.Patients[playerActorID]
+	if p.Phase != "exit" || p.ReceiptID != "" || combatBody(r.state.CombatRoster[playerActorID]).Care != nil {
+		t.Fatal("stale entry started treatment")
+	}
+	if !reflect.DeepEqual(before.Accounts, r.state.Inventory.Accounts) || !reflect.DeepEqual(before.Cursors, r.state.Inventory.Cursors) {
+		t.Fatal("failed fresh quote moved money")
+	}
+}
+
+func TestMedicalAdmissionForecastRejectsImminentCollapse(t *testing.T) {
+	r := medicalFixture(t)
+	medicalInjure(t, r, playerActorID, true)
+	c := r.state.CombatRoster[playerActorID]
+	b := combatBody(c)
+	if _, err := combatWounds.ApplyCondition(&b, "poison.ration", "", r.state.Seed); err != nil {
+		t.Fatal(err)
+	}
+	doom := int64(0)
+	for _, condition := range b.Conditions {
+		if condition.ID == "poison.ration" {
+			doom = condition.DoomAt
+		}
+	}
+	if doom <= 10 {
+		t.Fatal("missing canonical poison deadline")
+	}
+	combatWounds.Tick(&b, doom-b.Clock-10)
+	if !combatWounds.Status(b).CanWalk {
+		t.Fatal("fixture already cannot walk")
+	}
+	projectWoundBody(&c, b)
+	r.state.CombatRoster[playerActorID] = c
+	r.storeWoundBody(c)
+	u := r.world.MedicalCapsules.Units[0]
+	if err := r.medicalRequest(playerActorID, u.ID); err != nil {
+		t.Fatal(err)
+	}
+	r.advanceMedicalCapsules()
+	medicalAdvance(t, r, r.world.MedicalCapsules.ScanSeconds)
+	p := r.state.Medical.Patients[playerActorID]
+	before := r.state.Inventory.Clone()
+	if err := r.medicalAccept(playerActorID, u.ID, p.OfferID); err == nil {
+		t.Fatal("admitted patient who cannot complete physical entry")
+	}
+	if r.medicalAttached(playerActorID) || !reflect.DeepEqual(before.Accounts, r.state.Inventory.Accounts) {
+		t.Fatal("failed admission moved patient or money")
+	}
+}
+func TestMedicalQueuedCancelDoesNotCloseOccupiedDoor(t *testing.T) {
+	r := medicalFixture(t)
+	medicalInjure(t, r, playerActorID, true)
+	p := medicalEnter(t, r)
+	id := medicalPlaceNPC(t, r)
+	if err := r.medicalRequest(id, p.UnitID); err != nil {
+		t.Fatal(err)
+	}
+	door := r.state.Medical.Doors[p.UnitID]
+	if !r.medicalRelease(id) {
+		t.Fatal("queue did not cancel")
+	}
+	if r.state.Medical.Doors[p.UnitID] != door {
+		t.Fatal("queue cancellation changed active patient's door")
+	}
+}
+
+func TestMedicalThreeRealPatientsWaitForOccupiedExitThenCompleteOnce(t *testing.T) {
+	r := medicalFixture(t)
+	var original worldData
+	if err := json.Unmarshal(compiledJSON, &original); err != nil {
+		t.Fatal(err)
+	}
+	r.world.Life.HeroBody = original.Life.HeroBody
+	r.canonicalWorld.Life.HeroBody = original.Life.HeroBody
+	u := r.world.MedicalCapsules.Units[0]
+	medicalInjure(t, r, playerActorID, true)
+	granny := medicalPlaceNPC(t, r)
+	resident := "char.market_resident_01"
+	a := r.state.Life.Actor(resident)
+	if a == nil {
+		t.Fatal("missing actual resident")
+	}
+	a.Level = u.LevelID
+	a.Position = behavior.Cell{X: 11, Y: 70}
+	a.Goal = a.Position
+	a.Path = nil
+	a.PendingPath = nil
+	a.Trip = nil
+	a.ResidenceID = ""
+	a.ServiceAttachment = ""
+	a.Body = nil
+	a.Manual = false
+	a.CombatHold = false
+	a.OverrideLevel = ""
+	a.OverrideEdge = ""
+	a.Brain.InterruptService()
+	medicalInjure(t, r, resident, true)
+	r.state.Life.EnsureHeroBody(r.world.Life)
+	if err := r.medicalRequest(playerActorID, u.ID); err != nil {
+		t.Fatal(err)
+	}
+	r.world.MedicalCapsules.NPCSelfCare = true
+	receiverBefore := r.state.Inventory.Accounts[r.world.MedicalCapsules.ReceiverAccount].Balance
+	frame := func() {
+		r.state.Tick++
+		if err := r.state.Inventory.Advance(r.state.Tick); err != nil {
+			t.Fatal(err)
+		}
+		if err := r.advanceLifeFrameBy(30); err != nil {
+			t.Fatal(err)
+		}
+	}
+	heroReleased := false
+	for i := 0; i < 500; i++ {
+		frame()
+		if p, ok := r.state.Medical.Patients[playerActorID]; ok && p.Phase == "offer" {
+			if err := r.medicalAccept(playerActorID, u.ID, p.OfferID); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if !r.medicalReserved(playerActorID) && len(r.state.Medical.Receipts) >= 2 {
+			heroReleased = true
+			break
+		}
+	}
+	if !heroReleased {
+		t.Fatal("initial two patients did not finish canonical care")
+	}
+	head, ok := r.state.Medical.Patients[resident]
+	if !ok || head.Phase != "queued" || head.Serial != 3 {
+		t.Fatalf("occupied exit silently lost third real queued patient: %+v exists=%v", head, ok)
+	}
+	if !r.state.Life.BlockedCells(u.LevelID, resident)[u.ScanCell] {
+		t.Fatal("fixture must have the released hero physically on scan/exit anchor")
+	}
+	for i := 0; i < 20; i++ {
+		frame()
+		p, ok := r.state.Medical.Patients[resident]
+		if !ok || p.Phase != "queued" || p.Serial != head.Serial || p.LeaseUntilNS != head.LeaseUntilNS {
+			t.Fatal("blocked retry abandoned reservation or renewed its FIFO/lease")
+		}
+	}
+	slot := r.world.Config.SaveSlots[1]
+	if err := r.writeSave(slot, r.snapshotState()); err != nil {
+		t.Fatal(err)
+	}
+	loaded, _, err := r.readSave(slot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.state = loaded
+	if p := r.state.Medical.Patients[resident]; p.Phase != "queued" || p.Serial != head.Serial || r.state.Medical.NPCAttempts[resident] != medicalInjuryKey(combatBody(r.state.CombatRoster[resident])) {
+		t.Fatal("save/load lost waiting reservation or attempt idempotency")
+	}
+	target := behavior.Cell{X: 11, Y: 66}
+	before := r.state.Life.Actor(playerActorID).Position
+	conn := &connection{out: make(chan *pb.ServerMessage, 32), stop: make(chan struct{})}
+	r.lifeMove(conn, &pb.MoveTo{Epoch: r.state.Epoch, InputSeq: 1, X: int32(target.X), Y: int32(target.Y)})
+	accepted := false
+	for len(conn.out) > 0 {
+		if result := (<-conn.out).GetMoveResult(); result != nil {
+			accepted = result.Ok
+		}
+	}
+	if !accepted || r.state.Life.Actor(playerActorID).Position != before {
+		t.Fatal("ordinary MoveTo must accept an intent without teleporting hero")
+	}
+	cared := false
+	done := false
+	for i := 0; i < 500; i++ {
+		frame()
+		if p, ok := r.state.Medical.Patients[resident]; ok && p.Phase == "treatment" {
+			cared = true
+		}
+		b := combatBody(r.state.CombatRoster[resident])
+		if cared && !r.medicalReserved(resident) && b.Care == nil && len(b.Conditions) == 0 {
+			done = true
+			break
+		}
+	}
+	if !done || r.state.Life.Actor(playerActorID).Position != target {
+		t.Fatal("waiting real resident did not complete care after ordinary hero movement")
+	}
+	for i := 0; i < 20; i++ {
+		frame()
+	}
+	for _, id := range []string{playerActorID, granny, resident} {
+		count := 0
+		for _, receipt := range r.state.Medical.Receipts {
+			if receipt.ActorID == id {
+				count++
+			}
+		}
+		b := combatBody(r.state.CombatRoster[id])
+		if count != 1 || b.Care != nil || len(b.Conditions) != 0 {
+			t.Fatalf("patient %s not cured exactly once: receipts=%d care=%+v conditions=%+v", id, count, b.Care, b.Conditions)
+		}
+	}
+	if len(r.state.Medical.Receipts) != 3 || r.state.Inventory.Accounts[r.world.MedicalCapsules.ReceiverAccount].Balance-receiverBefore != 900 {
+		t.Fatal("three canonical300minor receipts must transfer exactly900minor")
+	}
+}
+
+func TestMedicalExpiredUnusedNPCReservationCanRejoinOnce(t *testing.T) {
+	r := medicalFixture(t)
+	u := r.world.MedicalCapsules.Units[0]
+	medicalInjure(t, r, playerActorID, true)
+	if err := r.medicalRequest(playerActorID, u.ID); err != nil {
+		t.Fatal(err)
+	}
+	medicalPlaceNPC(t, r)
+	id := "char.market_resident_01"
+	a := r.state.Life.Actor(id)
+	if a == nil {
+		t.Fatal("missing real resident")
+	}
+	a.Level = u.LevelID
+	a.Position = behavior.Cell{X: 11, Y: 70}
+	a.Goal = a.Position
+	a.Trip = nil
+	a.ResidenceID = ""
+	a.Body = nil
+	a.Path = nil
+	a.PendingPath = nil
+	a.Manual = false
+	a.CombatHold = false
+	a.ServiceAttachment = ""
+	medicalInjure(t, r, id, true)
+	r.world.MedicalCapsules.NPCSelfCare = true
+	r.medicalNPCRequests()
+	first := r.state.Medical.Patients[id]
+	if first.Phase != "queued" || r.state.Medical.NPCAttempts[id] != medicalInjuryKey(combatBody(r.state.CombatRoster[id])) {
+		t.Fatal("real NPC did not reserve behind occupied units")
+	}
+	first.LeaseUntilNS = r.simNS() + 1
+	r.state.Medical.Patients[id] = first
+	r.state.Tick++
+	if err := r.state.Inventory.Advance(r.state.Tick); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.advanceMedicalCapsules(); err != nil {
+		t.Fatal(err)
+	}
+	next, ok := r.state.Medical.Patients[id]
+	if !ok || next.Phase != "queued" || next.Serial <= first.Serial || next.LeaseUntilNS != r.simNS()+r.world.MedicalCapsules.LeaseSeconds*1e9 || len(r.state.Medical.Receipts) != 0 {
+		t.Fatal("unused expiry permanently locked injury, renewed old reservation, or charged before care")
+	}
+	for i := 0; i < 4; i++ {
+		r.medicalNPCRequests()
+	}
+	if again := r.state.Medical.Patients[id]; again.Serial != next.Serial || again.LeaseUntilNS != next.LeaseUntilNS || r.state.Medical.NPCAttempts[id] != medicalInjuryKey(combatBody(r.state.CombatRoster[id])) {
+		t.Fatal("active retry reservation lost request idempotency")
+	}
+	younger := next
+	younger.Serial++
+	if !r.medicalQueuedAhead(younger) || r.medicalQueuedAhead(next) {
+		t.Fatal("a later FIFO serial may not bypass a waiting head")
+	}
+}
+
+func TestMedicalRepeatedConditionEpisodeAfterCureAndSavedAttempt(t *testing.T) {
+	r := medicalFixture(t)
+	id := medicalPlaceNPC(t, r)
+	r.world.MedicalCapsules.NPCSelfCare = true
+	receiver := r.world.MedicalCapsules.ReceiverAccount
+	before := r.state.Inventory.Accounts[receiver].Balance
+	r.medicalNPCRequests()
+	first, ok := r.state.Medical.Patients[id]
+	if !ok {
+		t.Fatal("first real NPC incident not admitted")
+	}
+	firstKey := r.state.Medical.NPCAttempts[id]
+	firstAt := combatBody(r.state.CombatRoster[id]).Conditions[0].At
+	frame := func() {
+		r.state.Tick++
+		if err := r.state.Inventory.Advance(r.state.Tick); err != nil {
+			t.Fatal(err)
+		}
+		if err := r.advanceLifeFrameBy(30); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Apply the second canonical condition after the first is fully cured but
+	// before release/healthy polling: clearing an empty-key cache alone is not enough.
+	healed := false
+	for i := 0; i < 400; i++ {
+		frame()
+		p := r.state.Medical.Patients[id]
+		body := combatBody(r.state.CombatRoster[id])
+		if p.Phase == "exit" && body.Care == nil && len(body.Conditions) == 0 {
+			healed = true
+			break
+		}
+	}
+	if !healed || len(r.state.Medical.Receipts) != 1 || r.state.Medical.NPCAttempts[id] != firstKey {
+		t.Fatal("expected first completed care with its saved incident attempt still held during exit")
+	}
+	c := r.state.CombatRoster[id]
+	body := combatBody(c)
+	if _, err := combatWounds.ApplyCondition(&body, "burn.contact", "", r.state.Seed); err != nil {
+		t.Fatal(err)
+	}
+	if body.Conditions[0].At <= firstAt {
+		t.Fatal("second incident must have a later canonical timestamp")
+	}
+	projectWoundBody(&c, body)
+	r.state.CombatRoster[id] = c
+	r.storeWoundBody(c)
+	secondKey := medicalInjuryKey(body)
+	if secondKey == firstKey {
+		t.Fatal("new burn.contact episode reused the cured episode's attempt key")
+	}
+	admitted := false
+	for i := 0; i < 100; i++ {
+		frame()
+		if p, ok := r.state.Medical.Patients[id]; ok && p.Serial > first.Serial {
+			admitted = true
+			break
+		}
+	}
+	if !admitted || r.state.Medical.NPCAttempts[id] != secondKey {
+		t.Fatal("new same-kind incident was permanently suppressed by old attempt")
+	}
+	second := r.state.Medical.Patients[id]
+	slot := r.world.Config.SaveSlots[1]
+	if err := r.writeSave(slot, r.snapshotState()); err != nil {
+		t.Fatal(err)
+	}
+	loaded, _, err := r.readSave(slot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.state = loaded
+	for i := 0; i < 5; i++ {
+		r.medicalNPCRequests()
+	}
+	if p := r.state.Medical.Patients[id]; p.Serial != second.Serial || r.state.Medical.NPCAttempts[id] != secondKey || len(r.state.Medical.Receipts) != 1 {
+		t.Fatal("same saved incident lost request idempotency")
+	}
+	done := false
+	for i := 0; i < 500; i++ {
+		frame()
+		body := combatBody(r.state.CombatRoster[id])
+		if !r.medicalReserved(id) && body.Care == nil && len(body.Conditions) == 0 {
+			done = true
+			break
+		}
+	}
+	if !done || len(r.state.Medical.Receipts) != 2 || r.state.Inventory.Accounts[receiver].Balance-before != 600 {
+		t.Fatal("two real incidents must finish exactly two canonical300minor treatments")
+	}
+	if _, ok := r.state.Medical.NPCAttempts[id]; ok {
+		t.Fatal("fully recovered eligible NPC retained stale attempt history")
+	}
+	for i := 0; i < 20; i++ {
+		frame()
+	}
+	if len(r.state.Medical.Receipts) != 2 {
+		t.Fatal("unchanged/healthy incident was treated repeatedly")
+	}
+}

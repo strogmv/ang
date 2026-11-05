@@ -144,6 +144,8 @@ namespace AngelsDemons.Poc {
    catch(Exception error){Debug.LogError("ANG humanoid cast "+cast.cast_id+" is unusable, character sheets kept: "+error.Message);ReleaseLocationSDKHumanoids();locationSDKHumanoidCast=null;return;}
    float meters=locationSDKLevel.cell_meters;
    Vector3 feet=worldFeet.HasValue?worldFeet.Value:new Vector3(LocationSDKCellCenter(position.x,meters),locationSDKLevel.elevation*meters,LocationSDKCellCenter(position.y,meters));
+   Vector3 medicalFeet;float medicalYaw;bool medical=MedicalActorPose(id,out medicalFeet,out medicalYaw);if(medical){feet=medicalFeet;nowNS=MedicalSampleNS();agent=null;path=null;navStart=null;}
+   Vector3 sanitaryFeet;float sanitaryYaw;bool sanitary=SanitaryActorPose(id,out sanitaryFeet,out sanitaryYaw);if(sanitary){feet=sanitaryFeet;nowNS=SanitarySampleNS();paused=state!=null&&state.Paused;agent=null;path=null;navStart=null;}
    // doc 96: a combat beat or stance of the server's encounter owns the body (PocCombatPlay.cs).
    if(CombatPresentHumanoid(h,id,feet,nowNS,paused||(state!=null&&state.Paused)))return;
    if(!h.go.activeSelf)h.go.SetActive(true);locationSDKVisibleActors.Add(id);
@@ -157,7 +159,7 @@ namespace AngelsDemons.Poc {
    if(h.speed>threshold&&!jump){h.walking=true;h.stillSinceNS=nowNS;}else if(h.walking&&(nowNS-h.stillSinceNS)/1e9>.18)h.walking=false;
    // Seated activity: Go holds the body on the seat cell for the whole sit-down, meal and rise.
    var spot=agent==null?null:agent.ActivitySpot;string activityPhase=spot==null?"":agent.ActivityPhase;
-   LocationSDKTalkFollow(h,id,nowNS,dreal,held);
+   if(medical||sanitary){h.talkOther=null;h.talkGesture=null;}else LocationSDKTalkFollow(h,id,nowNS,dreal,held);
    if((activityPhase=="sit"||activityPhase=="rise")&&!h.walking&&cast.Seated&&h.hips!=null&&!locationSDKHumanoidSitBroken){
     if(!h.hasYaw){h.yaw=(float)spot.YawDeg;h.hasYaw=true;}
     LocationSDKHumanoidSit(h,agent,feet,nowNS,dt,dreal,held,jump);h.lastFeet=feet;h.lastNS=nowNS;h.placed=true;return;
@@ -178,7 +180,7 @@ namespace AngelsDemons.Poc {
    else if(h.talkOther!=null&&!h.walking){} // v26: in a talk the body turns to the other one (LocationSDKTalkYaw); back to its work after it
    else if(facing)h.yaw=jump?(float)spot.YawDeg:Mathf.MoveTowardsAngle(h.yaw,(float)spot.YawDeg,cast.turn_degrees_per_second*.5f*(float)Math.Max(0,dt));
    else if(!h.walking&&agent!=null&&(agent.FaceX!=0||agent.FaceY!=0))h.yaw=Mathf.Atan2((float)agent.FaceX,(float)agent.FaceY)*Mathf.Rad2Deg;
-   LocationSDKTalkYaw(h,facing&&activityPhase=="post"?spot:null,dt);
+   if(medical){h.yaw=medicalYaw;h.hasYaw=true;}else if(sanitary){h.yaw=sanitaryYaw;h.hasYaw=true;}else LocationSDKTalkYaw(h,facing&&activityPhase=="post"?spot:null,dt);
    h.go.transform.SetPositionAndRotation(feet+postOffset,Quaternion.Euler(0,h.yaw,0));
    h.lastFeet=feet;h.lastNS=nowNS;h.placed=true;
    bool full=GraphicsFull;if(h.shadows!=full){foreach(var r in h.renderers)r.shadowCastingMode=full?UnityEngine.Rendering.ShadowCastingMode.On:UnityEngine.Rendering.ShadowCastingMode.Off;h.shadows=full;}
@@ -188,11 +190,11 @@ namespace AngelsDemons.Poc {
    bool stairs=h.walking&&h.onStairs&&!string.IsNullOrEmpty(cast.stairs_state);
    string want=!h.walking?cast.idle_state:stairs?cast.stairs_state:cast.walk_state;int hashWant=Animator.StringToHash(want);
    float len=!h.walking?cast.idle_cycle_seconds:stairs?cast.stairs_cycle_seconds:cast.walk_cycle_seconds,clipSpeed=stairs?cast.stairs_clip_speed_mps:cast.walk_clip_speed_mps;
-   bool crouch=LocationSDKActorCrouching(id)&&!string.IsNullOrEmpty(cast.crouch_idle_state)&&!string.IsNullOrEmpty(cast.crouch_walk_state);
+   bool crouch=!medical&&!sanitary&&LocationSDKActorCrouching(id)&&!string.IsNullOrEmpty(cast.crouch_idle_state)&&!string.IsNullOrEmpty(cast.crouch_walk_state);
    if(crouch){want=h.walking?cast.crouch_walk_state:cast.crouch_idle_state;hashWant=Animator.StringToHash(want);len=h.walking?cast.crouch_walk_cycle_seconds:cast.crouch_idle_cycle_seconds;clipSpeed=cast.crouch_clip_speed_mps;}
    float phase;
    // v26: a free person talking gestures while his line lives; a seller packs up or lays out by his own hours (a crafts seller's own action is posed after this, by CraftStallsV1Runtime: work goes on)
-   if(!crouch&&!h.walking&&LocationSDKTalkGesture(h,an,nowNS,jump))return;
+   if(!sanitary){if(!medical&&!crouch&&!h.walking&&LocationSDKTalkGesture(h,an,nowNS,jump))return;}
    if(!crouch&&facing&&activityPhase=="post"&&!string.IsNullOrEmpty(agent.PostWork)&&LocationSDKPostWork(h,agent.PostWork,an,nowNS,jump))return;
    // demo-hub v14-traders: a seller on the counter post cycles the post states (talk, arrange goods) instead of one idle.
    if(!crouch&&facing&&activityPhase=="post"&&cast.post_states!=null&&cast.post_states.Length>0&&cast.post_state_seconds!=null&&cast.post_state_seconds.Length==cast.post_states.Length){

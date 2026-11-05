@@ -763,6 +763,13 @@ func (b *mdBuilder) obstacles() *ValidationError {
 			}
 			if s == b.surfaces[0] && b.out != nil {
 				for _, instance := range b.out.Instances {
+					// A lintel or structural wall can continue above a low
+					// module on the same plan cells. Reject intersecting 3D
+					// intervals, as for stacked obstacle parts below.
+					base := b.layout.Elevation * UnitMM
+					if bottom >= base+instance.Height*UnitMM || top <= base {
+						continue
+					}
 					for _, c := range instance.Footprint {
 						if c == at {
 							return issue("physical_overlap", path, fmt.Sprintf("obstacle overlaps instance %s at (%d,%d)", instance.ID, at.X, at.Y), o.ID, instance.ID)

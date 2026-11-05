@@ -10,11 +10,34 @@ func TestCalendarEncounterElevenRealDaysAndMidweekLoad(t *testing.T){
   if day<=e.FirstDays{before:=(day-1)*86400+e.Morning-30;encounterAdvanceTo(t,r,before);encounterAdvanceTo(t,same,before);if !r.encounterAt(e.Actor,e.Gate){t.Fatalf("day %d did not start outside the gate",day)}}
   encounterAdvanceTo(t,r,at);encounterAdvanceTo(t,same,at)
   a:=r.state.Life.Actor(e.Actor)
-  if day<=3&&(a.Manual||a.RoutineOverride==nil){t.Fatalf("day %d selling routine bypassed Life needs/work",day)}
+  var leased sanitaryUser
+  if day<=3 {
+   if a.RoutineOverride==nil{t.Fatalf("day %d selling routine bypassed Life needs/work",day)}
+   if a.Manual {
+    var ok bool;leased,ok=r.state.Sanitary.Users[a.ID]
+    if !ok||leased.PriorManual||!r.sanitaryAttached(a.ID)||!a.CombatHold||leased.PhaseEndNS<=leased.PhaseStartNS||r.simNS()<leased.PhaseStartNS||r.simNS()>leased.PhaseEndNS{t.Fatalf("day %d manual actor lacks a valid temporary service owner: %+v",day,leased)}
+    if err:=r.validateSanitary(r.state);err!=nil{t.Fatal(err)}
+   }
+  }
   if day<=3&&a.Level!=e.Level{t.Fatalf("morning %d: missing peddler at %s %v",day,a.Level,a.Position)}
   if day>=4&&day<=10&&(a.Level==e.Level||r.storefrontOpen(e.Shop)){t.Fatalf("missing day %d: actor/shop still on market",day)}
   if day==11&&(a.Level!=e.Level||r.state.CalendarEncounter.Rating!=0||r.state.CalendarEncounter.SolsStatus!="zero"){t.Fatal("return day or reset facts lost")}
   rb,_:=json.Marshal(r.state.Life);sb,_:=json.Marshal(same.state.Life);if !reflect.DeepEqual(r.state.CalendarEncounter,same.state.CalendarEncounter)||string(rb)!=string(sb){t.Fatalf("determinism lost on day %d",day)}
+  if leased.ActorID!="" {
+   completed:=r.state.Sanitary.Completed[leased.UnitID];progressed:=false;used:=false;ownCompleted:=false;unit:=r.world.SanitaryServices.unit(leased.UnitID)
+   // Advance the ordinary kernel in both worlds. A lease must finish, restore
+   // autonomous Life ownership, and actually return the seller to his shop.
+   for r.state.Life.Seconds<(day-1)*86400+e.Evening-30 {
+    encounterAdvanceTo(t,r,r.state.Life.Seconds+30);encounterAdvanceTo(t,same,same.state.Life.Seconds+30)
+    current,ok:=r.state.Sanitary.Users[leased.ActorID]
+    if ok&&current.Serial==leased.Serial {progressed=progressed||current.Phase!=leased.Phase;used=used||current.UseElapsed>0;ownCompleted=ownCompleted||(current.UseElapsed==unit.ServiceSeconds&&current.WaterML==unit.WaterML&&r.state.Sanitary.Completed[leased.UnitID]==completed+1)}
+    a=r.state.Life.Actor(e.Actor)
+    if !ok&&r.encounterAt(e.Actor,e.Meet)&&!a.Manual{break}
+   }
+   if !progressed||!used||!ownCompleted||r.serviceReserved(e.Actor)||a.Manual||a.CombatHold||a.ServiceAttachment!=""||a.RoutineOverride==nil||!r.encounterAt(e.Actor,e.Meet){t.Fatalf("day %d service did not complete and return to trading: progressed=%v used=%v own_completed=%v completed=%d before=%d actor=%+v lease=%+v",day,progressed,used,ownCompleted,r.state.Sanitary.Completed[leased.UnitID],completed,a,r.state.Sanitary.Users[e.Actor])}
+   rb,_=json.Marshal(r.state.Life);sb,_=json.Marshal(same.state.Life)
+   if string(rb)!=string(sb)||!reflect.DeepEqual(r.state.Sanitary,same.state.Sanitary)||!reflect.DeepEqual(r.state.CalendarEncounter,same.state.CalendarEncounter){t.Fatalf("service determinism lost on day %d",day)}
+  }
   if day==6{
    for _,p:=range r.world.Peddlers.Peddlers{if p.Actor!=e.Actor{a:=r.state.Life.Actor(p.Actor);if a==nil||a.Manual{t.Fatalf("unrelated peddler %s was removed or commandeered",p.Actor)}}}
 
@@ -96,4 +119,29 @@ func TestCalendarEncounterEscortPassesStallCorner(t *testing.T){
  }
  if r.state.CalendarEncounter.Phase!="done"{t.Fatalf("stall corner trapped escort: actor=%+v guard=%+v",r.state.Life.Actor(e.Actor),r.state.Life.Actor(e.Guard))}
  if !r.encounterAt(e.Actor,e.Medical){t.Fatal("detainee did not reach the real medical Life endpoint")}
+}
+
+// A service owns the accepted approach route before it takes the physical hold.
+func TestCalendarEncounterDoesNotStealServiceApproach(t *testing.T) {
+ for _,kind:=range []string{"sanitary","medical"}{t.Run(kind,func(t *testing.T){
+  r:=encounterFixture(t);e:=r.world.CalendarEncounter
+  r.state.Life.Seconds=e.Morning;r.calendarEncounterBeforeFrame()
+  a:=r.state.Life.Actor(e.Actor)
+  if kind=="sanitary" {
+   u:=r.world.SanitaryServices.Units[0]
+   peddlerPlace(t,r,e.Actor,inv.Cell{X:10,Y:44});a.Manual=false
+   if err:=r.sanitaryRequest(a.ID,u.ID);err!=nil{t.Fatal(err)}
+   if r.state.Sanitary.Users[a.ID].Phase!="approach"{t.Fatal("not a real sanitary approach")}
+  }else{
+   u:=r.world.MedicalCapsules.Units[0]
+   peddlerPlace(t,r,e.Actor,inv.Cell{X:12,Y:66});a.Manual=false
+   if err:=r.medicalRequest(a.ID,u.ID);err!=nil{t.Fatal(err)}
+   if r.state.Medical.Patients[a.ID].Phase!="approach"{t.Fatal("not a real medical approach")}
+  }
+  if a.CombatHold||len(a.Path)==0||!r.serviceReserved(a.ID){t.Fatal("fixture did not acquire a walking service lease")}
+  before,_:=json.Marshal(a)
+  r.state.Life.Seconds=e.Evening;r.calendarEncounterBeforeFrame()
+  after,_:=json.Marshal(a)
+  if string(before)!=string(after){t.Fatalf("calendar stole %s approach before physical hold: before=%s after=%s",kind,before,after)}
+ })}
 }

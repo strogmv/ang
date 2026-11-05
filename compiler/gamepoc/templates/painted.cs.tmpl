@@ -519,7 +519,7 @@ namespace AngelsDemons.Poc {
    if(verifyPainted)AuditPaintedDraws();
    GUI.BeginGroup(viewport);
    var localFit=fit;localFit.position-=viewport.position;
-   GUI.color=Color.white;GUI.DrawTexture(localFit,cache.background,ScaleMode.StretchToFill,true);DrawPaintedAmbient(scene,fit,scale,viewport,visibleCanvas);GUI.DrawTexture(localFit,cache.fog,ScaleMode.StretchToFill,true);
+   GUI.color=Color.white;GUI.DrawTexture(localFit,cache.background,ScaleMode.StretchToFill,true);DrawPaintedAmbient(scene,fit,scale,viewport,visibleCanvas);DrawPaintedTrainMotion(scene,fit,scale,viewport,visibleCanvas);GUI.DrawTexture(localFit,cache.fog,ScaleMode.StretchToFill,true);
    DrawPaintedWayfinding(scene,fit,viewport);
    Rect localViewport=new Rect(0,0,viewport.width,viewport.height);
    // Architecture is composed once. Clipping each later sprite, rather than

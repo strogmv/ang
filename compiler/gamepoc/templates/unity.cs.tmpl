@@ -340,6 +340,8 @@ namespace AngelsDemons.Poc
             if (!verify && startMarketPending && CanSend()) { startMarketPending=false; StartPlayableMarket(resource.config.seed); }
             if (!verify) AdvancePlayableMarket();
             UpdatePlayableScene();
+            UpdateMedicalCapsules();UpdateMedicalCapsuleProof();UpdateSanitaryServices();UpdateSanitaryProof();
+            UpdateTrainMotionProof();
             if (!verify) AdvanceSpatialPreview();
             if (!verify) UpdateHudKeys();
             if (!verify && Input.GetKeyDown(KeyCode.Escape)) page = page == "game" ? "menu" : state != null && state.Active ? "game" : "menu";
@@ -507,7 +509,7 @@ namespace AngelsDemons.Poc
             GUI.matrix = Matrix4x4.TRS(new Vector3((Screen.width - 1280 * scale) / 2, (Screen.height - 800 * scale) / 2), Quaternion.identity, new Vector3(scale, scale, 1));
             Fill(new Rect(-1000, -1000, 4000, 3000), ink);
             if(page=="game"&&state!=null&&state.Active){
-                DrawGame();if(CombatAutoNoHud){DrawCombatFx();GUI.matrix=Matrix4x4.identity;DrawLoading();return;}DrawBarks();DrawGameHud();DrawWayfindingUI();DrawCombatUI();DrawVendingUI();DrawPeddlerUI();DrawConversationUI();DrawCraftingUI();DrawPlayableSceneUI();GUI.matrix=Matrix4x4.identity;DrawLoading();return;
+                DrawGame();if(CombatAutoNoHud){DrawCombatFx();GUI.matrix=Matrix4x4.identity;DrawLoading();return;}DrawBarks();DrawGameHud();DrawWayfindingUI();DrawCombatUI();DrawVendingUI();DrawPeddlerUI();DrawConversationUI();DrawCraftingUI();DrawMedicalCapsuleUI();DrawSanitaryUI();DrawPlayableSceneUI();GUI.matrix=Matrix4x4.identity;DrawLoading();return;
             }
             if(page=="crafting"&&state!=null&&state.Active){DrawGame();DrawGameHud();DrawCraftingPage();GUI.matrix=Matrix4x4.identity;DrawLoading();return;}
             if(page=="development"||page=="inventory"||page=="map"||page=="journal"){DrawHudPage();GUI.matrix=Matrix4x4.identity;DrawLoading();return;}
@@ -906,7 +908,10 @@ namespace AngelsDemons.Poc
             if (session != null) session.Pump(32);
             UpdateMotion();
             HeroBodyPredict();
+            UpdateTrainMotion();
             RenderLocationSDKFrame();
+            TrainMotionProofAfterFrame();
+            MedicalCapsuleProofAfterFrame();SanitaryProofAfterFrame();
             if (verify && proofPhase == 9 && clock.Elapsed.TotalSeconds - proofAt > 1.2 && session == null) { proofPhase = 10; Connect(); }
         }
         void FinishProof(bool ok, string detail)

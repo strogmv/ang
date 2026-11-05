@@ -311,6 +311,11 @@ func checkPaintedImages(unity string, scenes []PaintedScene) error {
 			return err
 		}
 		for i, p := range s.AmbientPassages {
+			// External server motion owns geometry/masks only. Its rendered prefab
+			// supplies pixels; there is deliberately no ambient PNG or track sprite.
+			if p.MotionSource == "train_motion" {
+				continue
+			}
 			preview.Layers = append(preview.Layers, ArtSceneLayer{ID: fmt.Sprintf("ambient.%d", i), Image: p.Image, Width: 1, Height: 1, SourceRect: p.SourceRect})
 			if p.Track != nil {
 				preview.Layers = append(preview.Layers, ArtSceneLayer{ID: fmt.Sprintf("ambient.track.%d", i), Image: p.Track.Image, Width: 1, Height: 1, SourceRect: p.Track.SourceRect})

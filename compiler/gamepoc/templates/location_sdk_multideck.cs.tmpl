@@ -345,6 +345,7 @@ namespace AngelsDemons.Poc {
     }
     members.AddRange(roots);if(occluding)foreach(var root in roots)fade.Add(root);
    }
+   SanitaryAppendPublicCutaway(feet,members,fade);
    foreach(var root in members){bool faded=fade.Contains(root);if(faded==locationSDKInstanceFaded.Contains(root))continue;
     if(faded)locationSDKInstanceFaded.Add(root);else locationSDKInstanceFaded.Remove(root);
     foreach(var renderer in root.GetComponentsInChildren<Renderer>(true)){

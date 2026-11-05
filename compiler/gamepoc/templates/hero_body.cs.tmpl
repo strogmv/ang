@@ -27,7 +27,7 @@ namespace AngelsDemons.Poc {
   // server's simulation time even when a state is late (the shared presentation clock holds at its horizon then).
   double hbSkew=double.NaN;bool hbWasPaused;
   double HbRealNS(){return clock.Elapsed.TotalSeconds*1e9;}
-  internal double HeroBodyClockNS=>hbNS;
+  internal double HeroBodyClockNS=>SanitaryActorUnit("char.hero")!=null?SanitarySampleNS():MedicalPatientUnit("char.hero")!=null?MedicalSampleNS():hbNS;
   // ---- input ----
   bool hbPress,hbFollowing,hbSteering;double hbPressAt,hbLastSendAt;Vector2 hbPressGui;string hbSentKey="";double hbSentTX,hbSentTY;
   // Automatic checks drive the same path with virtual input (OS input is never injected).
@@ -137,7 +137,7 @@ namespace AngelsDemons.Poc {
   }
   void HbCollectOthers(HeroBodyGeom g){
    hbOthers.Clear();if(state==null)return;
-   foreach(var a in SceneActors()){hbOthers.Add(HbKey(a.X,a.Y));if(a.Path!=null&&a.Path.Count>0)hbOthers.Add(HbKey(a.Path[0].X,a.Path[0].Y));}
+   foreach(var a in SceneActors()){if(!string.IsNullOrEmpty(a.ServiceAttachment))continue;hbOthers.Add(HbKey(a.X,a.Y));if(a.Path!=null&&a.Path.Count>0)hbOthers.Add(HbKey(a.Path[0].X,a.Path[0].Y));}
   }
   // An authoritative sample (game state or move ACK). Inputs the server has applied replace the local ones; the sample
   // is carried forward to the presentation clock and the visible body blends to it.
@@ -179,6 +179,8 @@ namespace AngelsDemons.Poc {
    var s=g.slope[c];double ox=x-(px+.5)*g.cell,oy=y-(py+.5)*g.cell,along=(ox*s[0]+oy*s[1])/g.cell;along=Math.Max(-.5,Math.Min(.5,along));return feet.y+(float)(along*s[2]*.001);
   }
   internal bool HeroBodyFeet(out Vector3 feet,out Vector2 heading){
+   if(MedicalHeroFeet(out feet,out heading))return true;
+   if(SanitaryHeroFeet(out feet,out heading))return true;
    feet=Vector3.zero;heading=Vector2.zero;if(!hbActive)return false;var g=HeroGeomFor(CurrentLocationSDK());if(g==null)return false;
    double x=hbSim.x+hbOffX,y=hbSim.y+hbOffY;feet=new Vector3((float)(x*.001),HeroBodyHeight(g,hbSim.layer,x,y),(float)(y*.001));heading=new Vector2((float)hbFaceX,(float)hbFaceY);return true;
   }
@@ -217,6 +219,8 @@ namespace AngelsDemons.Poc {
   }
   // A click: route to the exact floor point; the press may become a held follow.
   internal bool HeroClick(int x,int y,int deck,double xmm,double ymm,bool hasMM,bool run){
+   if(MedicalHeroBusy())return false;
+   if(SanitaryHeroBusy())return false;
    if(!CanSend())return false;if(hbLast!=null&&hbLast.Sneaking)run=false;pendingMove=++moveSequence;hbLocalSeq=pendingMove;
    clickedTile=new Vector2(x,y);clickStartPosition=shownPosition;clickAt=clock.Elapsed.TotalSeconds;markerUntil=clickAt+3;
    moveStatus="Проверяем путь…";moveAccepted=false;ackMS=-1;beginMS=-1;beginPending=true;latencyResultReady=false;
@@ -230,6 +234,8 @@ namespace AngelsDemons.Poc {
   internal void HeroPressBegin(Vector2 gui){hbPress=true;hbFollowing=false;hbPressAt=clock.Elapsed.TotalSeconds;hbPressGui=gui;}
   // Update: keyboard / stick steering and the held-button follow; rate-limited, immediate on start/stop.
   void UpdateHeroControl(){
+   if(MedicalHeroBusy()){hbSteering=hbFollowing=hbPress=false;return;}
+   if(SanitaryHeroBusy()){hbSteering=hbFollowing=hbPress=false;return;}
    // Before the first body sample (an automatic routine) the first steer itself hands control to the player.
    bool ready=page=="game"&&state!=null&&!combatPanelOpen&&!HeroCombatActive()&&!HeroCombatIncapacitated()&&state.Active&&!state.Paused&&!loadingActive&&state.Life!=null&&!state.Life.Transit&&CanSend()&&IsStoryModularLocation()&&locationSDKCamera!=null;
    Vector2 forward,right;if(!ready||!HeroScreenAxes(out forward,out right)){if(hbSteering||hbFollowing){if(ready||CanSend())HeroSend("stop",0,0,false);hbSteering=hbFollowing=false;}hbPress=false;return;}

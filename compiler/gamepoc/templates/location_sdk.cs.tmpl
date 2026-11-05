@@ -260,6 +260,8 @@ namespace AngelsDemons.Poc {
    else if(locationSDKFollowHero&&locationSDKNav!=null&&locationSDKHeroWorldValid)locationSDKFocus=locationSDKHeroWorld+Vector3.up*(LocationSDKHeroHeightM*.5f);
    else if(locationSDKFollowHero)locationSDKFocus=new Vector3(LocationSDKCellCenter(shownPosition.x,locationSDKLevel.cell_meters),locationSDKLevel.elevation*locationSDKLevel.cell_meters+LocationSDKHeroHeightM*.5f,LocationSDKCellCenter(shownPosition.y,locationSDKLevel.cell_meters));
    if(combatCloseFocusSet)locationSDKFocus=combatCloseFocus;
+   TrainMotionReviewCamera();
+   MedicalCapsuleReviewCamera();SanitaryReviewCamera();
    if(camera!=null){float radius=locationSDKCameraBounds.extents.magnitude+2,shift=Vector3.Dot(locationSDKCameraBounds.center-locationSDKFocus,locationSDKCameraOffset);locationSDKNear=Mathf.Max(.05f,locationSDKDistance-shift-radius-2);locationSDKFar=Mathf.Max(locationSDKNear+1,locationSDKDistance-shift+radius+2);}
    locationSDKCamera.transform.position=locationSDKFocus+locationSDKCameraOffset*locationSDKDistance;locationSDKCamera.transform.LookAt(locationSDKFocus);locationSDKCamera.nearClipPlane=locationSDKNear;locationSDKCamera.farClipPlane=locationSDKFar;locationSDKCamera.orthographicSize=LocationSDKCameraViewSize(locationSDKFit,heroHeight,locationSDKZoom,locationSDKZoomOrigin);
   }
@@ -301,12 +303,13 @@ namespace AngelsDemons.Poc {
   void LocationSDKUpdateActors(){
    locationSDKVisibleActors.Clear();Vector3 feet;Vector2 heading;
    foreach(var actor in SceneActors())if(ViewSees(actor.X,actor.Y)){if(locationSDKNav!=null){LocationSDKSampleWorld(new Vector2(actor.X,actor.Y),actor.Path,actor.MotionStartNs,actor.MovementStepNs,actor.MotionPaused?actor.MotionSampleNs:renderedSimNS,out feet,out heading);LocationSDKUpdateActor(actor.Id,SampleNPC(actor),actor.Path,actor.MotionStartNs,actor.MovementStepNs,actor.MotionPaused,feet,heading,actor.MotionPaused?actor.MotionSampleNs:renderedSimNS,new Vector2(actor.X,actor.Y),actor);}else LocationSDKUpdateActor(actor.Id,SampleNPC(actor),actor.Path,actor.MotionStartNs,actor.MovementStepNs,actor.MotionPaused);}
-   if(!state.Life.Transit&&hbActive&&HeroBodyFeet(out feet,out heading)){locationSDKHeroWorld=feet;locationSDKHeroWorldValid=true;LocationSDKUpdateActor("char.hero",shownPosition,null,0,0,state.Paused,feet,heading,HeroBodyClockNS,null);}
+   if(!state.Life.Transit&&HeroBodyFeet(out feet,out heading)){locationSDKHeroWorld=feet;locationSDKHeroWorldValid=true;LocationSDKUpdateActor("char.hero",shownPosition,null,0,0,state.Paused,feet,heading,HeroBodyClockNS,null);}
    else if(!state.Life.Transit&&ViewSees(state.PlayerX,state.PlayerY)){if(locationSDKNav!=null){LocationSDKSampleWorld(new Vector2(state.PlayerX,state.PlayerY),state.Path,state.MotionStartNs,state.MovementStepNs,renderedSimNS,out feet,out heading);locationSDKHeroWorld=feet;locationSDKHeroWorldValid=true;LocationSDKUpdateActor("char.hero",shownPosition,state.Path,state.MotionStartNs,state.MovementStepNs,state.Paused,feet,heading,renderedSimNS,new Vector2(state.PlayerX,state.PlayerY));}else LocationSDKUpdateActor("char.hero",shownPosition,state.Path,state.MotionStartNs,state.MovementStepNs,state.Paused);}
    foreach(var actor in locationSDKActors)actor.Value.go.SetActive(locationSDKVisibleActors.Contains(actor.Key));
    LocationSDKHumanoidVisibility();
   }
   void LocationSDKUpdateActor(string id,Vector2 position,IList<AngelsDemons.Game.V1.PocPoint> path,long startNS,long durationNS,bool paused,Vector3? worldFeet=null,Vector2? planHeading=null,double sampleNS=double.NaN,Vector2? navStart=null,AngelsDemons.Game.V1.PocAgentState agent=null){
+   Vector3 medicalFeet;float medicalYaw;if(MedicalActorPose(id,out medicalFeet,out medicalYaw)){worldFeet=medicalFeet;sampleNS=MedicalSampleNS();planHeading=new Vector2(Mathf.Sin(medicalYaw*Mathf.Deg2Rad),Mathf.Cos(medicalYaw*Mathf.Deg2Rad));path=null;navStart=null;agent=null;paused=state.Paused;}
    if(locationSDKHumanoidCast!=null){LocationSDKUpdateHumanoid(id,position,path,startNS,durationNS,paused,worldFeet,double.IsNaN(sampleNS)?renderedSimNS:sampleNS,navStart,agent);return;}
    string key;PocCharacterSheet sheet;Texture2D texture;if(!ResolveCharacterSheet(id,out key)||!characterSheets.TryGetValue(key,out sheet)||!characterTextures.TryGetValue(key,out texture)||texture==null)return;
    bool walking=!paused&&!state.Paused&&path!=null&&path.Count>0&&durationNS>0&&renderedSimNS>=startNS&&(renderedSimNS-startNS)/durationNS<path.Count;int row=0;
@@ -337,6 +340,7 @@ namespace AngelsDemons.Poc {
    foreach(var decoration in locationSDKDecorations.Values)decoration.SetActive(false);if(presentation!=null&&presentation.decorations!=null)foreach(var decoration in presentation.decorations){GameObject go;if(decoration!=null&&decoration.anchor!=null&&ViewCell(view,decoration.anchor.x,decoration.anchor.y)!='0'&&locationSDKDecorations.TryGetValue(decoration.id,out go))go.SetActive(true);}
    for(int i=0;i<locationSDKMaterials.Count;i++){Color color=locationSDKColors[i];bool lit=locationSDKLitMaterials.Contains(locationSDKMaterials[i]);if(!lit&&color.r>color.b*1.25f)color=Color.Lerp(color,accent,.6f);float factor=lit?1:light;locationSDKMaterials[i].color=color*new Color(factor,factor,factor,1);}
    LocationSDKApplyPresentation(light);CombatLookAfterPresentation();
+   UpdateTrainMotionSDK();UpdateMedicalCapsuleSDK();UpdateSanitarySDK();
    // Movement v2 (from candidate v3.1): render now, in LateUpdate before OnGUI draws the target; the end-of-frame request
    // showed the previous frame, one frame late after every input.
    LocationSDKRenderNow();
@@ -385,7 +389,7 @@ namespace AngelsDemons.Poc {
    if(IsStoryModularLocation()&&hbActive){} // the controls hint lives in the top strip of the HUD now (DrawGameHud): the panel below it no longer lies over it
    else GUI.Label(new Rect(viewport.x+12,viewport.yMax-28,750,22),L("ui.sdk.camera_hint"),hudSmall);DrawModularKnownDetails(viewport);return true;
   }
-  void ReleaseLocationSDK(){LocationSDKRestoreAmbient();ReleasePlayableScene();ReleaseLocationSDKWorldText();ReleaseLocationSDKMultideck();ReleaseLocationSDKHumanoids();locationSDKCameraData=null;locationSDKVolume=null;locationSDKFollowHero=false;locationSDKCameraZoomInitialized=false;locationSDKZoomOrigin=1;locationSDKFrameReady=false;locationSDKRenderPending=false;
+  void ReleaseLocationSDK(){ReleaseMedicalScan();LocationSDKRestoreAmbient();ReleasePlayableScene();ReleaseLocationSDKWorldText();ReleaseLocationSDKMultideck();ReleaseLocationSDKHumanoids();locationSDKCameraData=null;locationSDKVolume=null;locationSDKFollowHero=false;locationSDKCameraZoomInitialized=false;locationSDKZoomOrigin=1;locationSDKFrameReady=false;locationSDKRenderPending=false;
    ReleaseSDKWayfinding();
    if(locationSDKCamera!=null)locationSDKCamera.targetTexture=null;if(locationSDKMain!=null)locationSDKMain.cullingMask=locationSDKMainMask;
    if(locationSDKTarget!=null){locationSDKTarget.Release();Destroy(locationSDKTarget);}foreach(var mesh in locationSDKMeshes)if(mesh!=null)Destroy(mesh);foreach(var material in locationSDKMaterials)if(material!=null)Destroy(material);foreach(var actor in locationSDKActors.Values)if(actor.material!=null)Destroy(actor.material);if(locationSDKRoot!=null)Destroy(locationSDKRoot);

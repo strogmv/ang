@@ -659,7 +659,7 @@ func (s *LifeState) EnsureHeroBody(m LifeModel) {
 		return
 	}
 	g, ok := m.bodyGeom(a.Level)
-	if !ok || !a.Manual || a.Trip != nil || a.ResidenceID != "" {
+	if !ok || !a.Manual || a.Trip != nil || a.ResidenceID != "" || a.ServiceAttachment != "" || a.CombatHold {
 		a.Body = nil
 		return
 	}

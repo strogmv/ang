@@ -307,3 +307,30 @@ func TestInstanceJoinsOnlyAnOccludingCutawayGroup(t *testing.T) {
 		}
 	}
 }
+
+func TestObstacleAboveModuleUsesPhysicalHeightInterval(t *testing.T) {
+	for _, elevation := range []int{0, 4} {
+		layout := testMultideck()
+		layout.Elevation = elevation
+		layout.Decks[0].ElevationMM += elevation * UnitMM
+		layout.Instances = []Instance{{ID: "low.module", ModuleID: "module.shape.box", At: Cell{12, 12}, Reason: "low enclosed service"}}
+		layout.Obstacles = append(layout.Obstacles, Obstacle{ID: "upper.wall", Surface: "floor", Rect: Rect{12, 12, 2, 1}, BottomMM: 1500, TopMM: 3500, BlocksSight: true, Style: "wall", Reason: "structural wall continues above low module"})
+		out := requireBuilt(t, testCatalog(), layout)
+		if out.Navigation == nil {
+			t.Fatal("missing vertical navigation")
+		}
+		found := false
+		for _, solid := range out.Navigation.Solids {
+			if solid.Source == "upper.wall" && solid.BottomMM == elevation*UnitMM+1500 && solid.TopMM == elevation*UnitMM+3500 {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatal("upper wall vanished or changed elevation")
+		}
+		layout.Obstacles[len(layout.Obstacles)-1].BottomMM = 1499
+		if _, err := Build(testCatalog(), layout); err == nil || !strings.Contains(err.Error(), "physical_overlap") {
+			t.Fatalf("one-mm physical intersection accepted: %v", err)
+		}
+	}
+}

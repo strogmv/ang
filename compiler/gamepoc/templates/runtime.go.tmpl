@@ -79,6 +79,9 @@ type worldModular struct {
 	LayoutID string `json:"layout_id"`
 }
 type worldData struct {
+ MedicalCapsules *medicalCatalog `json:"medical_capsules"`
+ SanitaryServices *sanitaryCatalog `json:"sanitary_services"`
+ TrainMotion *trainMotionCatalog `json:"train_motion"`
  PlayableScenes map[string]playableSceneDefinition `json:"playable_scenes"`
  PlayableID string `json:"-"`
 	CombatRuntime           combatCatalog                   `json:"combat_runtime"`
@@ -117,6 +120,8 @@ type worldData struct {
 	Entities                []actor                         `json:"entities"`
 }
 type state struct {
+ Medical medicalState `json:"medical,omitempty"`
+ Sanitary sanitaryState `json:"sanitary,omitempty"`
  Playable playableSceneState
 	Combat             behavior.CombatState
  Illumination illuminationState
@@ -464,8 +469,9 @@ func (r *Runtime) advance(now time.Time) {
 func (r *Runtime) simNS() int64 {
 	step := int64(time.Second) / int64(r.world.Config.TickHz)
 	phase := r.state.PhaseNS
-	if phase > step {
-		phase = step
+	// Match the canonical save domain while scheduler backlog awaits catch-up.
+	if phase >= step {
+		phase = step - 1
 	}
 	return r.state.Tick*step + phase
 }
@@ -966,6 +972,8 @@ func (r *Runtime) readSave(slot string) (state, int64, error) {
 	if err := validator.validateCombatSave(s); err != nil {
 		return s, 0, err
 	}
+ if err:=validator.validateMedical(s);err!=nil{return s,0,err}
+ if err:=validator.validateSanitary(s);err!=nil{return s,0,err}
  if err:=validator.validateCombatWorld(s);err!=nil{return s,0,err}
  if err:=validator.validateCombatCare(s);err!=nil{return s,0,err}
  if err:=validator.validatePlayableScene(s);err!=nil{return s,0,err}

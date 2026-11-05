@@ -33,6 +33,7 @@ func(r *Runtime)initNPCEconomy(){
  for _,id:=range ids{a,ok:=r.npcAccount(id);if !ok{continue};a.Balance+=r.world.Life.Brain.InitialBalance;r.state.NPCEconomy.InitialSource+=r.world.Life.Brain.InitialBalance;r.state.Inventory.Accounts[a.ID]=a}
 }
 func(r *Runtime)npcServices()behavior.LifeBrainServices{return behavior.LifeBrainServices{
+ HygieneManaged:r.sanitaryManaged,
  Balance:func(id string)int64{a,_:=r.npcAccount(id);return a.Balance}, Offers:r.npcOffers,Buy:r.npcBuy,
  TravelSeconds:func(level string,from,to behavior.Cell)int64{return r.state.Life.StaticTravelSeconds(r.world.Life,level,from,to)},
  SeatsTaken:r.npcSeatsTaken,

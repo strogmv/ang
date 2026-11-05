@@ -99,6 +99,20 @@ func TestWayfindingServerPreviewAuthorityPrivacyAndInvalidationNative(t *testing
 	if a < 0 || b < a {
 		t.Fatal("Space.Path missing")
 	}
+	medical := hudTemplate(t, "medical_capsules.go.tmpl")
+	medicalStart, medicalEnd := strings.Index(medical, "func (r *Runtime) medicalReserved("), strings.Index(medical, "func (r *Runtime) medicalOwnsActor(")
+	if medicalStart < 0 || medicalEnd <= medicalStart {
+		t.Fatal("real medical reservation helper missing")
+	}
+	sanitary := hudTemplate(t, "sanitary_services.go.tmpl")
+	fragments := "package poc\n"
+	for _, pair := range [][2]string{{"func (r *Runtime) sanitaryReserved(", "func (r *Runtime) sanitaryOwnsActor("}, {"func (r *Runtime) serviceReserved(", "func (r *Runtime) serviceOwnsActor("}} {
+		start, end := strings.Index(sanitary, pair[0]), strings.Index(sanitary, pair[1])
+		if start < 0 || end <= start {
+			t.Fatal("real service reservation helper missing")
+		}
+		fragments += sanitary[start:end]
+	}
 	move := hudTemplate(t, "life.go.tmpl")
 	am, bm := strings.Index(move, "func (r *Runtime) lifeWalkTo("), strings.Index(move, "func (r *Runtime) validateLifeSave(")
 	if am < 0 || bm < am {
@@ -120,7 +134,7 @@ func TestWayfindingServerPreviewAuthorityPrivacyAndInvalidationNative(t *testing
 		"internal/behavior/life.go": `package behavior
  import "sort"
  type LifeTrip struct{Edge string}
- type LifeActor struct{ID,Level,OverrideLevel,OverrideEdge,Activity,Label,AdmissionDeniedEdge string;Position,Goal,OverrideAt Cell;Path,PendingPath []Cell;Manual,Arrived,CombatHold bool;MoveStartTick,WaitingDeparture int64;Trip *LifeTrip;Visits map[string]int}
+ type LifeActor struct{ID,Level,OverrideLevel,OverrideEdge,Activity,Label,AdmissionDeniedEdge,ServiceAttachment string;Position,Goal,OverrideAt Cell;Path,PendingPath []Cell;Manual,Arrived,CombatHold bool;MoveStartTick,WaitingDeparture int64;Trip *LifeTrip;Visits map[string]int}
  type LifeEdge struct{ID,From,To,Mode,NameKey string;Exit,Entry Cell;TravelSeconds,PeriodSeconds int64}
  type LifeLocation struct{Name string;Terrain []string}
  type LifeModel struct{Locations map[string]LifeLocation;Edges []LifeEdge}
@@ -145,7 +159,9 @@ func TestWayfindingServerPreviewAuthorityPrivacyAndInvalidationNative(t *testing
  type PocRegionNode struct{Id,Name,DeckId,Knowledge,LevelId,Description,Kind,Label string;X,Y,Width,Height float64;Current,CanTravel bool}
  type PocRegionLink struct{Id,FromNode,ToNode,Mode string};type PocRegionDeck struct{Id,Name string;ElevationM float64}
  `,
-		"internal/poc/wayfinding.go": hudTemplate(t, "wayfinding.go.tmpl"), "internal/poc/region.go": hudTemplate(t, "region.go.tmpl"), "internal/poc/movement.go": "package poc\nimport \"angelsdemons/server/internal/behavior\"\n" + move[am:bm],
+		"internal/poc/service_reservations.go": fragments,
+		"internal/poc/medical_reservations.go": "package poc\n" + medical[medicalStart:medicalEnd],
+		"internal/poc/wayfinding.go":           hudTemplate(t, "wayfinding.go.tmpl"), "internal/poc/region.go": hudTemplate(t, "region.go.tmpl"), "internal/poc/movement.go": "package poc\nimport \"angelsdemons/server/internal/behavior\"\n" + move[am:bm],
 		"internal/poc/host_test.go": wayfindingServerHarness,
 	}
 	dir := t.TempDir()
@@ -172,7 +188,10 @@ import("encoding/json";"reflect";"strings";"testing";"angelsdemons/server/intern
 const playerActorID="hero"
 type textError struct{Key string};func(e textError)Error()string{return e.Key}
 type seenCell struct{Glyph string};type state=hostState
-type hostState struct{Life behavior.LifeState;LifeExploration map[string]map[int]seenCell;Region regionKnowledge;Epoch string;Paused bool;Tick int64}
+type medicalPatient struct{UnitID string}
+type medicalState struct{Patients map[string]medicalPatient}
+type sanitaryState struct{Users map[string]medicalPatient}
+type hostState struct{Sanitary sanitaryState;Medical medicalState;Life behavior.LifeState;LifeExploration map[string]map[int]seenCell;Region regionKnowledge;Epoch string;Paused bool;Tick int64}
 type worldModel struct{Life behavior.LifeModel;Wayfinding wayfindingCatalog;Region regionCatalog;Walkable map[string]bool}
 type Runtime struct{world worldModel;state hostState;wayfinding wayfindingSession;entered string;syncs int}
 func(r *Runtime)localText(locale,key,fallback string)string{if strings.HasPrefix(key,"wayfinding."){return locale+":"+key};return fallback}
@@ -188,6 +207,7 @@ func fixture()*Runtime{rows:=[]string{"#########","#.......#","#.###.#.#","#....
 func project(r *Runtime)*pb.PocWayfindingView{v:=&pb.PocLifeView{};r.appendWayfinding(v,"en");return v.Wayfinding}
 func snapshot(r *Runtime)string{b,_:=json.Marshal(r.state);return string(b)}
 func TestReadOnlySelectionPathsAndPrivacy(t *testing.T){r:=fixture();before:=snapshot(r);if err:=r.wayfindingCommand("route_preview","way.med");err!=nil{t.Fatal(err)};v:=project(r);if snapshot(r)!=before||r.syncs!=0||!v.Reachable||v.SelectedName!="en:wayfinding.med"{t.Fatal("selection mutated intent/calendar/knowledge or failed localization")};for i,p:=range v.Path{if r.world.Life.Locations["hall"].Terrain[p.Y][p.X]!='.'{t.Fatal("wall crossing")};if i>0{q:=v.Path[i-1];if behavior.Distance(behavior.Cell{int(p.X),int(p.Y)},behavior.Cell{int(q.X),int(q.Y)})!=1{t.Fatal("noncardinal path")}}};for _,d:=range v.Destinations{if d.Id=="way.hidden"{t.Fatal("unknown destination leaked")};if d.Id=="way.med"&&(d.ServiceAvailable||d.Number!=7){t.Fatal("fake service or unstable sign number")}};raw,_:=json.Marshal(v);if strings.Contains(string(raw),"SECRET"){t.Fatal("private region data leaked")};r.wayfindingCommand("route_clear","");if snapshot(r)!=before||project(r).SelectedDestinationId!=""{t.Fatal("clear cancelled gameplay")}}
+func TestServiceAttachmentAndReservationHoldRealMovement(t *testing.T){for _,mode:=range []string{"attachment","reservation","sanitary"}{t.Run(mode,func(t *testing.T){r:=fixture();h:=r.state.Life.Actor(playerActorID);if mode=="attachment"{h.ServiceAttachment="capsule.private"}else if mode=="reservation"{r.state.Medical.Patients=map[string]medicalPatient{playerActorID:{UnitID:"capsule.private"}}}else{r.state.Sanitary.Users=map[string]medicalPatient{playerActorID:{UnitID:"sanitary.private"}}};before:=snapshot(r);if err:=r.wayfindingCommand("route_preview","way.med");err!=nil{t.Fatal(err)};v:=project(r);if !v.Reachable||snapshot(r)!=before{t.Fatal("service changed read-only geographic guidance")};raw,_:=json.Marshal(v);if strings.Contains(string(raw),"capsule.private"){t.Fatal("private service identity leaked into guidance")};if r.wayfindingCommand("route_go","way.med")==nil||snapshot(r)!=before||r.syncs!=0{t.Fatal("Go stole actor from attachment/reservation")}})}}
 func TestHiddenBodiesDoNotChangeGuidance(t *testing.T){r:=fixture();r.wayfindingCommand("route_preview","way.med");before:=project(r);r.state.Life.Actors=append(r.state.Life.Actors,behavior.LifeActor{ID:"hiddenNPC",Level:"hall",Position:behavior.Cell{7,3},Path:[]behavior.Cell{{7,4}}});if !reflect.DeepEqual(before,project(r)){t.Fatal("hidden occupancy changed preview")}}
 func TestExplicitGoPauseStaleAndAcceptedSegment(t *testing.T){r:=fixture();r.wayfindingCommand("route_preview","way.med");r.state.Paused=true;before:=snapshot(r);if r.wayfindingCommand("route_go","way.med")==nil||snapshot(r)!=before{t.Fatal("paused Go moved")};if r.wayfindingCommand("route_preview","way.med")!=nil{t.Fatal("paused selection blocked")};r.state.Paused=false;if r.wayfindingCommand("route_go","old")==nil{t.Fatal("stale Go accepted")};h:=r.state.Life.Actor(playerActorID);at:=h.Position;if err:=r.wayfindingCommand("route_go","way.med");err!=nil{t.Fatal(err)};if h.Position!=at||h.Path[0]!=(behavior.Cell{2,1})||h.Goal!=(behavior.Cell{7,5})||!h.Manual||r.syncs!=1{t.Fatal("Go bypassed real intent helper or accepted segment")};if project(r).SelectedDestinationId!="way.med"{t.Fatal("Go erased preview")}}
 func TestExactMemoryCacheInvalidationAndDiscoveryNumbers(t *testing.T){r:=fixture();r.wayfindingCommand("route_preview","way.med");if !project(r).Reachable{t.Fatal("fixture")};r.state.LifeExploration["hall"][3*9+7]=seenCell{"#"};if v:=project(r);v.Reachable||len(v.Guides)>0{t.Fatal("stale cache crosses changed memory")};r.state.LifeExploration["hall"][3*9+7]=seenCell{"."};if !project(r).Reachable{t.Fatal("same-size memory correction not refreshed")};r.state.LifeExploration["hall"][5*9+1]=seenCell{"."};for _,d:=range project(r).Destinations{if d.Id=="way.med"&&d.Number!=7{t.Fatal("discovery renumbered an existing sign")}};delete(r.state.LifeExploration["hall"],5*9+7);if project(r).SelectedDestinationId!=""{t.Fatal("unknown selected target remained")};r.state.Epoch="loaded";if project(r).SelectedDestinationId!=""{t.Fatal("UI preview survived a real epoch/load")}}

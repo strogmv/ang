@@ -675,6 +675,8 @@ func (r *Runtime) appendDemo(msg *pb.PocGameState) {
 }
 func (r *Runtime) snapshotState() state {
 	s := r.state
+ s.Medical=r.state.Medical.clone()
+ s.Sanitary=r.state.Sanitary.clone()
 	s.CombatPublicEvents = append([]behavior.CombatEvent(nil), s.CombatPublicEvents...)
 	s.Combat = r.state.Combat.Clone()
  s.CombatWorld=r.state.CombatWorld.Clone()

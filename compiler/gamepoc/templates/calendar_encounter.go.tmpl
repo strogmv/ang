@@ -84,8 +84,9 @@ func(r *Runtime)initCalendarEncounter(){
  r.calendarEncounterBeforeFrame()
 }
 func encounterCell(p EncounterPlace)behavior.Cell{return behavior.Cell{X:p.At.X,Y:p.At.Y}}
+// A service reservation also owns its approach route, before CombatHold begins.
 func(r *Runtime)encounterOrder(id string,p EncounterPlace){
- a:=r.state.Life.Actor(id);if a==nil||a.CombatHold{return}
+ a:=r.state.Life.Actor(id);if a==nil||a.CombatHold||r.serviceReserved(id){return}
  a.Manual=true;a.RoutineOverride=nil
  if a.Trip!=nil{return}
  target:=encounterCell(p)
@@ -137,7 +138,7 @@ func(r *Runtime)calendarEncounterBeforeFrame(){
   if s.Outcome=="escape"{r.encounterOrder(e.Actor,e.Gate)}else{r.encounterOrder(e.Actor,e.Medical)}
   // Keep a full metre beside the detainee. No two actors share a goal.
   a:=r.state.Life.Actor(e.Actor);g:=r.state.Life.Actor(e.Guard)
-  if a!=nil&&g!=nil&&a.Level==e.Level&&!a.CombatHold{
+  if a!=nil&&g!=nil&&a.Level==e.Level&&!a.CombatHold&&!r.serviceReserved(e.Actor){
    if p,ok:=r.encounterEscortPlace(a,g);ok{r.encounterOrder(e.Guard,p)}
    if s.Outcome=="forced"||s.Outcome=="refuse"{
     able:=true;if c,ok:=r.state.CombatRoster[e.Guard];ok{able=c.Able()}
@@ -146,7 +147,7 @@ func(r *Runtime)calendarEncounterBeforeFrame(){
   }
  case day<=e.FirstDays:
   if clock>=e.Morning&&clock<e.Evening{
-   a:=r.state.Life.Actor(e.Actor);if a!=nil&&!a.CombatHold{
+   a:=r.state.Life.Actor(e.Actor);if a!=nil&&!a.CombatHold&&!r.serviceReserved(e.Actor){
     activity,label:="","";for _,step:=range r.world.Life.Person(e.Actor).Steps{if step.Obligation||step.Activity=="work"||step.Activity=="service"{activity,label=step.Activity,step.Label;break}}
     if a.RoutineOverride==nil{a.Manual=false;a.Arrived=false;a.Path=nil;a.OverrideLevel="";a.OverrideEdge=""}
     a.RoutineOverride=&behavior.LifeStep{Level:e.Meet.Level,At:encounterCell(e.Meet),Activity:activity,Label:label,Obligation:true,Flexible:e.FlexibleRoutine}
@@ -160,12 +161,12 @@ func(r *Runtime)calendarEncounterBeforeFrame(){
   r.encounterOrder(e.Actor,e.Meet);r.encounterOrder(e.Guard,e.GuardAt)
  }
 }
-func(r *Runtime)encounterGuardAvailable()bool{e:=r.world.CalendarEncounter;if e==nil{return false};a:=r.state.Life.Actor(e.Guard);if a==nil||a.CombatHold{return false};if c,ok:=r.state.CombatRoster[e.Guard];ok&&!c.Able(){return false};return true}
+func(r *Runtime)encounterGuardAvailable()bool{e:=r.world.CalendarEncounter;if e==nil{return false};a:=r.state.Life.Actor(e.Guard);if a==nil||a.CombatHold||r.serviceReserved(e.Guard){return false};if c,ok:=r.state.CombatRoster[e.Guard];ok&&!c.Able(){return false};return true}
 func(r *Runtime)calendarEncounterAfterFrame(){
  e:=r.world.CalendarEncounter;if e==nil{return};s:=&r.state.CalendarEncounter;now:=r.state.Life.Seconds
  if s.Outcome!=""{
   destination:=e.Medical;if s.Outcome=="escape"{destination=e.Gate}
-  if r.encounterAt(e.Actor,destination)&&s.Phase!="done"{s.Phase="done";s.Since=now;g:=r.state.Life.Actor(e.Guard);if g!=nil&&!g.CombatHold{g.Manual=false;g.Arrived=false;g.Path=nil};r.encounterReason("life.arrived",s.Choice,s.Outcome,false)}
+  if r.encounterAt(e.Actor,destination)&&s.Phase!="done"{s.Phase="done";s.Since=now;g:=r.state.Life.Actor(e.Guard);if g!=nil&&!g.CombatHold&&!r.serviceReserved(e.Guard){g.Manual=false;g.Arrived=false;g.Path=nil};r.encounterReason("life.arrived",s.Choice,s.Outcome,false)}
   return
  }
  if s.Day<=e.FirstDays{
@@ -269,7 +270,7 @@ func(r *Runtime)validateEncounterSave(s state)error{
 // A spoken pose uses the existing caste face and wire bark, within the authored quiet reach.
 func(r *Runtime)appendEncounterBark(view *pb.PocLifeView,msg *pb.PocGameState,hero *behavior.LifeActor,locale string){
  e:=r.world.CalendarEncounter;if e==nil||hero==nil||r.heroInCombat()||r.state.CalendarEncounter.Phase!="selling"||!r.encounterNear(e.Actor,e.Reach){return}
- actor:=r.state.Life.Actor(e.Actor);if actor==nil||actor.CombatHold{return};cycle:=int64(0);for _,p:=range e.Poses{cycle+=p.Seconds};t:=(r.state.Life.Seconds-r.state.CalendarEncounter.Since)%cycle
+ actor:=r.state.Life.Actor(e.Actor);if actor==nil||actor.CombatHold||r.serviceReserved(e.Actor){return};cycle:=int64(0);for _,p:=range e.Poses{cycle+=p.Seconds};t:=(r.state.Life.Seconds-r.state.CalendarEncounter.Since)%cycle
  for i,p:=range e.Poses{if t>=p.Seconds{t-=p.Seconds;continue};if p.Bark==""{return};caste:=barkCatalog.Castes[e.Actor];face,ok:=barkCatalog.Face(caste);if !ok{return};start:=r.state.Life.Seconds-t
   b:=&pb.PocBark{Serial:(uint64(1)<<63)|uint64(start*64+int64(i)),Kind:"line",SpeakerId:e.Actor,LineKey:p.Bark,To:"stall",Caste:caste,X:int32(actor.Position.X),Y:int32(actor.Position.Y),Text:r.localText(locale,p.Bark,p.Bark),StartedNs:r.lifeGameNS(start),UntilNs:r.lifeGameNS(start+p.Seconds),Face:face.Face,Reveal:face.Reveal,Correction:face.Correction,Colour:face.Colour,Cps:int32(face.CPS),FadeMs:barkCatalog.Timing.FadeMS,OffscreenFadeMs:barkCatalog.Timing.OffscreenFadeMS}
   duration:=(b.UntilNs-b.StartedNs)/1000000;b.RevealMs=min(int64(len([]rune(b.Text)))*1000/int64(face.CPS),max(int64(1),duration-b.FadeMs-barkCatalog.Timing.HoldMinMS));b.HoldMs=max(int64(1),duration-b.RevealMs-b.FadeMs)

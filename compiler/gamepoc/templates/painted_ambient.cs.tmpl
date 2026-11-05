@@ -5,11 +5,13 @@ using UnityEngine;
 namespace AngelsDemons.Poc {
  [Serializable] public sealed class PocAmbientTrack {public string image;public PocArtSceneSourceRect source_rect;public float x,y,width,height;}
  [Serializable] public sealed class PocBerthDoor {public PocPaintedPoint train,platform;}
+ [Serializable] public sealed class PocPaintedRailMetric {public double cell_meters,track_m,path_progress;}
  [Serializable] public sealed class PocAmbientPassage {
-  public string id,image;public PocArtSceneSourceRect source_rect;public float width,height,feet_x,feet_y,elevation_m,shear_y;
+  public string id,image,motion_source;public PocArtSceneSourceRect source_rect;public float width,height,feet_x,feet_y,elevation_m,shear_y;
   public double period_seconds,duration_seconds,offset_seconds,night_period_seconds,day_start_second,day_end_second,stop_progress,approach_seconds,dwell_seconds;
   public PocPaintedPoint[] path,visible_strip,observation_cells;public PocAmbientTrack track;
   public PocBerthDoor[] berth_doors;
+  public PocPaintedRailMetric metric_rail;
  }
  [Serializable] public sealed class PocPaintedDaylight {public string source;public double sunrise_second,sunset_second,twilight_seconds;public float day_brightness,night_brightness;}
  public sealed partial class AngelsDemonsPoc {
@@ -131,6 +133,7 @@ namespace AngelsDemons.Poc {
    public bool rendered,wasMoving;public double renderedTime;
   }
   static bool PaintedTrackPresent(PocAmbientTrack track){return track!=null&&!string.IsNullOrEmpty(track.image)&&track.width>0&&track.height>0;}
+  static bool PaintedExternalTrain(PocAmbientPassage passage){return passage!=null&&passage.motion_source=="train_motion";}
   static void BlitPaintedAmbient(RenderTexture target,Material material){
    // Blit changes the active render target. IMGUI must continue on the original
    // window/target, never recording deferred world/HUD commands into this layer.
@@ -168,9 +171,10 @@ namespace AngelsDemons.Poc {
     var observation=new Texture2D(observationPixels.Length,1,TextureFormat.Alpha8,false){filterMode=FilterMode.Point,wrapMode=TextureWrapMode.Clamp};observation.SetPixels32(observationPixels);observation.Apply(false,false);
     var layer=new RenderTexture(width,height,0,RenderTextureFormat.ARGB32){filterMode=FilterMode.Bilinear,wrapMode=TextureWrapMode.Clamp};layer.Create();
     var material=new Material(shader){hideFlags=HideFlags.HideAndDontSave};material.SetTexture("_MaskTex",mask);material.SetTexture("_ObservationTex",observation);material.SetFloat("_ObservationWidth",observationPixels.Length);material.SetVector("_LayerRect",new Vector4(bounds.x,bounds.y,bounds.width,bounds.height));
-    var image=ArtSceneTexture(passage.image);var uv=ArtSceneUV(passage.source_rect,image);material.SetTexture("_TrainTex",image);material.SetVector("_TrainUV",new Vector4(uv.x,uv.y,uv.width,uv.height));
-    material.SetVector("_TrainShear",new Vector4(passage.shear_y,passage.feet_x,0,0));
-    material.SetFloat(AmbientTrainEnabled,0);material.SetVector(AmbientTrainRect,Vector4.zero);
+    if(!PaintedExternalTrain(passage)){var image=ArtSceneTexture(passage.image);var uv=ArtSceneUV(passage.source_rect,image);material.SetTexture("_TrainTex",image);material.SetVector("_TrainUV",new Vector4(uv.x,uv.y,uv.width,uv.height));material.SetVector("_TrainShear",new Vector4(passage.shear_y,passage.feet_x,0,0));}
+    // External passages own only an aperture/observation layer. The real 3D
+    // compositor supplies its texture; no PNG or calendar fallback is loaded.
+    material.SetFloat(AmbientTrainEnabled,0);material.SetVector(AmbientTrainRect,Vector4.zero);material.SetFloat("_WholeModuleObservation",0);
     if(PaintedTrackPresent(passage.track)){var track=passage.track;var texture=ArtSceneTexture(track.image);var tuv=ArtSceneUV(track.source_rect,texture);material.SetTexture("_TrackTex",texture);material.SetVector("_TrackRect",new Vector4(track.x,track.y,track.width,track.height));material.SetVector("_TrackUV",new Vector4(tuv.x,tuv.y,tuv.width,tuv.height));material.SetFloat("_TrackEnabled",1);}
     else material.SetFloat("_TrackEnabled",0);
     // Compile/warm the tiny shader during cold scene preparation, not on the
@@ -191,13 +195,13 @@ namespace AngelsDemons.Poc {
     bool observed=false,observationChanged=false;
     for(int i=0;i<c.passage.observation_cells.Length;i++){var cell=c.passage.observation_cells[i];byte alpha=ViewCell(view,Mathf.RoundToInt(cell.x),Mathf.RoundToInt(cell.y))=='2'?(byte)255:(byte)0;observed|=alpha!=0;if(c.observationPixels[i].a!=alpha){c.observationPixels[i]=new Color32(255,255,255,alpha);observationChanged=true;}}
     if(observationChanged){c.observation.SetPixels32(c.observationPixels);c.observation.Apply(false,false);}
-    double progress;bool moving=PaintedPassageRenderPhase(c.passage,state.GameSeconds,seconds,out progress)&&observed;
+    bool external=PaintedExternalTrain(c.passage);double progress=0;bool moving=!external&&PaintedPassageRenderPhase(c.passage,state.GameSeconds,seconds,out progress)&&observed&&!TrainMotionReplacesPainted(scene.level_id,c.passage.id);
     if(!c.rendered||c.wasMoving!=moving||(moving&&(c.renderedTime!=seconds||observationChanged))){
      c.material.SetFloat(AmbientTrainEnabled,moving?1:0);
      if(moving){var rect=PaintedPassageRect(c.passage,PaintedPassagePosition(c.passage,progress));c.material.SetVector(AmbientTrainRect,new Vector4(rect.x,rect.y,rect.width,rect.height));}
      BlitPaintedAmbient(c.layer,c.material);c.rendered=true;c.wasMoving=moving;c.renderedTime=seconds;
     }
-    if(verifyAmbient)RecordAmbientContinuity(scene,c,seconds,progress,moving,observed);
+    if(verifyAmbient&&!external)RecordAmbientContinuity(scene,c,seconds,progress,moving,observed);
     if(!moving&&!PaintedTrackPresent(c.passage.track))continue;
     var target=PaintedTarget(c.bounds,fit,scale);target.position-=viewport.position;GUI.color=Color.white;GUI.DrawTexture(target,c.layer,ScaleMode.StretchToFill,true);
    }

@@ -187,11 +187,14 @@ type Menu struct {
 }
 
 type Compiled struct {
-	PlayableScenes json.RawMessage `json:"playable_scenes,omitempty"`
-	CombatRuntime  json.RawMessage `json:"combat_runtime,omitempty"`
-	Illumination   json.RawMessage `json:"illumination_runtime,omitempty"`
-	Stealth        json.RawMessage `json:"stealth_runtime,omitempty"`
-	CombatLife     json.RawMessage `json:"combat_life,omitempty"`
+	MedicalCapsules  *MedicalCapsuleCatalog `json:"medical_capsules,omitempty"`
+	SanitaryServices *SanitaryCatalog       `json:"sanitary_services,omitempty"`
+	TrainMotion      *TrainMotionCatalog    `json:"train_motion,omitempty"`
+	PlayableScenes   json.RawMessage        `json:"playable_scenes,omitempty"`
+	CombatRuntime    json.RawMessage        `json:"combat_runtime,omitempty"`
+	Illumination     json.RawMessage        `json:"illumination_runtime,omitempty"`
+	Stealth          json.RawMessage        `json:"stealth_runtime,omitempty"`
+	CombatLife       json.RawMessage        `json:"combat_life,omitempty"`
 	// Body spacing of a fight (doc 96 v2, world.combat_spacing); absent = cell occupancy only.
 	CombatSpacing    json.RawMessage            `json:"combat_spacing,omitempty"`
 	Wayfinding       WayfindingCatalog          `json:"wayfinding,omitempty"`
@@ -446,6 +449,9 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	if out.HallClosing, err = readHallClosing(world); err != nil {
 		return out, nil, err
 	}
+	if out.TrainMotion, err = readTrainMotion(world, out.Life); err != nil {
+		return out, nil, err
+	}
 	if out.NoiseWaves, err = readNoiseWaves(world); err != nil {
 		return out, nil, err
 	}
@@ -650,6 +656,13 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 			return out, nil, fmt.Errorf("world.art: %w", err)
 		}
 	}
+	var trainViews TrainMotionCatalog
+	if out.TrainMotion != nil {
+		trainViews = *out.TrainMotion
+	}
+	if err := trainViews.validatePainted(out.Art.Painted); err != nil {
+		return out, nil, err
+	}
 	if err := checkArtScenes(out.Art.Scenes); err != nil {
 		return out, nil, err
 	}
@@ -739,6 +752,12 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 		}
 	}
 	if out.Inventory, err = inventoryModel(world, level, out.Config.LevelID, out.Life); err != nil {
+		return out, nil, err
+	}
+	if out.SanitaryServices, err = readSanitaryServices(world, out); err != nil {
+		return out, nil, err
+	}
+	if out.MedicalCapsules, err = readMedicalCapsules(world, out); err != nil {
 		return out, nil, err
 	}
 	if err := validateCommerce(out); err != nil {
@@ -1076,6 +1095,14 @@ func Generate(project string) error {
 		"capture_test.go.tmpl":                  filepath.Join(project, "internal/poc/capture_generated_test.go"),
 		"capture.cs.tmpl":                       filepath.Join(unity, "Assets/Generated/Poc/PocCaptureView.cs"),
 		"mission.go.tmpl":                       filepath.Join(project, "internal/poc/mission.gen.go"),
+		"sanitary_services.go.tmpl":             filepath.Join(project, "internal/poc/sanitary_services.gen.go"),
+		"sanitary_services_view.go.tmpl":        filepath.Join(project, "internal/poc/sanitary_services_view.gen.go"),
+		"sanitary_services_test.go.tmpl":        filepath.Join(project, "internal/poc/sanitary_services_generated_test.go"),
+		"medical_capsules.go.tmpl":              filepath.Join(project, "internal/poc/medical_capsules.gen.go"),
+		"medical_capsules_view.go.tmpl":         filepath.Join(project, "internal/poc/medical_capsules_view.gen.go"),
+		"medical_capsules_test.go.tmpl":         filepath.Join(project, "internal/poc/medical_capsules_generated_test.go"),
+		"train_motion.go.tmpl":                  filepath.Join(project, "internal/poc/train_motion.gen.go"),
+		"train_motion_test.go.tmpl":             filepath.Join(project, "internal/poc/train_motion_generated_test.go"),
 		"runtime.go.tmpl":                       filepath.Join(project, "internal/poc/runtime.gen.go"),
 		"location_sdk.go.tmpl":                  filepath.Join(project, "internal/poc/location_sdk.gen.go"),
 		"gates.go.tmpl":                         filepath.Join(project, "internal/poc/gates.gen.go"),
@@ -1130,6 +1157,17 @@ func Generate(project string) error {
 		"storefront_proof.cs.tmpl":              filepath.Join(unity, "Assets/Generated/Poc/PocStorefrontProof.cs"),
 		"storefront.shader.tmpl":                filepath.Join(unity, "Assets/Resources/Generated/PocStorefront.shader"),
 		"painted_ambient_proof.cs.tmpl":         filepath.Join(unity, "Assets/Generated/Poc/PocAmbientProof.cs"),
+		"train_motion.cs.tmpl":                  filepath.Join(unity, "Assets/Generated/Poc/PocTrainMotion.cs"),
+		"train_motion_painted.cs.tmpl":          filepath.Join(unity, "Assets/Generated/Poc/PocTrainMotionPainted.cs"),
+		"train_motion_proof.cs.tmpl":            filepath.Join(unity, "Assets/Generated/Poc/PocTrainMotionProof.cs"),
+		"sanitary_services.cs.tmpl":             filepath.Join(unity, "Assets/Generated/Poc/PocSanitaryServices.cs"),
+		"sanitary_services_panel.cs.tmpl":       filepath.Join(unity, "Assets/Generated/Poc/PocSanitaryServicesPanel.cs"),
+		"sanitary_services_proof.cs.tmpl":       filepath.Join(unity, "Assets/Generated/Poc/PocSanitaryServicesProof.cs"),
+		"medical_scan.cs.tmpl":                  filepath.Join(unity, "Assets/Generated/Poc/PocMedicalScan.cs"),
+		"medical_scan.shader.tmpl":              filepath.Join(unity, "Assets/Resources/Generated/PocMedicalScan.shader"),
+		"medical_capsules.cs.tmpl":              filepath.Join(unity, "Assets/Generated/Poc/PocMedicalCapsules.cs"),
+		"medical_capsules_panel.cs.tmpl":        filepath.Join(unity, "Assets/Generated/Poc/PocMedicalCapsulesPanel.cs"),
+		"medical_capsules_proof.cs.tmpl":        filepath.Join(unity, "Assets/Generated/Poc/PocMedicalCapsulesProof.cs"),
 		"painted_ambient.cs.tmpl":               filepath.Join(unity, "Assets/Generated/Poc/PocPaintedAmbient.cs"),
 		"painted_motion.cs.tmpl":                filepath.Join(unity, "Assets/Generated/Poc/PocPaintedMotion.cs"),
 		"painted_motion_proof.cs.tmpl":          filepath.Join(unity, "Assets/Generated/Poc/PocPaintedMotionProof.cs"),

@@ -32,10 +32,25 @@ func TestLocationSDKOverrideIntegrationPreservesOwnershipAndAuthority(t *testing
 	if strings.Index(r, "LoadLocationSDKOverrides();") > strings.Index(r, "locationSDKRoot=new GameObject") {
 		t.Fatal("prefab validation must precede any scene instantiation")
 	}
-	for _, required := range []string{"locationSDKCameraData.renderPostProcessing=postProfile!=null&&locationSDKVolume!=null", "LocationSDKOverrideContract.PresentationProfile(locationSDKPresentationEntry,GraphicsFull)", "LocationSDKOverrideContract.PresentationAmbient(entry,locationSDKTime,brightness);var probe=new UnityEngine.Rendering.SphericalHarmonicsL2();probe.AddAmbientLight(ambient);", "locationSDKCameraData.volumeLayerMask=1<<LocationSDKLayer", "void ReleaseLocationSDK(){LocationSDKRestoreAmbient();", "RenderSettings.ambientProbe=probe", "LocationSDKApplyPresentation(light);", "VolumeManager.instance.Update(locationSDKCamera.transform,1<<LocationSDKLayer);PocRendering.RenderCamera"} {
+	for _, required := range []string{"locationSDKCameraData.renderPostProcessing=postProfile!=null&&locationSDKVolume!=null", "LocationSDKOverrideContract.PresentationProfile(locationSDKPresentationEntry,GraphicsFull)", "LocationSDKOverrideContract.PresentationAmbient(entry,locationSDKTime,brightness);var probe=new UnityEngine.Rendering.SphericalHarmonicsL2();probe.AddAmbientLight(ambient);", "locationSDKCameraData.volumeLayerMask=1<<LocationSDKLayer", "void ReleaseLocationSDK(){", "RenderSettings.ambientProbe=probe", "LocationSDKApplyPresentation(light);", "VolumeManager.instance.Update(locationSDKCamera.transform,1<<LocationSDKLayer);PocRendering.RenderCamera"} {
 		if !strings.Contains(r, required) {
 			t.Errorf("presentation/graphics seam missing %q", required)
 		}
+	}
+	// Scene release still restores global ambient first, after only the optional
+	// scan callback/material cleanup, which must precede destruction of SDK bodies.
+	releaseMarker := "void ReleaseLocationSDK(){"
+	if strings.Count(r, releaseMarker) != 1 {
+		t.Fatal("expected one SDK release function")
+	}
+	releaseBody := r[strings.Index(r, releaseMarker)+len(releaseMarker):]
+	ambientAt := strings.Index(releaseBody, "LocationSDKRestoreAmbient();")
+	if ambientAt < 0 {
+		t.Fatal("SDK release lost ambient restoration")
+	}
+	beforeAmbient := strings.TrimSpace(releaseBody[:ambientAt])
+	if beforeAmbient != "" && beforeAmbient != "ReleaseMedicalScan();" {
+		t.Fatal("SDK release must restore ambient before any scene destruction, after optional scan cleanup only")
 	}
 	for _, required := range []string{"visual.lights[i].shadows=GraphicsFull?visual.shadows[i]:LightShadows.None", "visual.lights[i].enabled=LocationSDKOverrideContract.LightEnabled(visual.lightQualities[i],GraphicsFull)", "ValidatePresentation(resource.location_sdk,registries)"} {
 		if !strings.Contains(s, required) {

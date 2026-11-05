@@ -19,11 +19,13 @@ func TestPaintedOptionalDTONative(t *testing.T) {
 	csc := filepath.Join(filepath.Dir(mono), "../lib/mono/4.5/csc.exe")
 	uv := sceneTemplateSection(t, "art_scene.cs.tmpl", "        static bool ArtSceneHasCrop(", "        void DrawArtScene(")
 	track := sceneTemplateSection(t, "painted_ambient.cs.tmpl", "  static bool PaintedTrackPresent(", "  static void BlitPaintedAmbient(")
+	dto := sceneTemplateSection(t, "painted_ambient.cs.tmpl", " [Serializable] public sealed class PocAmbientTrack", " public sealed partial class AngelsDemonsPoc")
+	point := sceneTemplateSection(t, "painted.cs.tmpl", " [Serializable] public sealed class PocPaintedPoint", " [Serializable] public sealed class PocPaintedActor")
+	cropDTO := sceneTemplateSection(t, "art_scene.cs.tmpl", "    [Serializable] public sealed class PocArtSceneSourceRect", "    [Serializable] public sealed class PocArtSceneLayer")
 	harness := `using System;
 struct Rect {public float x,y,width,height;public Rect(float a,float b,float c,float d){x=a;y=b;width=c;height=d;}}
 class Texture2D {public int width=1672,height=941;}
-class PocArtSceneSourceRect {public int x,y,w,h;}
-class PocAmbientTrack {public string image;public float width,height;}
+` + cropDTO + point + dto + `
 class Proof {
 ` + uv + track + `
  static void Need(bool b,string why){if(!b)throw new Exception(why);}
@@ -36,6 +38,7 @@ class Proof {
   Need(!PaintedTrackPresent(null)&&!PaintedTrackPresent(new PocAmbientTrack()),"absent static track must never load a null Resources path");
   Need(!PaintedTrackPresent(new PocAmbientTrack{image="MarketArt/rail"})&&!PaintedTrackPresent(new PocAmbientTrack{width=100,height=30}),"empty image/dimensions do not create a track");
   Need(PaintedTrackPresent(new PocAmbientTrack{image="MarketArt/rail",width=100,height=30}),"real optional track remains enabled");
+  Need(PaintedExternalTrain(new PocAmbientPassage{motion_source="train_motion"})&&!PaintedExternalTrain(new PocAmbientPassage{motion_source="calendar"})&&!PaintedExternalTrain(new PocAmbientPassage()),"typed actual passage DTO must distinguish external geometry from legacy calendar");
   Console.WriteLine("empty nested DTO: optional track absent / whole-image UV / real crop preserved PASS");
  }
 }`

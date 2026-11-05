@@ -67,7 +67,36 @@ func TestURPSDKPreparesBeforeIMGUIAndRendersAfterMainFrame(t *testing.T) {
 	}
 	unity := hudTemplate(t, "unity.cs.tmpl")
 	late := unity[strings.Index(unity, "void LateUpdate()"):strings.Index(unity, "void FinishProof(")]
-	if !strings.Contains(late, "UpdateMotion();\n            HeroBodyPredict();\n            RenderLocationSDKFrame();") {
-		t.Fatal("SDK capture must run in LateUpdate after authoritative replies and motion sampling")
+	ordered := func(body string, calls ...string) {
+		t.Helper()
+		previous := -1
+		for _, call := range calls {
+			position := strings.Index(body, call)
+			if position <= previous || strings.Count(body, call) != 1 {
+				t.Fatalf("render barrier requires exactly one %s after preceding authoritative/presentation step", call)
+			}
+			previous = position
+		}
 	}
+	// Required relative order is strict; service updates may occur between steps.
+	// A string of adjacent statements incorrectly rejected legitimate extensions.
+	calls := []string{"session.Pump(32)", "UpdateMotion();", "HeroBodyPredict();", "UpdateTrainMotion();", "RenderLocationSDKFrame();", "TrainMotionProofAfterFrame();"}
+	for _, service := range []string{"MedicalCapsule", "Sanitary"} {
+		proof := service + "ProofAfterFrame();"
+		if strings.Contains(unity, "Update"+service) || strings.Contains(late, proof) {
+			calls = append(calls, proof)
+		}
+	}
+	ordered(late, calls...)
+	frameCalls := []string{"LocationSDKUpdateActors();", "UpdateTrainMotionSDK();"}
+	for _, service := range []string{"UpdateMedicalCapsuleSDK();", "UpdateSanitarySDK();"} {
+		if strings.Contains(sdk, service) {
+			frameCalls = append(frameCalls, service)
+		}
+	}
+	frameCalls = append(frameCalls, "LocationSDKRenderNow();")
+	ordered(frame, frameCalls...)
+	now := sceneTemplateSection(t, "location_sdk.cs.tmpl", "  void LocationSDKRenderNow()", "  // Load / new game:")
+	ordered(now, "PocRendering.RenderCamera(locationSDKCamera,locationSDKTarget);", "locationSDKFrameReady=true;")
+
 }

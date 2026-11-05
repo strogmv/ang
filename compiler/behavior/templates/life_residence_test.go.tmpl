@@ -74,3 +74,11 @@ func TestLifeResidenceSharedPortalSerializesReturnWithoutOverlappingBodies(t *te
  for tick:=int64(1);tick<=160;tick++{s.Advance(m,tick);if err:=s.Validate(m,tick);err!=nil{t.Fatal(err)};for _,a:=range s.Actors{if a.ResidenceID!=""{inside[a.ID]=true};if inside[a.ID]&&a.OnFloor()&&left[a.ID]==0{left[a.ID]=tick}}}
  if len(inside)!=2||len(left)!=2||left["one"]==left["two"]{t.Fatalf("shared return not serialized: inside=%v left=%v",inside,left)}
 }
+
+// A service owns physical presence; the retained cell is only its exclusive
+// return anchor. A timetable change cannot board or resume this actual person.
+func TestLifeServiceAttachmentBlocksRoutineAndReservesReturn(t *testing.T){
+ m:=lifeFixture();s:=m.Start();a:=s.Actor("one");anchor:=a.Position;a.ServiceAttachment="capsule.test";a.CombatHold=true
+ for tick:=int64(1);tick<=120;tick++{s.Advance(m,tick);a=s.Actor("one");if a.OnFloor()||a.Position!=anchor||a.Level!="a"||a.Trip!=nil||len(a.Path)>0{t.Fatal("service occupant resumed routine")};if !s.BlockedCells("a","two")[anchor]||!s.occupied("a",anchor,"two"){t.Fatal("service return anchor lost reservation")};if err:=s.Validate(m,tick);err!=nil{t.Fatal(err)}}
+ encoded,err:=json.Marshal(s);if err!=nil{t.Fatal(err)};var restored LifeState;if err=json.Unmarshal(encoded,&restored);err!=nil{t.Fatal(err)};for tick:=int64(121);tick<=140;tick++{s.Advance(m,tick);restored.Advance(m,tick)};if !reflect.DeepEqual(s.Clone(),restored.Clone()){t.Fatal("service continuation diverged")};restored.Actor("one").CombatHold=false;if restored.Validate(m,140)==nil{t.Fatal("unowned attachment accepted")}
+}

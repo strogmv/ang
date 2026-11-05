@@ -12,7 +12,7 @@ type LifeResidence struct {
  Residents []string `json:"residents"`
 }
 // OnFloor excludes both transit and private coarse interiors from physical queries.
-func(a LifeActor)OnFloor()bool{return a.Trip==nil&&a.ResidenceID==""}
+func(a LifeActor)OnFloor()bool{return a.Trip==nil&&a.ResidenceID==""&&a.ServiceAttachment==""}
 func(m LifeModel)Residence(id string)*LifeResidence{for i:=range m.Residences{if m.Residences[i].ID==id{return &m.Residences[i]}};return nil}
 func(m LifeModel)ActorResidence(id string)*LifeResidence{for i:=range m.Residences{for _,resident:=range m.Residences[i].Residents{if resident==id{return &m.Residences[i]}}};return nil}
 func(r LifeResidence)matches(step LifeStep)bool{return step.Activity=="sleep"&&step.Level==r.Level&&step.At==r.Entry}

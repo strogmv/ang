@@ -90,6 +90,8 @@ type LifeBrain struct {
 }
 // Host authority bridges real inventory to the kernel. It is never saved or cloned.
 type LifeBrainServices struct {
+ // A hosted provider owns hygiene recovery; its exterior affordance cannot grant it.
+ HygieneManaged func(string,string)bool
  Balance func(string)int64
  Offers func(string,string,string)[]LifeAffordance
  Buy func(string,LifeAffordance,bool)bool
@@ -187,7 +189,7 @@ func(b *LifeBrain)advance(m LifeBrainModel,svc LifeBrainServices,id,level,activi
  dt:=seconds-b.LastSecond;if dt<0{return schedule};b.LastSecond=seconds
  if day:=seconds/86400;day!=b.RationDay{b.RationDay=day;b.Rations=0;for d:=range b.WorkDays{if d<day-1{delete(b.WorkDays,d)}}}
  rates:=m.Rates
- if arrived {switch activity{case "sleep":rates[1]-=m.SleepRecovery;case "hygiene":rates[2]-=m.HygieneRecovery;case "social","market":rates[3]-=m.SocialRecovery}}
+ if arrived {switch activity{case "sleep":rates[1]-=m.SleepRecovery;case "hygiene":if svc.HygieneManaged==nil||!svc.HygieneManaged(id,b.Place.ID){rates[2]-=m.HygieneRecovery};case "social","market":rates[3]-=m.SocialRecovery}}
  // Eating at a shared counter is company too (seated, not in the queue).
  if arrived&&b.SeatedAt>0&&b.RiseAt==0&&at==b.Target.At{rates[3]-=m.SocialRecovery}
  for i,rate:=range rates{n:=rate*dt+b.Remainder[i];b.Needs[i]=brainClamp(b.Needs[i]+n/86400);b.Remainder[i]=n%86400}
@@ -391,4 +393,12 @@ func(s *LifeState)brainLegEdge(m LifeModel,a *LifeActor,goal string)*LifeEdge{
  if current!=nil&&current.ID!=best.ID{a.WaitingDeparture=0}
  b.LegEdge,b.LegFrom,b.LegTo,b.LegCheck=best.ID,a.Level,goal,s.Seconds+brainLegRecheck
  return best
+}
+
+// AdvanceServiceNeeds integrates the existing five needs while a host owns motion.
+// recoverySeconds is actual basin/shower use within this elapsed interval. No new
+// rates, extra need, work income, autonomous goal choice or catch-up restoration.
+func(b *LifeBrain)AdvanceServiceNeeds(m LifeBrainModel,id string,seconds,seed,recoverySeconds int64){
+ if !m.Enabled{return};b.start(m,id,seconds,seed);dt:=seconds-b.LastSecond;if dt<=0{return};if recoverySeconds<0{recoverySeconds=0};if recoverySeconds>dt{recoverySeconds=dt};b.LastSecond=seconds
+ for i,rate:=range m.Rates{n:=rate*dt+b.Remainder[i];if i==2{n-=m.HygieneRecovery*recoverySeconds};b.Needs[i]=brainClamp(b.Needs[i]+n/86400);b.Remainder[i]=n%86400}
 }

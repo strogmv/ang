@@ -583,8 +583,8 @@ func (r *Runtime) validateCombatSave(s state) error {
   level,at,present:=validator.knownCombatLifeActor(id)
   if id!=c.ID||level==""||c.Team==""||len(c.Team)>256||c.Controlled!=(id==playerActorID){return errors.New("unknown combat roster actor")}
   if err:=c.Validate(r.world.CombatRuntime.Rules);err!=nil{return err}
-  if !c.Withdrawn&&(!c.Able()||len(c.Body)>0&&!c.BodyCanWalk)&&(!present||!validator.combatLifeHeld(id)||at!=c.Position){return errors.New("incapable combat actor resumed a routine")}
-  if c.Able()&&c.StunTurns==0&&(len(c.Body)==0||c.BodyCanWalk)&&validator.combatLifeHeld(id)&&(!s.Combat.Active||s.Combat.Actor(id)==nil){return errors.New("orphan combat hold")}
+  if !validator.serviceOwnsActor(id)&&!c.Withdrawn&&(!c.Able()||len(c.Body)>0&&!c.BodyCanWalk)&&(!present||!validator.combatLifeHeld(id)||at!=c.Position){return errors.New("incapable combat actor resumed a routine")}
+  if !validator.serviceOwnsActor(id)&&c.Able()&&c.StunTurns==0&&(len(c.Body)==0||c.BodyCanWalk)&&validator.combatLifeHeld(id)&&(!s.Combat.Active||s.Combat.Actor(id)==nil){return errors.New("orphan combat hold")}
  }
 
 	for _, c := range s.Combat.Actors {

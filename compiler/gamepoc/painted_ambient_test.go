@@ -26,6 +26,24 @@ func paintedAmbientFixture() Compiled {
 	return c
 }
 
+func TestPaintedAmbientOptionalMetricRailDatum(t *testing.T) {
+	c := paintedAmbientFixture()
+	raw, err := json.Marshal(c.Art.Painted[0].AmbientPassages[0])
+	if err != nil || strings.Contains(string(raw), "metric_rail") {
+		t.Fatal("legacy PNG passages must retain their existing optional-field shape")
+	}
+	c.Art.Painted[0].AmbientPassages[0].MetricRail = &PaintedRailMetric{CellMeters: 1, TrackM: 29.9, PathProgress: .5}
+	if err := checkPaintedScenes(c); err != nil {
+		t.Fatal(err)
+	}
+	for _, invalid := range []PaintedRailMetric{{CellMeters: 0}, {CellMeters: 1, TrackM: math.NaN()}, {CellMeters: 1, PathProgress: 1.01}} {
+		c.Art.Painted[0].AmbientPassages[0].MetricRail = &invalid
+		if err := checkPaintedScenes(c); err == nil || !strings.Contains(err.Error(), "metric rail datum") {
+			t.Fatalf("invalid metric datum accepted: %+v, err=%v", invalid, err)
+		}
+	}
+}
+
 func TestPaintedAmbientRejectsInvalidLayerGeometryAndSchedule(t *testing.T) {
 	if err := checkPaintedScenes(paintedAmbientFixture()); err != nil {
 		t.Fatal(err)

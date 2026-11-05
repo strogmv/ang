@@ -30,6 +30,8 @@ func (r *Runtime) initLifeState(life behavior.LifeState) {
 	life.Seed = r.state.Seed
 	life.ControlledActorID = playerActorID
 	r.state.Life = life
+ r.state.Medical=medicalState{}
+ r.state.Sanitary=sanitaryState{}
 	r.applyGateTerrain()
 	r.state.Region = regionKnowledge{}
 	r.syncRegionKnowledge()
@@ -85,6 +87,9 @@ func (r *Runtime) lifeStep() error {
 	return r.completeHeroTravel()
 }
 func (r *Runtime) advanceLifeFrameBy(delta int64) error {
+ r.medicalHoldPatients()
+ r.sanitaryNPCRequests()
+ r.sanitaryHoldUsers()
  if err:=r.advancePlayableScene();err!=nil{return err}
 	r.state.Life.Seed = r.state.Seed
  r.combatLifeBeforeFrame()
@@ -110,6 +115,8 @@ func (r *Runtime) advanceLifeFrameBy(delta int64) error {
 	r.calendarEncounterBeforeFrame()
  r.calendarEncounterAfterFrame()
  if err:=r.advanceCombatCare();err!=nil{return err}
+ if err:=r.advanceMedicalCapsules();err!=nil{return err}
+ if err:=r.advanceSanitaryServices();err!=nil{return err}
  if err := r.advanceMarketSupply(); err != nil {
 		return err
 	}
@@ -154,7 +161,7 @@ func (r *Runtime) lifeViewRuntime() *Runtime {
 	v.world.Entities = nil
 	v.world.Scene = sceneData{}
 	for _, person := range r.state.Life.Actors {
-		if person.ID == playerActorID || !person.OnFloor() || person.Level != a.Level {
+		if person.ID == playerActorID || r.sanitaryPrivateActor(person.ID) || (!person.OnFloor() && !r.serviceAttached(person.ID)) || person.Level != a.Level {
 			continue
 		}
 		cfg := r.world.Life.Person(person.ID)
@@ -224,6 +231,7 @@ func (r *Runtime) sendLifeState(c *connection) {
 		}
 	}
 	view := &pb.PocLifeView{Enabled: true, LevelId: hero.Level, LevelName: r.regionLevelName(c.locale, hero.Level), SecondsPerTick: int32(s.Life.SecondsPerTick), Activity: r.localActivity(c.locale, hero.Label), Sneaking:hero.Sneaking,SneakUpright:hero.Sneaking&&hero.SneakUpright, Transit: hero.Trip != nil, Automatic: !hero.Manual, WorkSeconds: hero.WorkedSeconds, SleepSeconds: hero.SleptSeconds, Meals: int32(hero.Meals)}
+ view.TrainMotionJson = r.trainMotionJSON()
  r.appendIllumination(view,hero)
  r.appendBarks(view,msg,hero,c.locale)
  r.appendEncounterBark(view,msg,hero,c.locale)
@@ -286,6 +294,8 @@ func (r *Runtime) sendLifeState(c *connection) {
 	r.appendCombatPanel(msg, c.locale)
 	r.appendInventory(msg, c.locale)
 	v.appendPerception(msg)
+ r.appendMedicalCapsules(msg,hero,c.locale)
+ r.appendSanitaryServices(msg,hero,c.locale)
  r.appendPlayableScene(view,hero,msg.PlayerView,c.locale)
 	r.appendStorefrontState(view, hero, msg.PlayerView)
 	r.appendVending(view, hero, msg.PlayerView, c.locale)
@@ -330,6 +340,10 @@ func (r *Runtime) sendLifeState(c *connection) {
 	r.send(c, &pb.ServerMessage{Msg: &pb.ServerMessage_GameState{GameState: msg}})
 }
 func (r *Runtime) lifeCommand(q *pb.PocLifeCommand) error {
+ if q.Action=="sanitary_request"||q.Action=="sanitary_cancel"{return r.sanitaryCommand(q)}
+ if r.sanitaryReserved(playerActorID){return textError{Key:"sanitary.error.busy"}}
+ if q.Action=="medical_request"||q.Action=="medical_accept"||q.Action=="medical_cancel"{return r.medicalCommand(q)}
+ if _,held:=r.state.Medical.Patients[playerActorID];held{return textError{Key:"medical.error.busy"}}
 	if r.heroInCombat() {
 		return textError{Key: "error.combat_busy"}
 	}
@@ -341,7 +355,7 @@ func (r *Runtime) lifeCommand(q *pb.PocLifeCommand) error {
 	}
 	hero := r.state.Life.Actor(playerActorID)
  if e:=r.world.CalendarEncounter;e!=nil&&(q.Destination==e.Medical.Level||q.Destination==e.Gate.Level){return textError{Key:"error.encounter.unavailable"}}
-	if hero != nil && hero.CombatHold {
+	if hero != nil && (hero.CombatHold || hero.ServiceAttachment!="" || r.serviceReserved(playerActorID)) {
 		return textError{Key: "error.combat_actor_inactive"}
 	}
 	switch q.Action {
@@ -481,7 +495,7 @@ func (r *Runtime) lifeMove(c *connection, m *pb.MoveTo) {
 		return
 	}
 	switch {
-	case hero != nil && hero.CombatHold:
+	case hero != nil && (hero.CombatHold || hero.ServiceAttachment!="" || r.serviceReserved(playerActorID)):
 		result.Reason = "actor_inactive"
 	case r.state.Life.PopulationFailure != "":
 		result.Reason = "Симуляция остановлена; загрузите сохранение"
@@ -524,7 +538,7 @@ func (r *Runtime) lifeWalkTo(target behavior.Cell) bool {
 }
 func (r *Runtime) lifeWalkToPoint(target behavior.Cell, x, y float64, point, run bool, seq uint64) bool {
 	hero := r.state.Life.Actor(playerActorID)
-	if hero == nil || hero.Trip != nil || r.state.Paused || hero.CombatHold {
+	if hero == nil || hero.Trip != nil || r.state.Paused || hero.CombatHold || hero.ServiceAttachment!="" || r.serviceReserved(playerActorID) {
 		return false
 	}
 	// Movement v2 (document 87): in a modular location the hero is a continuous body.
@@ -896,7 +910,7 @@ func (r *Runtime) heroBodyNow() {
 		return
 	}
 	h := r.state.Life.Actor(playerActorID)
-	if h == nil || h.Body == nil || h.CombatHold {
+	if h == nil || h.Body == nil || h.CombatHold || h.ServiceAttachment!="" {
 		return
 	}
 	r.state.Life.HeroBodyAdvance(r.state.Life.GateModel(r.world.Life), r.lifeBodyNowMilli())
@@ -927,7 +941,7 @@ func (r *Runtime) heroSteer(c *connection, m *pb.PocHeroSteer) {
 	result := &pb.PocMoveResult{Epoch: r.state.Epoch, InputSeq: m.InputSeq}
 	hero := r.state.Life.Actor(playerActorID)
 	switch {
-	case r.heroInCombat() || hero != nil && hero.CombatHold:
+	case r.heroInCombat() || hero != nil && (hero.CombatHold || hero.ServiceAttachment!="" || r.serviceReserved(playerActorID)):
 		result.Reason = "combat_active"
 	case !r.state.Life.Enabled || !r.state.Active || hero == nil:
 		result.Reason = "Сначала начните игру"
