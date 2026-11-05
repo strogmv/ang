@@ -44,6 +44,18 @@ class Proof {`+math+`
 }`)
 }
 
+func TestMedicalClientExitWaitsForSavedOpeningNative(t *testing.T) {
+	dto := sceneTemplateSection(t, "medical_capsules.cs.tmpl", " [Serializable] public sealed class PocMedicalPose", " public sealed partial class AngelsDemonsPoc")
+	math := sceneTemplateSection(t, "medical_capsules.cs.tmpl", "  static double MedicalClock(", "  bool MedicalRead(")
+	runPaintedTextureNative(t, "MedicalExitOpeningInterlock", `using System;`+dto+`class Proof {`+math+`
+ static void Near(double a,double b,string why){if(Math.Abs(a-b)>1e-7)throw new Exception(why+" actual="+a+" expected="+b);}
+ public static void Main(){var u=new PocMedicalUnit{phase="exit",phase_start_ns=1000000000,phase_end_ns=3000000000,door_start_ns=1000000000,door_end_ns=1600000000,door_from=0,door_to=1,inside_pose=new PocMedicalPose{x=3,yaw_degrees=90},scan_pose=new PocMedicalPose{x=4.75,yaw_degrees=270}};
+ Near(MedicalPatientPose(u,1300000000).x,3,"actual body advanced while leaves opened");Near(MedicalPatientPose(u,1600000000).x,3,"body moved at opening endpoint");Near(MedicalPatientPose(u,2300000000).x,3.875,"remaining phase was not rescaled");Near(MedicalPatientPose(u,3000000000).x,4.75,"exit deadline changed");
+ u.patient_pose=new PocMedicalPose{x=3,yaw_degrees=90};Near(MedicalPresentedPose(u,1300000000,1500000000).x,3,"bounded extrapolation crossed closed leaves");Near(MedicalPresentedPose(u,1300000000,2300000000).x,3.875,"published pose anchor lost after opening");
+ Near(MedicalPatientPose(u,MedicalClock(1300000000,2300000000,true,250,1)).x,3,"paused saved opening advanced");u.door_from=1;Near(MedicalExitProgress(u,2000000000),.5,"already-open door waited again");u.door_from=0;u.phase_start_ns=4000000000;u.phase_end_ns=6000000000;Near(MedicalExitProgress(u,5000000000),.5,"blocked retry reused old opening");u.exit_blocked=true;Near(MedicalPatientPose(u,6000000000).x,3,"blocked retry moved");Console.WriteLine("saved opening interlock, unchanged deadline, authoritative anchor, pause/load and already-open retry PASS");}
+}`)
+}
+
 func TestMedicalClientUsesExistingBodyAndPrivateOffer(t *testing.T) {
 	core := hudTemplate(t, "medical_capsules.cs.tmpl")
 	panel := hudTemplate(t, "medical_capsules_panel.cs.tmpl")

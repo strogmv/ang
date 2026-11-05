@@ -7,7 +7,7 @@ using UnityEngine.Rendering.RenderGraphModule;
 using UnityEngine.Rendering.Universal;
 namespace AngelsDemons.Poc {
  public sealed partial class AngelsDemonsPoc {
-  sealed class MedicalScanSurface {public string unit,patient;public GameObject body;public SkinnedMeshRenderer[] renderers;public Material material;public int drawnFrame=-1,drawCalls;public float height;}
+  sealed class MedicalScanSurface {public string unit,patient;public GameObject body;public SkinnedMeshRenderer[] renderers;public Material material;public int drawnFrame=-1,drawCalls;public float height,progress,sweep,intensity;public Bounds bounds;public Vector3 projector;}
   readonly Dictionary<string,MedicalScanSurface> medicalScanSurfaces=new Dictionary<string,MedicalScanSurface>();
   readonly HashSet<string> medicalScanSeen=new HashSet<string>();
   MedicalScanPass medicalScanPass;bool medicalScanSubscribed;string medicalScanHiddenUnit;
@@ -59,14 +59,22 @@ namespace AngelsDemons.Poc {
      var renderers=actor.go.GetComponentsInChildren<SkinnedMeshRenderer>(true);if(renderers.Length==0){MedicalFail("Medical patient has no actual skinned surface: "+unit.patient_id);continue;}
      surface=new MedicalScanSurface{unit=unit.id,patient=unit.patient_id,body=actor.go,renderers=renderers,material=new Material(shader){name="Medical scan / "+unit.id,hideFlags=HideFlags.DontSave}};medicalScanSurfaces[unit.id]=surface;
     }
-    surface.height=visual.line.position.y;surface.drawCalls=0;surface.drawnFrame=-1;
-    surface.material.SetFloat("_ScanHeight",surface.height);surface.material.SetVector("_ProjectorWS",visual.projector.position);
-    surface.material.SetVector("_ScanCentreWS",new Vector4((float)unit.scan_pose.x,surface.height,(float)unit.scan_pose.z,1));
+    Bounds bounds;if(!MedicalScanBounds(surface.renderers,out bounds)){MedicalFail("Medical patient has no finite active skinned bounds: "+unit.patient_id);continue;}
+    surface.bounds=bounds;surface.progress=(float)MedicalPhaseProgress(unit.phase_start_ns,unit.phase_end_ns,MedicalSampleNS());surface.sweep=(float)MedicalScanSweep(surface.progress);surface.intensity=(float)MedicalScanIntensity(surface.progress);
+    surface.height=Mathf.Lerp(bounds.max.y-.005f,bounds.min.y+.008f,surface.sweep);surface.projector=visual.projector.position;surface.drawCalls=0;surface.drawnFrame=-1;
+    var driver=visual.line.position;driver.y=surface.height;visual.line.position=driver;
+    surface.material.SetFloat("_ScanHeight",surface.height);surface.material.SetFloat("_ScanIntensity",surface.intensity);surface.material.SetFloat("_AcquireAmount",Mathf.Clamp01((.08f-surface.progress)/.08f));surface.material.SetFloat("_FinishAmount",Mathf.Clamp01((surface.progress-.92f)/.08f));
+    surface.material.SetVector("_ProjectorWS",surface.projector);surface.material.SetVector("_BodyBoundsY",new Vector4(bounds.min.y,bounds.max.y,0,0));
+    surface.material.SetVector("_ScanCentreWS",new Vector4(bounds.center.x,surface.height,bounds.center.z,1));
    }
    var removed=new List<string>();foreach(var id in medicalScanSurfaces.Keys)if(!medicalScanSeen.Contains(id))removed.Add(id);foreach(var id in removed)MedicalScanRemove(id);
    if(medicalScanSurfaces.Count>0&&!medicalScanSubscribed){RenderPipelineManager.beginCameraRendering+=MedicalScanBeginCamera;medicalScanSubscribed=true;}
    else if(medicalScanSurfaces.Count==0&&medicalScanSubscribed){RenderPipelineManager.beginCameraRendering-=MedicalScanBeginCamera;medicalScanSubscribed=false;}
   }
   bool MedicalScanExecuted(string unit,out int drawCalls){MedicalScanSurface surface;drawCalls=0;if(!medicalScanSurfaces.TryGetValue(unit,out surface)||surface.drawnFrame!=Time.frameCount)return false;drawCalls=surface.drawCalls;return drawCalls>0;}
+  static bool MedicalScanBounds(SkinnedMeshRenderer[] renderers,out Bounds bounds){
+   bounds=default(Bounds);bool found=false;foreach(var renderer in renderers){if(renderer==null||!renderer.enabled||renderer.forceRenderingOff||!renderer.gameObject.activeInHierarchy||renderer.sharedMesh==null)continue;var b=renderer.bounds;if(float.IsNaN(b.center.y)||float.IsInfinity(b.center.y)||b.size.sqrMagnitude<.000001f)continue;if(found)bounds.Encapsulate(b);else{bounds=b;found=true;}}
+   return found&&bounds.size.y>.05f;
+  }
  }
 }

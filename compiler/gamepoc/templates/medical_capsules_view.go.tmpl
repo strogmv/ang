@@ -60,6 +60,17 @@ func medicalProgress(p medicalPatient, now int64) float64 {
 func medicalLerp(a, b medicalPose, t float64) medicalPose {
 	return medicalPose{X: a.X + (b.X-a.X)*t, Y: a.Y + (b.Y-a.Y)*t, Z: a.Z + (b.Z-a.Z)*t, YawDegrees: a.YawDegrees}
 }
+// The saved opening stroke owns the exit hold. The exit deadline is unchanged.
+// A retry whose door is already open keeps the full newly authored exit phase.
+func medicalExitProgress(p medicalPatient, door medicalDoor, now int64) float64 {
+	if p.ExitBlocked {
+		return 0
+	}
+	if door.To == 1 && door.From < 1 && door.EndNS > door.StartNS {
+		p.PhaseStartNS = max(p.PhaseStartNS, door.EndNS)
+	}
+	return medicalProgress(p, now)
+}
 func (r *Runtime) medicalPatientPose(p medicalPatient, u medicalUnit) medicalPose {
 	t := medicalProgress(p, r.simNS())
 	switch p.Phase {
@@ -75,7 +86,7 @@ func (r *Runtime) medicalPatientPose(p medicalPatient, u medicalUnit) medicalPos
 		if p.ExitBlocked {
 			return u.InsidePose
 		}
-		v := medicalLerp(u.InsidePose, u.ScanPose, t)
+		v := medicalLerp(u.InsidePose, u.ScanPose, medicalExitProgress(p, r.state.Medical.Doors[p.UnitID], r.simNS()))
 		v.YawDegrees = u.InsidePose.YawDegrees
 		return v
 	}

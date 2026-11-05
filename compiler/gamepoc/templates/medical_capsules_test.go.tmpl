@@ -4,6 +4,7 @@ import (
 	behavior "angelsdemons/server/internal/behavior"
 	pb "angelsdemons/server/internal/transport/grpc/pb/game/v1"
 	"encoding/json"
+	"math"
 	"os"
 	"reflect"
 	"testing"
@@ -46,6 +47,39 @@ func TestMedicalCatalogueAndScanGuard(t *testing.T) {
 	if r.state.Life.Actor(playerActorID).ServiceAttachment != "" {
 		t.Fatal("premature attachment")
 	}
+}
+
+func TestMedicalExitWaitsForActualOpeningAndKeepsDeadline(t *testing.T) {
+	p := medicalPatient{Phase: "exit", PhaseStartNS: 1e9, PhaseEndNS: 3e9}
+	d := medicalDoor{StartNS: 1e9, EndNS: 1600000000, From: 0, To: 1}
+	for _, tc := range []struct {now int64; want float64}{{1e9,0},{1300000000,0},{1600000000,0},{2300000000,.5},{3e9,1},{4e9,1}} {
+		if got:=medicalExitProgress(p,d,tc.now);math.Abs(got-tc.want)>1e-9 {t.Fatalf("opening interlock at %d: got %g want %g",tc.now,got,tc.want)}
+	}
+	if p.PhaseStartNS!=1e9||p.PhaseEndNS!=3e9 {t.Fatal("pose mutated saved phase")}
+	already:=d;already.From=1
+	if got:=medicalExitProgress(p,already,2e9);got!=.5 {t.Fatal("already-open door delayed exit",got)}
+	retry:=p;retry.PhaseStartNS=4e9;retry.PhaseEndNS=6e9
+	if got:=medicalExitProgress(retry,d,5e9);got!=.5 {t.Fatal("blocked retry inherited an old opening wait",got)}
+	retry.ExitBlocked=true
+	if medicalExitProgress(retry,d,6e9)!=0 {t.Fatal("blocked exit left inside pose")}
+
+	r:=medicalFixture(t);medicalInjure(t,r,playerActorID,true);medicalEnter(t,r)
+	medicalAdvance(t,r,r.world.MedicalCapsules.EntrySeconds);patient:=r.state.Medical.Patients[playerActorID]
+	medicalAdvance(t,r,r.world.MedicalCapsules.DoorSeconds) // Treatment really closes the physical leaves before care ends.
+	r.state.Life.Seconds+=patient.Quote.Seconds
+	if err:=r.advanceWoundCare();err!=nil {t.Fatal(err)}
+	if err:=r.advanceMedicalCapsules();err!=nil {t.Fatal(err)}
+	u:=r.world.MedicalCapsules.Units[0];patient=r.state.Medical.Patients[playerActorID]
+	if patient.Phase!="exit" {t.Fatal("canonical care did not reach exit")}
+	deadline:=patient.PhaseEndNS;terms:=patient.Quote;accounts:=r.state.Inventory.Clone()
+	medicalAdvance(t,r,r.world.MedicalCapsules.DoorSeconds/2)
+	patient=r.state.Medical.Patients[playerActorID]
+	if pose:=r.medicalPatientPose(patient,u);pose!=u.InsidePose {t.Fatalf("B1 regression: actual body moved into the opening leaves: %+v",pose)}
+	r.state.Paused=true;slot:=r.world.Config.SaveSlots[0]
+	if err:=r.writeSave(slot,r.snapshotState());err!=nil {t.Fatal(err)}
+	loaded,_,err:=r.readSave(slot);if err!=nil {t.Fatal(err)};r.state=loaded
+	patient=r.state.Medical.Patients[playerActorID]
+	if r.medicalPatientPose(patient,u)!=u.InsidePose||patient.PhaseEndNS!=deadline||!medicalSameTerms(patient.Quote,terms)||!reflect.DeepEqual(accounts.Accounts,r.state.Inventory.Accounts) {t.Fatal("save/load changed the hold, deadline, terms or money")}
 }
 
 func medicalInjure(t *testing.T, r *Runtime, id string, rich bool) {

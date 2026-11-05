@@ -14,20 +14,21 @@ namespace AngelsDemons.Poc {
  }
  [Serializable] public sealed class PocMedicalSnapshot {public string epoch;public long sample_sim_ns;public PocMedicalUnit[] units;public PocMedicalHero hero;}
  public sealed partial class AngelsDemonsPoc {
-  sealed class MedicalVisual {public Transform root,door,line,projector;public Quaternion doorRest;public Vector3 lineRest;public Renderer optic;public Color opticEmission;public MaterialPropertyBlock opticBlock;}
+  sealed class MedicalVisual {public Transform root,door,line,projector,doorLeft,doorRight,doorLeftOpen,doorRightOpen,doorLeftTip,doorRightTip,doorLeftTipOpen,doorRightTipOpen;public Quaternion doorRest,doorLeftRotation,doorRightRotation,doorLeftTipRotation,doorRightTipRotation;public Vector3 doorPosition,lineRest,doorLeftRest,doorRightRest,doorLeftTipClosedDriver,doorRightTipClosedDriver;public bool linearDoor,linearTipDoor;public Renderer optic;public Color opticEmission;public MaterialPropertyBlock opticBlock;}
   readonly Dictionary<string,MedicalVisual> medicalVisuals=new Dictionary<string,MedicalVisual>();
   PocMedicalSnapshot medicalSnapshot;string medicalJson,medicalFailure;
   // No calendar seconds or accumulated local timer: every part samples the same saved physical clock.
   static double MedicalClock(long sample,double rendered,bool paused,int horizonMS,int speed){return paused?sample:Math.Max(sample,Math.Min(rendered,sample+Math.Max(0,horizonMS)*1000000d*Math.Max(1,speed)));}
   static double MedicalPhaseProgress(long start,long end,double sampled){return end<=start?0:Math.Max(0,Math.Min(1,(sampled-start)/(end-start)));}
   static double MedicalDoorProgress(PocMedicalUnit unit,double sampled){if(unit.door_end_ns<=unit.door_start_ns)return Math.Max(0,Math.Min(1,unit.door_progress));double t=MedicalPhaseProgress(unit.door_start_ns,unit.door_end_ns,sampled);return Math.Max(0,Math.Min(1,unit.door_from+(unit.door_to-unit.door_from)*t));}
+  static double MedicalExitProgress(PocMedicalUnit unit,double sampled){if(unit.exit_blocked)return 0;long start=unit.phase_start_ns;if(unit.door_to==1&&unit.door_from<1&&unit.door_end_ns>unit.door_start_ns)start=Math.Max(start,unit.door_end_ns);return MedicalPhaseProgress(start,unit.phase_end_ns,sampled);}
   static PocMedicalPose MedicalLerp(PocMedicalPose a,PocMedicalPose b,double t){return new PocMedicalPose{x=a.x+(b.x-a.x)*t,y=a.y+(b.y-a.y)*t,z=a.z+(b.z-a.z)*t,yaw_degrees=a.yaw_degrees};}
   static PocMedicalPose MedicalPatientPose(PocMedicalUnit unit,double sampled){
    if(unit==null||unit.scan_pose==null||unit.inside_pose==null)return null;
    double t=MedicalPhaseProgress(unit.phase_start_ns,unit.phase_end_ns,sampled);
    if(unit.phase=="entry"){var pose=MedicalLerp(unit.scan_pose,unit.inside_pose,Math.Min(1,t/.75));if(t>.75)pose.yaw_degrees=unit.scan_pose.yaw_degrees+(unit.inside_pose.yaw_degrees-unit.scan_pose.yaw_degrees)*(t-.75)/.25;return pose;}
    if(unit.phase=="treatment"||unit.phase=="exit"&&unit.exit_blocked)return unit.inside_pose;
-   if(unit.phase=="exit"){var pose=MedicalLerp(unit.inside_pose,unit.scan_pose,t);pose.yaw_degrees=unit.inside_pose.yaw_degrees;return pose;}
+   if(unit.phase=="exit"){var pose=MedicalLerp(unit.inside_pose,unit.scan_pose,MedicalExitProgress(unit,sampled));pose.yaw_degrees=unit.inside_pose.yaw_degrees;return pose;}
    return unit.phase=="scan"||unit.phase=="offer"?unit.scan_pose:null;
   }
   // The published patient pose is the authority anchor. The same phase function
@@ -37,6 +38,10 @@ namespace AngelsDemons.Poc {
    var basis=MedicalPatientPose(unit,sample);if(basis==null)return unit.patient_pose;
    return new PocMedicalPose{x=unit.patient_pose.x+pose.x-basis.x,y=unit.patient_pose.y+pose.y-basis.y,z=unit.patient_pose.z+pose.z-basis.z,yaw_degrees=unit.patient_pose.yaw_degrees+pose.yaw_degrees-basis.yaw_degrees};
   }
+  // Acquisition, downward sweep and confirmation all use the same saved 3-second phase.
+  static double MedicalScanSweep(double progress){return Math.Max(0,Math.Min(1,(progress-.08)/.84));}
+  static double MedicalScanIntensity(double progress){double p=Math.Max(0,Math.Min(1,progress));if(p<.08){double t=p/.08;return .3+.7*t*t*(3-2*t);}if(p>.92){double t=(1-p)/.08;return t*t;}return 1;}
+  static double MedicalScanHeaderPulse(double progress){return MedicalScanIntensity(progress)*(.8+.2*Math.Sin(Math.Max(0,Math.Min(1,progress))*Math.PI*14));}
   bool MedicalRead(){
    if(state==null||state.Life==null||!state.Life.Enabled||string.IsNullOrEmpty(state.Life.MedicalCapsulesJson))return false;
    string raw=state.Life.MedicalCapsulesJson;
@@ -52,6 +57,29 @@ namespace AngelsDemons.Poc {
   bool MedicalHeroBusy(){return MedicalRead()&&medicalSnapshot.hero!=null&&!string.IsNullOrEmpty(medicalSnapshot.hero.unit_id);}
   bool MedicalHeroFeet(out Vector3 feet,out Vector2 heading){float yaw;bool present=MedicalActorPose("char.hero",out feet,out yaw);heading=present?new Vector2(Mathf.Sin(yaw*Mathf.Deg2Rad),Mathf.Cos(yaw*Mathf.Deg2Rad)):Vector2.zero;return present;}
   static Transform MedicalFind(Transform root,string name){foreach(var child in root.GetComponentsInChildren<Transform>(true))if(child.name==name)return child;return null;}
+  static void MedicalBindLinearDoor(MedicalVisual visual,int index){
+   string prefix="motion.door."+index;visual.doorLeft=MedicalFind(visual.door,prefix+".left");visual.doorRight=MedicalFind(visual.door,prefix+".right");
+   visual.doorLeftOpen=MedicalFind(visual.root,"anchor.door."+index+".left.open");visual.doorRightOpen=MedicalFind(visual.root,"anchor.door."+index+".right.open");
+   int present=(visual.doorLeft!=null?1:0)+(visual.doorRight!=null?1:0)+(visual.doorLeftOpen!=null?1:0)+(visual.doorRightOpen!=null?1:0);
+   if(present==0){if(MedicalFind(visual.root,prefix+".left.tip")!=null||MedicalFind(visual.root,prefix+".right.tip")!=null||MedicalFind(visual.root,"anchor.door."+index+".left.tip.open")!=null||MedicalFind(visual.root,"anchor.door."+index+".right.tip.open")!=null)throw new InvalidOperationException("Telescopic markers without canonical outer leaves: "+index);return;} // Earlier prefabs retain the existing rotary binding.
+   if(present!=4||visual.doorLeft.parent!=visual.door||visual.doorRight.parent!=visual.door||visual.doorLeftOpen.IsChildOf(visual.door)||visual.doorRightOpen.IsChildOf(visual.door))throw new InvalidOperationException("Incomplete or moving linear medical door markers: "+index);
+   visual.linearDoor=true;visual.doorLeftRest=visual.doorLeft.localPosition;visual.doorRightRest=visual.doorRight.localPosition;visual.doorLeftRotation=visual.doorLeft.localRotation;visual.doorRightRotation=visual.doorRight.localRotation;
+   visual.doorLeftTip=MedicalFind(visual.doorLeft,prefix+".left.tip");visual.doorRightTip=MedicalFind(visual.doorRight,prefix+".right.tip");visual.doorLeftTipOpen=MedicalFind(visual.root,"anchor.door."+index+".left.tip.open");visual.doorRightTipOpen=MedicalFind(visual.root,"anchor.door."+index+".right.tip.open");
+   int tips=(visual.doorLeftTip!=null?1:0)+(visual.doorRightTip!=null?1:0)+(visual.doorLeftTipOpen!=null?1:0)+(visual.doorRightTipOpen!=null?1:0);if(tips==0)return;
+   if(tips!=4||visual.doorLeftTip.parent!=visual.doorLeft||visual.doorRightTip.parent!=visual.doorRight||visual.doorLeftTipOpen.IsChildOf(visual.door)||visual.doorRightTipOpen.IsChildOf(visual.door))throw new InvalidOperationException("Incomplete or moving telescopic medical door markers: "+index);
+   visual.linearTipDoor=true;visual.doorLeftTipClosedDriver=visual.door.InverseTransformPoint(visual.doorLeftTip.position);visual.doorRightTipClosedDriver=visual.door.InverseTransformPoint(visual.doorRightTip.position);visual.doorLeftTipRotation=visual.doorLeftTip.localRotation;visual.doorRightTipRotation=visual.doorRightTip.localRotation;
+  }
+  static Vector3 MedicalDoorLeafTarget(Transform leaf,Vector3 closed,Transform open,double progress){return Vector3.Lerp(closed,leaf.parent.InverseTransformPoint(open.position),(float)Math.Max(0,Math.Min(1,progress)));}
+  static Vector3 MedicalDoorTipTarget(MedicalVisual visual,Vector3 closedDriver,Transform open,double progress){return visual.door.TransformPoint(Vector3.Lerp(closedDriver,visual.door.InverseTransformPoint(open.position),(float)Math.Max(0,Math.Min(1,progress))));}
+  static void MedicalApplyDoor(MedicalVisual visual,PocMedicalUnit unit,double progress){
+   if(visual.linearDoor){
+    visual.door.localPosition=visual.doorPosition;visual.door.localRotation=visual.doorRest;
+    visual.doorLeft.localPosition=MedicalDoorLeafTarget(visual.doorLeft,visual.doorLeftRest,visual.doorLeftOpen,progress);visual.doorRight.localPosition=MedicalDoorLeafTarget(visual.doorRight,visual.doorRightRest,visual.doorRightOpen,progress);
+    visual.doorLeft.localRotation=visual.doorLeftRotation;visual.doorRight.localRotation=visual.doorRightRotation;
+    if(visual.linearTipDoor){visual.doorLeftTip.position=MedicalDoorTipTarget(visual,visual.doorLeftTipClosedDriver,visual.doorLeftTipOpen,progress);visual.doorRightTip.position=MedicalDoorTipTarget(visual,visual.doorRightTipClosedDriver,visual.doorRightTipOpen,progress);visual.doorLeftTip.localRotation=visual.doorLeftTipRotation;visual.doorRightTip.localRotation=visual.doorRightTipRotation;}
+   }else visual.door.localRotation=visual.doorRest*Quaternion.AngleAxis((float)(progress*(unit.visual_index==0?90:-90)),Vector3.up);
+  }
+  void MedicalResetOptics(){foreach(var visual in medicalVisuals.Values)if(visual.optic!=null){visual.optic.GetPropertyBlock(visual.opticBlock);visual.opticBlock.SetColor("_EmissionColor",Color.black);visual.optic.SetPropertyBlock(visual.opticBlock);}}
   void MedicalFail(string detail){if(medicalFailure==detail)return;medicalFailure=detail;Debug.LogError("ANG medical capsule: "+detail);}
   MedicalVisual MedicalVisualFor(PocMedicalUnit unit){
    MedicalVisual cached;if(medicalVisuals.TryGetValue(unit.id,out cached)&&cached.root!=null)return cached;
@@ -66,15 +94,15 @@ namespace AngelsDemons.Poc {
    foreach(var animation in root.GetComponentsInChildren<Animation>(true))animation.enabled=false;
    Renderer optic=null;Color emission=Color.black;var head=MedicalFind(root,"scanner.unit"+unit.visual_index);if(head!=null)foreach(var renderer in head.GetComponentsInChildren<Renderer>(true))if(renderer.sharedMaterial!=null&&renderer.sharedMaterial.name=="MAT_med_scanner_optic"){optic=renderer;emission=renderer.sharedMaterial.GetColor("_EmissionColor");break;}
    if(optic==null)throw new InvalidOperationException("Missing real scanner optic for "+unit.id);
-   cached=new MedicalVisual{root=root,door=door,line=line,projector=projector,doorRest=door.localRotation,lineRest=line.localPosition,optic=optic,opticEmission=emission,opticBlock=new MaterialPropertyBlock()};medicalVisuals[unit.id]=cached;return cached;
+   cached=new MedicalVisual{root=root,door=door,line=line,projector=projector,doorRest=door.localRotation,doorPosition=door.localPosition,lineRest=line.localPosition,optic=optic,opticEmission=emission,opticBlock=new MaterialPropertyBlock()};MedicalBindLinearDoor(cached,unit.visual_index);medicalVisuals[unit.id]=cached;return cached;
   }
   void UpdateMedicalCapsuleSDK(){
-   if(!MedicalRead()||locationSDKRoot==null||state.Life==null){ReleaseMedicalScan();return;}
+   if(!MedicalRead()||locationSDKRoot==null||state.Life==null){MedicalResetOptics();ReleaseMedicalScan();return;}
    double sampled=MedicalSampleNS();
    foreach(var unit in medicalSnapshot.units){if(unit==null||unit.level_id!=state.Life.LevelId)continue;
     try{var visual=MedicalVisualFor(unit);if(visual==null){MedicalFail("No SDK visual override for medical instance "+unit.instance_id);continue;}
-     double door=MedicalDoorProgress(unit,sampled);visual.door.localRotation=visual.doorRest*Quaternion.AngleAxis((float)(door*(unit.visual_index==0?90:-90)),Vector3.up);
-     bool scanning=unit.phase=="scan";visual.line.gameObject.SetActive(scanning);visual.optic.GetPropertyBlock(visual.opticBlock);visual.opticBlock.SetColor("_EmissionColor",scanning?visual.opticEmission:Color.black);visual.optic.SetPropertyBlock(visual.opticBlock);if(scanning){double progress=MedicalPhaseProgress(unit.phase_start_ns,unit.phase_end_ns,sampled);var p=visual.lineRest;p.y=Mathf.Lerp(2.05f,.12f,(float)progress);visual.line.localPosition=p;}
+     double door=MedicalDoorProgress(unit,sampled);MedicalApplyDoor(visual,unit,door);
+     bool scanning=unit.phase=="scan";double progress=scanning?MedicalPhaseProgress(unit.phase_start_ns,unit.phase_end_ns,sampled):0;visual.line.gameObject.SetActive(scanning);visual.optic.GetPropertyBlock(visual.opticBlock);visual.opticBlock.SetColor("_EmissionColor",scanning?visual.opticEmission*(float)(.2+2.8*MedicalScanHeaderPulse(progress)):Color.black);visual.optic.SetPropertyBlock(visual.opticBlock);
     }catch(Exception error){MedicalFail(error.Message);}
    }
    UpdateMedicalScanSDK();

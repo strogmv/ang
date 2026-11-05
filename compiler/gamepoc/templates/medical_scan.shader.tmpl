@@ -1,10 +1,17 @@
 Shader "ANG/MedicalPatientScan" {
  Properties {
-  [HDR] _BandColor ("Projected green line", Color) = (.035,1.5,.14,1)
-  _BandHalfWidth ("Line half width in metres", Float) = .018
+  [HDR] _BandColor ("Soft projected green band", Color) = (.025,1.15,.12,1)
+  [HDR] _CoreColor ("Thin white-green laser core", Color) = (1.5,2.1,1.65,1)
+  _BandHalfWidth ("Band half width in metres", Float) = .026
+  _CoreHalfWidth ("Laser core half width in metres", Float) = .006
+  _HaloHalfWidth ("Soft fringe half width in metres", Float) = .065
+  _ScanIntensity ("Saved physical scan envelope", Float) = 0
+  _AcquireAmount ("Saved acquisition phase", Float) = 0
+  _FinishAmount ("Saved confirmation fade", Float) = 0
   _ScanHeight ("Server scan height", Float) = 2.05
   _ProjectorWS ("Actual projector socket", Vector) = (0,0,0,1)
   _ScanCentreWS ("Patient band centre", Vector) = (0,0,0,1)
+  _BodyBoundsY ("Actual active skinned bounds", Vector) = (0,2,0,0)
  }
  SubShader {Tags {"RenderPipeline"="UniversalPipeline" "RenderType"="Transparent"}
   Pass {Name "PatientSurfaceScan"
@@ -15,20 +22,26 @@ Shader "ANG/MedicalPatientScan" {
    #pragma target 3.5
    #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
    CBUFFER_START(UnityPerMaterial)
-   float4 _BandColor,_ProjectorWS,_ScanCentreWS;
-   float _BandHalfWidth,_ScanHeight;
+   float4 _BandColor,_CoreColor,_ProjectorWS,_ScanCentreWS,_BodyBoundsY;
+   float _BandHalfWidth,_CoreHalfWidth,_HaloHalfWidth,_ScanHeight,_ScanIntensity,_AcquireAmount,_FinishAmount;
    CBUFFER_END
    struct Attributes {float4 positionOS:POSITION;float3 normalOS:NORMAL;};
    struct Varyings {float4 positionCS:SV_POSITION;float3 positionWS:TEXCOORD0;float3 normalWS:TEXCOORD1;};
    Varyings vert(Attributes input){Varyings output;output.positionWS=TransformObjectToWorld(input.positionOS.xyz);output.positionCS=TransformWorldToHClip(output.positionWS);output.normalWS=TransformObjectToWorldNormal(input.normalOS);return output;}
    half4 frag(Varyings input):SV_Target {
     float aa=max(fwidth(input.positionWS.y),.0005);
-    float band=1-smoothstep(_BandHalfWidth,_BandHalfWidth+aa,abs(input.positionWS.y-_ScanHeight));clip(band-.001);
+    float distanceY=abs(input.positionWS.y-_ScanHeight);
+    float band=1-smoothstep(_BandHalfWidth,_BandHalfWidth+aa,distanceY);
+    float core=1-smoothstep(max(_CoreHalfWidth,aa*.45),max(_CoreHalfWidth,aa*.45)+aa,distanceY);
+    float halo=1-smoothstep(_BandHalfWidth,_HaloHalfWidth+aa,distanceY);
+    clip(halo*_ScanIntensity-.001);clip(input.positionWS.y-_BodyBoundsY.x+.002);clip(_BodyBoundsY.y-input.positionWS.y+.002);
     float3 toProjector=normalize(_ProjectorWS.xyz-input.positionWS);
     float facing=dot(normalize(input.normalWS),toProjector);clip(facing-.03);
     float3 projectorAxis=normalize(_ScanCentreWS.xyz-_ProjectorWS.xyz);
     float cone=dot(-toProjector,projectorAxis);clip(cone-.5);
-    return half4(_BandColor.rgb*band*(.25+.75*saturate(facing)),0);
+    float exposure=.35+.65*saturate(facing);
+    float3 color=_BandColor.rgb*(band*.55+halo*.12)*(1+_AcquireAmount*.25)+_CoreColor.rgb*core*(1-_FinishAmount*.65);
+    return half4(color*exposure*_ScanIntensity,0);
    }
    ENDHLSL
   }
