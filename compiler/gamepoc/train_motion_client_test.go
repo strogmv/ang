@@ -224,7 +224,7 @@ class Proof {readonly Dictionary<string,TrainInstance> trainMotionInstances=new 
  observer.Cells[0]=new string(cells);var near=new PocTrainMotionBinding{x=6.9};Need(TrainPaintedModuleObserved(scene,rail,near,1,0,observer),"centre before boundary should be observed");Need(!TrainPaintedModuleObserved(scene,rail,near,1,.2,observer),"bounded rendered centre crossed into an unobserved rail segment without hiding the whole car");Need(!TrainPaintedModuleObserved(scene,rail,near,1,0,null),"missing current observer exposed a car");Console.WriteLine("four independent rigid-car decisions; current observed vs remembered/unknown, server-hidden and metric centre boundary PASS");}
 }`)
 	adapter := hudTemplate(t, "train_motion_painted.cs.tmpl")
-	if !strings.Contains(adapter, "TrainPaintedObserveModules(scene,passage.passage,shownTrain,lead,ObserverView());") {
+	if !strings.Contains(adapter, "TrainPaintedObserveModules(scene,passage.passage,candidate,candidateLead,ObserverView());") {
 		t.Fatal("current observer must filter each actual module before the offscreen camera render")
 	}
 	if strings.Index(adapter, "TrainPaintedObserveModules(scene,passage.passage") > strings.Index(adapter, "PocRendering.RenderCamera(trainPaintedCamera,trainPaintedTarget)") {

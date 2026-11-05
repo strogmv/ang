@@ -90,6 +90,8 @@ type LifeBrain struct {
 }
 // Host authority bridges real inventory to the kernel. It is never saved or cloned.
 type LifeBrainServices struct {
+ // Optional host-owned physical detour, after utility choice and before locomotion. Nil preserves the original kernel.
+ RouteDetour func(*LifeActor,LifeStep)(LifeStep,bool)
  // A hosted provider owns hygiene recovery; its exterior affordance cannot grant it.
  HygieneManaged func(string,string)bool
  Balance func(string)int64

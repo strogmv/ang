@@ -96,6 +96,7 @@ type peddlerHeroResult struct {
 
 // Saved with the game.
 type peddlerState struct {
+ Carts map[string]cartParkingState `json:"carts,omitempty"`
 	Journal []peddlerDeal                `json:"journal,omitempty"`
 	Rare    map[string]int64             `json:"rare,omitempty"` // shop -> Life second the rare piece came out of the bag
 	Hero    map[string]peddlerHeroResult `json:"hero,omitempty"`
@@ -105,6 +106,7 @@ const peddlerJournalMax = 48
 
 func (s peddlerState) clone() peddlerState {
 	out := peddlerState{Journal: append([]peddlerDeal(nil), s.Journal...)}
+ if s.Carts!=nil{out.Carts=map[string]cartParkingState{};for id,c:=range s.Carts{out.Carts[id]=c}}
 	if s.Rare != nil {
 		out.Rare = map[string]int64{}
 		for k, v := range s.Rare {
@@ -119,7 +121,7 @@ func (s peddlerState) clone() peddlerState {
 	}
 	return out
 }
-func (r *Runtime) initPeddlers() { r.state.Peddlers = peddlerState{} }
+func (r *Runtime) initPeddlers() { r.state.Peddlers = peddlerState{};r.initCartParking() }
 
 func (r *Runtime) peddlerOfStore(store string) (peddlerDef, bool) {
 	for _, p := range r.world.Peddlers.Peddlers {
@@ -140,7 +142,7 @@ func (r *Runtime) peddlerOfActor(actor string) (peddlerDef, bool) {
 
 // peddlerStopNow: the stop the peddler stands at while his shop is open ("" walking, out of hours, in a fight).
 func (r *Runtime) peddlerStopNow(p peddlerDef) string {
-	if !r.storefrontOpen(p.Shop) {
+	if !r.cartTradeReady(p.Actor)||!r.storefrontOpen(p.Shop) {
 		return ""
 	}
 	a := r.state.Life.Actor(p.Actor)
@@ -591,6 +593,7 @@ func (r *Runtime) appendPeddlers(view *pb.PocLifeView, hero *behavior.LifeActor,
 }
 
 func (r *Runtime) validatePeddlerSave(s state) error {
+ if err:=r.validateCartParkingSave(s);err!=nil{return err}
 	if len(s.Peddlers.Journal) > peddlerJournalMax {
 		return errors.New("peddler journal too long")
 	}

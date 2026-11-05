@@ -24,6 +24,7 @@ namespace AngelsDemons.Poc {
   }
   void TrainReviewFinish(string error=null){if(trainReviewDone)return;trainReviewDone=true;trainReviewCameraOn=false;bool passed=error==null&&(trainReviewRoute?trainRouteRendered.Count==3:trainReviewPauseStable&&trainReviewLoadRestored)&&trainReviewMaxDistance>5&&trainReviewMaxPoseError<.01&&trainReviewFrame>20&&trainReviewVisibleSamples>20&&string.IsNullOrEmpty(trainMotionFailure);if(!passed&&error==null)error=trainMotionFailure??"Native motion/pause/load/viewport gates did not all pass";TrainReviewNoteAdd(error==null?"complete":error);TrainReviewWrite(true,passed,error);Application.Quit(passed?0:1);}
   void TrainMotionReviewCamera(){
+   if(fleetDir!=null){TrainFleetCamera();return;}
    if(!trainReviewCameraOn||locationSDKLevel==null||state==null||state.Life==null||state.Life.LevelId!="level.c7_market")return;
    locationSDKFollowHero=false;double elapsed=Time.unscaledTime-trainReviewStart;var front=TrainReviewFront();
    locationSDKFocus=new Vector3(elapsed<7?70:(front==null?70:front.position.x),1,39.5f);
@@ -33,8 +34,9 @@ namespace AngelsDemons.Poc {
    if(elapsed>=16&&front!=null)locationSDKFocus.x=front.position.x-21.3f;
   }
   PocTrainMotionState TrainReviewTrain(){return trainMotionSnapshot!=null&&trainMotionSnapshot.trains!=null&&trainMotionSnapshot.trains.Length>0?trainMotionSnapshot.trains[0]:null;}
-  Transform TrainReviewFront(){var train=TrainReviewTrain();TrainInstance c;TrainModule m;if(train!=null&&trainMotionInstances.TryGetValue(train.train_id,out c)&&c.modules.TryGetValue("train.passenger.v1",out m))return m.node;return null;}
+  Transform TrainReviewFront(){var train=TrainReviewTrain();TrainInstance c;TrainModule m;if(train!=null&&trainMotionInstances.TryGetValue(train.train_id,out c)&&train.modules!=null&&train.modules.Length>0&&c.modules.TryGetValue(train.modules[0].id,out m))return m.node;return null;}
   void UpdateTrainMotionProof(){
+   UpdateTrainFleetProof();if(fleetDir!=null)return;
    if(!trainReviewRead){trainReviewRead=true;var args=Environment.GetCommandLineArgs();int n=Array.IndexOf(args,"--poc-train-route-review");trainReviewRoute=n>=0;if(n<0)n=Array.IndexOf(args,"--poc-train-review");if(n>=0){if(n+1>=args.Length||!Path.IsPathRooted(args[n+1]))throw new ArgumentException("--poc-train-review requires an absolute directory");trainReviewDir=args[n+1];Directory.CreateDirectory(Path.Combine(trainReviewDir,"frames"));trainReviewAt=Time.unscaledTime;TrainReviewWrite(false,false);}}
    if(trainReviewDir==null||trainReviewDone)return;
    if(Time.unscaledTime-trainReviewAt>(trainReviewRoute?900:100)){TrainReviewFinish("timeout");return;}
@@ -127,6 +129,7 @@ namespace AngelsDemons.Poc {
    return front&&Mathf.Min(1,maxX)-Mathf.Max(0,minX)>.02f&&Mathf.Min(1,maxY)-Mathf.Max(0,minY)>.02f;
   }
   void TrainMotionProofAfterFrame(){
+   TrainFleetProofAfterFrame();if(fleetDir!=null)return;
    if(!trainReviewStarted||trainReviewDone||trainReviewDir==null||!TrainMotionRead())return;
    trainReviewRenderedTick=state.Tick;trainReviewRenderedEpoch=state.Epoch;trainReviewRenderedPaused=state.Paused;
    var train=TrainReviewTrain();if(train==null)return;if(!trainReviewRoute)TrainReviewIsolation();

@@ -489,7 +489,7 @@ func (r *Runtime) sanitaryNPCRequests() {
 		return
 	}
 	for _, a := range r.state.Life.Actors {
-		if a.ID == playerActorID || a.Manual || !a.OnFloor() || a.CombatHold || r.serviceReserved(a.ID) || a.Brain.Place.ID != cfg.ManagedAffordance {
+		if a.ID == playerActorID || a.Manual || !a.OnFloor() || a.CombatHold || r.serviceReserved(a.ID) || a.Brain.Place.ID != cfg.ManagedAffordance || !r.cartServiceReady(a.ID) {
 			continue
 		}
 		units := append([]sanitaryUnit(nil), cfg.Units...)

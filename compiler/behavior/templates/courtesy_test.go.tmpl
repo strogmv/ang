@@ -672,3 +672,13 @@ func TestLifeCourtesyHeldPocketRelaysNewContactWithoutWaitingForOldLease(t *test
   if !arrived||replay==nil{t.Fatal("old side-pocket lease prevented a second civilian from clearing the visible corridor")}
  })}
 }
+
+func TestRouteFootprintProtectsPhysicalTurnAndClearsNormally(t *testing.T){
+ m,s:=courtesyFixture();a:=s.Actor("friend")
+ if !s.courtesyNamedWilling(m,*a,"hero"){t.Fatal("fixture friend should ordinarily yield")}
+ a.RouteFootprint=[]Cell{{4,2},{3,1}}
+ if s.courtesyNamedWilling(m,*a,"hero"){t.Fatal("courtesy moved a person during a reserved physical turn")}
+ if !s.BlockedCells("hall","hero")[Cell{4,2}]||!s.PopulationEnvironment().Occupied["hall"][Cell{4,2}]{t.Fatal("turn reservation missing from named/crowd planning")}
+ clone:=s.Clone();clone.Actor("friend").RouteFootprint[0]=Cell{5,2};if a.RouteFootprint[0]!=(Cell{4,2}){t.Fatal("route footprint clone aliases original")}
+ a.RouteFootprint=nil;if !s.courtesyNamedWilling(m,*a,"hero")||s.BlockedCells("hall","hero")[Cell{4,2}]{t.Fatal("completed turn left a permanent obstacle")}
+}

@@ -300,6 +300,7 @@ func (r *Runtime) sendLifeState(c *connection) {
 	r.appendStorefrontState(view, hero, msg.PlayerView)
 	r.appendVending(view, hero, msg.PlayerView, c.locale)
 	r.appendPeddlers(view, hero, msg.PlayerView, c.locale)
+ view.CartParkingJson=r.cartParkingJSON(hero,msg.PlayerView)
  r.appendConversation(msg,c.locale)
 	r.appendCraft(view, hero, msg.PlayerView)
 	r.appendSoundscape(view, hero)

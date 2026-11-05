@@ -187,6 +187,7 @@ type Menu struct {
 }
 
 type Compiled struct {
+	CartParking      *CartParkingCatalog    `json:"cart_parking,omitempty"`
 	MedicalCapsules  *MedicalCapsuleCatalog `json:"medical_capsules,omitempty"`
 	SanitaryServices *SanitaryCatalog       `json:"sanitary_services,omitempty"`
 	TrainMotion      *TrainMotionCatalog    `json:"train_motion,omitempty"`
@@ -757,6 +758,9 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	if out.SanitaryServices, err = readSanitaryServices(world, out); err != nil {
 		return out, nil, err
 	}
+	if out.CartParking, err = readCartParking(world, out); err != nil {
+		return out, nil, err
+	}
 	if out.MedicalCapsules, err = readMedicalCapsules(world, out); err != nil {
 		return out, nil, err
 	}
@@ -1103,6 +1107,7 @@ func Generate(project string) error {
 		"medical_capsules_test.go.tmpl":         filepath.Join(project, "internal/poc/medical_capsules_generated_test.go"),
 		"train_motion.go.tmpl":                  filepath.Join(project, "internal/poc/train_motion.gen.go"),
 		"train_motion_test.go.tmpl":             filepath.Join(project, "internal/poc/train_motion_generated_test.go"),
+		"train_fleet_fixture_test.go.tmpl":      filepath.Join(project, "internal/poc/train_fleet_fixture_generated_test.go"),
 		"runtime.go.tmpl":                       filepath.Join(project, "internal/poc/runtime.gen.go"),
 		"location_sdk.go.tmpl":                  filepath.Join(project, "internal/poc/location_sdk.gen.go"),
 		"gates.go.tmpl":                         filepath.Join(project, "internal/poc/gates.gen.go"),
@@ -1110,6 +1115,8 @@ func Generate(project string) error {
 		"vending_test.go.tmpl":                  filepath.Join(project, "internal/poc/vending_generated_test.go"),
 		"vending.cs.tmpl":                       filepath.Join(unity, "Assets/Generated/Poc/PocVending.cs"),
 		"peddlers.go.tmpl":                      filepath.Join(project, "internal/poc/peddlers.gen.go"),
+		"cart_parking.go.tmpl":                  filepath.Join(project, "internal/poc/cart_parking.gen.go"),
+		"cart_parking_test.go.tmpl":             filepath.Join(project, "internal/poc/cart_parking_generated_test.go"),
 		"peddlers_test.go.tmpl":                 filepath.Join(project, "internal/poc/peddlers_generated_test.go"),
 		"calendar_encounter.go.tmpl":            filepath.Join(project, "internal/poc/calendar_encounter.gen.go"),
 		"calendar_encounter_test.go.tmpl":       filepath.Join(project, "internal/poc/calendar_encounter_generated_test.go"),
@@ -1160,6 +1167,7 @@ func Generate(project string) error {
 		"train_motion.cs.tmpl":                  filepath.Join(unity, "Assets/Generated/Poc/PocTrainMotion.cs"),
 		"train_motion_painted.cs.tmpl":          filepath.Join(unity, "Assets/Generated/Poc/PocTrainMotionPainted.cs"),
 		"train_motion_proof.cs.tmpl":            filepath.Join(unity, "Assets/Generated/Poc/PocTrainMotionProof.cs"),
+		"train_fleet_proof.cs.tmpl":             filepath.Join(unity, "Assets/Generated/Poc/PocTrainFleetProof.cs"),
 		"sanitary_services.cs.tmpl":             filepath.Join(unity, "Assets/Generated/Poc/PocSanitaryServices.cs"),
 		"sanitary_services_panel.cs.tmpl":       filepath.Join(unity, "Assets/Generated/Poc/PocSanitaryServicesPanel.cs"),
 		"sanitary_services_proof.cs.tmpl":       filepath.Join(unity, "Assets/Generated/Poc/PocSanitaryServicesProof.cs"),

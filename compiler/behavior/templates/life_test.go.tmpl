@@ -618,3 +618,15 @@ func TestLifeDeniedAdmissionLatchesAndPaidTripSurvivesSave(t *testing.T){
  a:=restored.Actor("one");a.AdmissionDeniedEdge="";a.WaitingDeparture=0;restored.Seconds=59;accept:=func(string,LifeEdge)bool{calls++;return true};restored.AdvanceWithTravel(m,12,nil,accept);if calls!=2||a.Trip==nil{t.Fatal("explicit retry failed")}
  data,_=json.Marshal(restored);var tripSave LifeState;json.Unmarshal(data,&tripSave);for tick:=int64(13);tick<25;tick++{tripSave.AdvanceWithTravel(m,tick,nil,accept)};if calls!=2{t.Fatal("saved boarded trip charged again")}
 }
+
+func TestLifeHostRouteDetourPreservesCommittedStepAndNilParity(t *testing.T){
+ m:=lifeFixture();m.Actors=m.Actors[:1];m.Brain=brainFixture();m.MoveTicks=3
+ initial:=m.Start();a:=initial.Actor("one");a.Arrived=false;a.Goal=Cell{3,1};a.Path=[]Cell{{2,1},{3,1}};a.MoveStartTick=0
+ plain,noop:=initial.Clone(),initial.Clone();noop.BrainServices.RouteDetour=func(_ *LifeActor,want LifeStep)(LifeStep,bool){return want,false}
+ for tick:=int64(1);tick<20;tick++{plain.Advance(m,tick);noop.Advance(m,tick);if !reflect.DeepEqual(plain.Clone(),noop.Clone()){t.Fatal("inactive host detour changed old kernel behavior")}}
+ s:=initial.Clone();calls:=0;s.BrainServices.RouteDetour=func(owner *LifeActor,want LifeStep)(LifeStep,bool){calls++;return LifeStep{Level:"a",At:Cell{0,1},Activity:"rest",Label:"collect cart"},true}
+ s.Advance(m,1);a=s.Actor("one");if a.Position!=(Cell{1,1})||len(a.Path)!=1||a.Path[0]!=(Cell{2,1})||a.MoveStartTick!=0{t.Fatalf("detour rewound committed segment: %+v",a)}
+ previous:=a.Position;seenCommitted:=false;for tick:=int64(2);tick<60;tick++{s.Advance(m,tick);a=s.Actor("one");if Distance(previous,a.Position)>1{t.Fatal("detour teleported actor")};if a.Position==(Cell{2,1}){seenCommitted=true};previous=a.Position;if a.Position==(Cell{0,1})&&len(a.Path)==0{break}}
+ if calls==0||!seenCommitted||a.Position!=(Cell{0,1}){t.Fatalf("detour did not use ordinary route: %+v",a)}
+ if s.Clone().BrainServices.RouteDetour!=nil{t.Fatal("host callback escaped clone/save authority")}
+}

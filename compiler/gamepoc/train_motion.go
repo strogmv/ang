@@ -12,20 +12,32 @@ import (
 // TrainMotionCatalog is independent of the legacy C7 passenger timetable.
 // Distances are metres on one closed, ordered path; bindings only project it.
 type TrainMotionCatalog struct {
-	PrefabResource   string            `json:"prefab_resource"`
-	ClockDomain      string            `json:"clock_domain"`
-	TrainID          string            `json:"train_id"`
-	StockID          string            `json:"stock_id"`
-	RouteID          string            `json:"route_id"`
-	RouteVersion     int               `json:"route_version"`
-	EpochSeconds     int64             `json:"epoch_seconds"`
-	InitialDistanceM float64           `json:"initial_distance_m"`
-	SpeedMPS         float64           `json:"speed_mps"`
-	DwellSeconds     float64           `json:"dwell_seconds"`
-	Points           []TrainRoutePoint `json:"points"`
-	Modules          []TrainModule     `json:"modules"`
-	Bindings         []TrainBinding    `json:"bindings"`
+	AdditionalFleet  []TrainMotionStock `json:"additional_fleet,omitempty"`
+	PrefabResource   string             `json:"prefab_resource"`
+	ClockDomain      string             `json:"clock_domain"`
+	TrainID          string             `json:"train_id"`
+	StockID          string             `json:"stock_id"`
+	RouteID          string             `json:"route_id"`
+	RouteVersion     int                `json:"route_version"`
+	EpochSeconds     int64              `json:"epoch_seconds"`
+	InitialDistanceM float64            `json:"initial_distance_m"`
+	SpeedMPS         float64            `json:"speed_mps"`
+	DwellSeconds     float64            `json:"dwell_seconds"`
+	Points           []TrainRoutePoint  `json:"points"`
+	Modules          []TrainModule      `json:"modules"`
+	Bindings         []TrainBinding     `json:"bindings"`
 }
+
+// Additional stock shares the route, module geometry and physical speed; only
+// persistent identity, resource and initial phase differ. Legacy single stock
+// catalogues omit this list and retain their original behavior.
+type TrainMotionStock struct {
+	PrefabResource   string  `json:"prefab_resource"`
+	TrainID          string  `json:"train_id"`
+	StockID          string  `json:"stock_id"`
+	InitialDistanceM float64 `json:"initial_distance_m"`
+}
+
 type TrainRoutePoint struct {
 	X float64 `json:"x"`
 	Z float64 `json:"z"`
@@ -128,6 +140,35 @@ func (c TrainMotionCatalog) validate(life json.RawMessage) error {
 	}
 	if !finite(c.InitialDistanceM) || c.InitialDistanceM < 0 || c.InitialDistanceM >= length {
 		return fmt.Errorf("invalid initial route distance")
+	}
+	if len(c.AdditionalFleet) > 7 {
+		return fmt.Errorf("at most eight persistent trains per shared route")
+	}
+	fleet := append([]TrainMotionStock{{PrefabResource: c.PrefabResource, TrainID: c.TrainID, StockID: c.StockID, InitialDistanceM: c.InitialDistanceM}}, c.AdditionalFleet...)
+	trainIDs, stockIDs := map[string]bool{}, map[string]bool{}
+	period := length/c.SpeedMPS + c.DwellSeconds
+	envelope := tail + c.Modules[0].LengthM/2
+	for i, stock := range fleet {
+		if stock.TrainID == "" || stock.StockID == "" || trainIDs[stock.TrainID] || stockIDs[stock.StockID] {
+			return fmt.Errorf("duplicate or empty persistent train/stock identity")
+		}
+		if len(stock.PrefabResource) > 256 || !locationSDKSurfaceResourceKey.MatchString(stock.PrefabResource) {
+			return fmt.Errorf("unsafe fleet prefab Resources path")
+		}
+		if !finite(stock.InitialDistanceM) || stock.InitialDistanceM < 0 || stock.InitialDistanceM >= length {
+			return fmt.Errorf("invalid fleet initial route distance")
+		}
+		trainIDs[stock.TrainID] = true
+		stockIDs[stock.StockID] = true
+		for _, other := range fleet[:i] {
+			phase := math.Abs(stock.InitialDistanceM-other.InitialDistanceM) / c.SpeedMPS
+			gapSeconds := math.Min(phase, period-phase)
+			// A pair can close the gap by at most one hidden dwell. This bound
+			// covers every point in the loop, including either train stopped at zero.
+			if c.SpeedMPS*math.Max(0, gapSeconds-c.DwellSeconds) <= envelope {
+				return fmt.Errorf("fleet phases allow overlapping train envelopes")
+			}
+		}
 	}
 	if tail*3 >= length {
 		return fmt.Errorf("train is too long for route")

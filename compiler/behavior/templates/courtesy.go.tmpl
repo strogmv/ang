@@ -97,7 +97,7 @@ func(s LifeState)courtesyNamedDuty(m LifeModel,a LifeActor)bool{
 func(s LifeState)courtesyNamedWilling(m LifeModel,a LifeActor,requester string)bool{
  // The controlled actor may follow a routine with Manual=false. Autonomous
  // traffic still cannot commandeer that actor or replace its pending intent.
- return !a.CombatHold&&a.ID!=requester&&a.ID!=s.ControlledActorID&&!a.Manual&&a.OnFloor()&&s.courtesyCivilian(m,a.ID,requester,a.Activity)&&!s.courtesyNamedDuty(m,a)
+ return !a.CombatHold&&len(a.RouteFootprint)==0&&a.ID!=requester&&a.ID!=s.ControlledActorID&&!a.Manual&&a.OnFloor()&&s.courtesyCivilian(m,a.ID,requester,a.Activity)&&!s.courtesyNamedDuty(m,a)
 }
 func(s LifeState)courtesyNamed(m LifeModel,a LifeActor,requester string,tick int64)bool{
  return (s.courtesyRequester(requester)||s.Actor(requester)==nil&&s.autonomousTrafficRequester(requester))&&s.courtesyNamedWilling(m,a,requester)&&len(a.Path)==0&&tick>=a.YieldUntil&&tick>=a.YieldCooldownUntil&&!s.courtesyFinishingAhead(m,requester,a.ID,a.Level,a.Position,a.Goal)

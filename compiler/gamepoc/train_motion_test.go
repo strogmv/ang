@@ -50,6 +50,47 @@ func TestTrainMotionRejectsInvalidRoutes(t *testing.T) {
 	}
 }
 
+func TestTrainMotionFleetValidation(t *testing.T) {
+	life := json.RawMessage(`{"locations":{"a":{},"b":{},"c":{}}}`)
+	fixture := func() TrainMotionCatalog {
+		c := trainMotionFixture()
+		c.AdditionalFleet = []TrainMotionStock{{PrefabResource: "TrainMotion/FreightTrainV2", TrainID: "train.freight", StockID: "stock.freight", InitialDistanceM: 952.4}}
+		return c
+	}
+	valid := fixture()
+	if err := valid.validate(life); err != nil {
+		t.Fatal(err)
+	}
+	cases := map[string]func(*TrainMotionCatalog){
+		"duplicate train":                  func(c *TrainMotionCatalog) { c.AdditionalFleet[0].TrainID = c.TrainID },
+		"duplicate stock":                  func(c *TrainMotionCatalog) { c.AdditionalFleet[0].StockID = c.StockID },
+		"empty stock":                      func(c *TrainMotionCatalog) { c.AdditionalFleet[0].StockID = "" },
+		"unsafe resource":                  func(c *TrainMotionCatalog) { c.AdditionalFleet[0].PrefabResource = "../Freight" },
+		"nonfinite phase":                  func(c *TrainMotionCatalog) { c.AdditionalFleet[0].InitialDistanceM = math.Inf(1) },
+		"outside route":                    func(c *TrainMotionCatalog) { c.AdditionalFleet[0].InitialDistanceM = 1600 },
+		"initial overlap":                  func(c *TrainMotionCatalog) { c.AdditionalFleet[0].InitialDistanceM = c.InitialDistanceM + 30 },
+		"dwell closes otherwise clear gap": func(c *TrainMotionCatalog) { c.AdditionalFleet[0].InitialDistanceM = c.InitialDistanceM + 80 },
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			c := fixture()
+			mutate(&c)
+			if c.validate(life) == nil {
+				t.Fatal("unsafe shared fleet accepted")
+			}
+		})
+	}
+	raw, err := json.Marshal(valid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cue := cuecontext.New().CompileString("train_motion: " + string(raw))
+	decoded, err := readTrainMotion(cue, life)
+	if err != nil || len(decoded.AdditionalFleet) != 1 {
+		t.Fatalf("fleet CUE decode: %v", err)
+	}
+}
+
 func TestTrainMotionPrefabResourcesPath(t *testing.T) {
 	life := json.RawMessage(`{"locations":{"a":{},"b":{},"c":{}}}`)
 	for _, path := range []string{"", "/TrainMotion/Model", "../Model", "TrainMotion/../Model", "TrainMotion/Model.prefab", "TrainMotion\\Model", strings.Repeat("x", 257)} {
@@ -91,8 +132,20 @@ func TestTrainMotionAuthoredCUE(t *testing.T) {
 	if c.TrainMotion == nil {
 		t.Fatal("authored train missing from compiled world")
 	}
-	if c.TrainMotion.ClockDomain != "simulation" || c.TrainMotion.SpeedMPS != 3 || len(c.TrainMotion.Modules) != 4 {
+	if c.TrainMotion.ClockDomain != "simulation" || c.TrainMotion.SpeedMPS != 8 || len(c.TrainMotion.Modules) != 4 {
 		t.Fatal("wrong physical motion contract")
+	}
+	if c.TrainMotion.RouteVersion != 3 || len(c.TrainMotion.AdditionalFleet) != 1 || c.TrainMotion.TrainID != "train.c7.passenger.01" || c.TrainMotion.PrefabResource != "TrainMotion/PassengerTrainV2" || c.TrainMotion.InitialDistanceM != 152.4 {
+		t.Fatal("wrong passenger fleet identity/phase")
+	}
+	freight := c.TrainMotion.AdditionalFleet[0]
+	if freight.TrainID != "train.c7.freight.01" || freight.PrefabResource != "TrainMotion/FreightTrainV2" || freight.InitialDistanceM != 632.4 {
+		t.Fatal("wrong freight fleet identity/phase")
+	}
+	for i, id := range []string{"car.01", "car.02", "car.03", "car.04"} {
+		if c.TrainMotion.Modules[i].ID != id {
+			t.Fatal("fleet car node contract drift")
+		}
 	}
 	if got := c.TrainMotion.Bindings; len(got) != 3 || got[0].LevelID != "level.c7_market" || got[1].LevelID != "level.c7_transport_hub" || got[2].LevelID != "level.poc_housing" {
 		t.Fatal("wrong physical views")
@@ -240,6 +293,36 @@ func TestDwellAndNextRun(t *testing.T){
  after:=c.snapshot(math.Ceil(s.NextEventSeconds));if after.Phase!="moving"||after.Run!=1||after.EventSequence<=s.EventSequence{t.Fatal("departure/run event absent")}
  for _,second:=range []int64{0,c.EpochSeconds,c.EpochSeconds+1000000000}{if _,err:=json.Marshal(c.snapshot(float64(second)));err!=nil{t.Fatal("non-finite output")}}
 }
+func fleetFixture(t *testing.T)*trainMotionCatalog{
+ c:=fixture(t);c.Points=[]trainRoutePoint{{-100,0},{200,0},{200,132},{-100,132},{-100,0}};c.SpeedMPS=8;c.DwellSeconds=12
+ c.TrainID="train.c7.passenger.01";c.StockID="stock.c7.passenger_56m.v2";c.PrefabResource="TrainMotion/PassengerTrainV2";c.RouteVersion=3
+ c.AdditionalFleet=[]trainMotionStock{{TrainID:"train.c7.freight.01",StockID:"stock.c7.freight_56m.v2",PrefabResource:"TrainMotion/FreightTrainV2",InitialDistanceM:632.4}}
+ c.Bindings=[]trainBindingDefinition{{LevelID:"a",StartM:100,EndM:210},{LevelID:"b",StartM:360.2,EndM:420},{LevelID:"c",StartM:500,EndM:620}}
+ for i,id:=range []string{"car.01","car.02","car.03","car.04"}{c.Modules[i].ID=id}
+ return c
+}
+func TestTwoPersistentStocksAlternateWithoutOverlap(t *testing.T){
+ c:=fleetFixture(t);length:=c.length();if length!=864||length/c.SpeedMPS+c.DwellSeconds!=120 {t.Fatal("authored period changed")}
+ prior:=c.snapshots(0);seen:=map[string][]string{};times:=map[string][]float64{};visible:=map[string]bool{}
+ for tick:=0;tick<=3600;tick++ {seconds:=float64(tick)/10;states:=c.snapshots(seconds)
+  if len(states)!=2||states[0].TrainID==states[1].TrainID||states[0].StockID==states[1].StockID {t.Fatal("fleet identity duplicated")}
+  distance:=math.Abs(states[0].DistanceM-states[1].DistanceM);distance=math.Min(distance,length-distance);if distance<384-1e-8 {t.Fatalf("fleet dwell closed safe separation: %f",distance)}
+  for i,state:=range states {
+   if state.TrainID!=prior[i].TrainID||state.StockID!=prior[i].StockID||state.PrefabResource!=prior[i].PrefabResource||state.WheelTravelM<prior[i].WheelTravelM {t.Fatal("stock swapped or train jumped backwards")}
+   if state.EntryAllowed||state.DoorsOpen||len(state.PassengerActorIDs)!=0||len(state.CargoContainerIDs)!=0 {t.Fatal("art passengers/containers became fake logistics")}
+   for _,binding:=range state.Modules[0].Bindings {key:=state.TrainID+binding.LevelID;if binding.Visible&&!visible[key] {seen[binding.LevelID]=append(seen[binding.LevelID],state.TrainID);times[binding.LevelID]=append(times[binding.LevelID],seconds)};visible[key]=binding.Visible}
+  };prior=states
+ }
+ for _,level:=range []string{"a","b","c"}{ids,at:=seen[level],times[level];if len(ids)<5 {t.Fatal("both trains did not revisit all three views")};for i:=1;i<len(ids);i++ {if ids[i]==ids[i-1] {t.Fatal("stock types did not alternate")};if i>1&&math.Abs(at[i]-at[i-1]-60)>.11 {t.Fatalf("headway drift: %v",at)}}}
+ before,after:=c.snapshots(10),c.snapshots(10.5);for i:=range before {if math.Abs(after[i].WheelTravelM-before[i].WheelTravelM-4)>1e-8 {t.Fatal("not eight physical metres per second")}}
+ r:=&Runtime{};r.world.TrainMotion=c;r.state.Life.Enabled=true;r.state.Tick=1173;r.state.PhaseNS=12345678;r.state.Epoch="original"
+ raw:=r.trainMotionJSON();saved,err:=json.Marshal(r.state);if err!=nil {t.Fatal(err)};loaded:=&Runtime{};loaded.world.TrainMotion=c;json.Unmarshal(saved,&loaded.state)
+ for i:=0;i<30;i++ {if loaded.trainMotionJSON()!=raw {t.Fatal("paused/loaded fleet changed")}}
+ r.state.Tick+=1200;loaded.state.Tick+=1200;if r.trainMotionJSON()!=loaded.trainMotionJSON(){t.Fatal("unloaded fleet route diverged")}
+ var initial,next trainMotionSnapshot;json.Unmarshal([]byte(raw),&initial);json.Unmarshal([]byte(loaded.trainMotionJSON()),&next)
+ for i:=range initial.Trains {if math.Abs(next.Trains[i].WheelTravelM-initial.Trains[i].WheelTravelM-864)>1e-8||next.Trains[i].TrainID!=initial.Trains[i].TrainID {t.Fatal("periodic continuation lost identity or distance")}}
+}
+
 `
 
 func TestTrainPaintedBindingIdentityAndBerthProtection(t *testing.T) {
