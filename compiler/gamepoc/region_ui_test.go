@@ -1,11 +1,13 @@
 package gamepoc
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"text/template"
 	"unicode"
 )
 
@@ -30,7 +32,7 @@ func TestRegionUIUsesOnlyChipKnowledgeAndServerTravel(t *testing.T) {
 			t.Errorf("missing region UI contract %q", want)
 		}
 	}
-	for _, bad := range []string{"resource.", "state.Entities", "state.SceneAgents", "planning/", "teleport", "ETA", "GUI.matrix", "RotateAroundPivot"} {
+	for _, bad := range []string{"resource.world", "resource.levels", "state.Entities", "state.SceneAgents", "planning/", "teleport", "ETA", "GUI.matrix", "RotateAroundPivot"} {
 		if strings.Contains(s, bad) {
 			t.Errorf("region UI may fabricate information or load developer state: %q", bad)
 		}
@@ -56,7 +58,7 @@ func TestRegionUINativeProjectionKnowledgeAndTravel(t *testing.T) {
 	core := filepath.Join(managed, "UnityEngine.CoreModule.dll")
 	imgui := filepath.Join(managed, "UnityEngine.IMGUIModule.dll")
 	textRendering := filepath.Join(managed, "UnityEngine.TextRenderingModule.dll")
-	facade := filepath.Join(filepath.Dir(mono), "../lib/mono/4.8-api/Facades/netstandard.dll")
+	facade := filepath.Join(filepath.Dir(mono), "../lib/mono/4.5/Facades/netstandard.dll")
 	for _, path := range []string{mono, csc, core, imgui, textRendering, facade} {
 		if _, err := os.Stat(path); err != nil {
 			t.Skipf("Unity compile dependency unavailable: %s", path)
@@ -64,8 +66,9 @@ func TestRegionUINativeProjectionKnowledgeAndTravel(t *testing.T) {
 	}
 	harness := `
 namespace AngelsDemons.Game.V1 {
+ public class PocActionResult {public string RequestId,Action,Slot;public bool Ok;}
  public class PocRegionMap {public string Id="",Name="",CurrentNode="",CurrentDeck="",SelectedDestinationId="";public System.Collections.Generic.List<string> SelectedLocalLinkIds=new System.Collections.Generic.List<string>();public System.Collections.Generic.List<PocRegionDeck> Decks=new System.Collections.Generic.List<PocRegionDeck>();public System.Collections.Generic.List<PocRegionNode> Nodes=new System.Collections.Generic.List<PocRegionNode>();public System.Collections.Generic.List<PocRegionLink> Links=new System.Collections.Generic.List<PocRegionLink>();public System.Collections.Generic.List<PocRegionRumour> HeardRumours=new System.Collections.Generic.List<PocRegionRumour>();public System.Collections.Generic.List<PocRegionRumourSource> RumourSources=new System.Collections.Generic.List<PocRegionRumourSource>();}
- public class PocRegionRumour {public string Id="",SubjectId="",SourceActorId="",SourceName="",Text="",Context="",ImageVariant="";public bool Active,Visited;}
+ public class PocRegionRumour {public string Id="",SubjectId="",SourceActorId="",SourceName="",Text="",Context="",ImageVariant="",ObservedNodeId="",ObservationKey="";public bool Active,Visited;}
  public class PocRegionRumourSource {public string ActorId="",Name="";}
  public class PocRegionDeck {public string Id="",Name="";public double ElevationM;}
  public class PocRegionNode {public string Id="",Name="",DeckId="",Knowledge="",LevelId="",Description="",Kind="",Label="";public double X,Y,Width,Height;public bool Current,CanTravel;}
@@ -73,9 +76,14 @@ namespace AngelsDemons.Game.V1 {
 }
 namespace AngelsDemons.Poc {
  public sealed partial class AngelsDemonsPoc {
-  class State {public Life Life=new Life();public bool Paused;}
-  class Life {public AngelsDemons.Game.V1.PocRegionMap RegionMap;}
-  State state;bool loadingActive;string page="game",message="";
+  class State {public Life Life=new Life();public bool Paused,Active;public string Epoch;public int PlayerX,PlayerY;public System.Collections.Generic.List<int> Path=new System.Collections.Generic.List<int>();}
+  class Life {public AngelsDemons.Game.V1.PocRegionMap RegionMap;public bool Transit,Automatic;public string LevelId;}
+  State state;bool loadingActive,closing,hudDebugOpen,locationSDKFrameReady;string page="game",message="",busy="",observedActor="",dataDirectory="";object locationSDKLevel,locationSDKCamera;
+  class Resource{public string content_hash;} Resource resource;
+  object CurrentLocationSDK(){return null;}object CurrentPaintedScene(){return null;}class Painted{public string preparationError;}Painted PreparePaintedScene(object scene){return null;}
+  string CurrentLocale(){return "ru";}readonly System.Collections.Generic.List<UnityEngine.Rect> BarkDrawnRects=new System.Collections.Generic.List<UnityEngine.Rect>();
+  UnityEngine.Rect SpatialViewport(){return new UnityEngine.Rect(16,104,1248,584);}
+  void Destroy(UnityEngine.Object value){} UnityEngine.Coroutine StartCoroutine(System.Collections.IEnumerator value){return null;}
   class Guidance {public string SelectedDestinationId;public bool Reachable;}bool wayfindingPending;Guidance WayfindingView(){return null;}bool WayfindingSelect(string id){return false;}void WayfindingClear(){}bool WayfindingGo(){return false;}
   UnityEngine.Color hudBrass,hudPaper;UnityEngine.GUIStyle hudSmall,hudBody,hudWrap,hudHeading;
   readonly System.Collections.Generic.List<UnityEngine.Rect> regionProofFills=new System.Collections.Generic.List<UnityEngine.Rect>();
@@ -171,7 +179,23 @@ namespace AngelsDemons.Poc {
    UnityEngine.Rect edge;string arrow;Require(RegionEdgeLabel(work,RegionNodeRect(work,RegionModelBounds(RegionDeckNodes(map,"low")),canvas,ui.hudRegionZoom,ui.hudRegionPan),canvas,out edge,out arrow)&&arrow=="\u2192"&&canvas.Contains(edge.center),"distant B7 connection remains discoverable at the focused view edge");
    Require(!RegionEdgeLabel(unknown,new UnityEngine.Rect(2000,500,28,19),canvas,out edge,out arrow),"unknown remote places cannot get edge labels");
    ui.RegionResetView();Near(ui.hudRegionZoom,1,"fit-all restores overview");foreach(var n in RegionDeckNodes(map,"low"))Require(canvas.Contains(RegionMapPoint(n.X,n.Y,RegionModelBounds(RegionDeckNodes(map,"low")),canvas,ui.hudRegionZoom,ui.hudRegionPan)),"overview includes the remote B7 destination");
-   System.Console.WriteLine("region UI projection / knowledge / travel PASS");
+   var observed=new AngelsDemons.Game.V1.PocRegionRumour{Visited=true,ObservedNodeId="visited-node",ObservationKey=new string('a',64)};
+   string observedID=RegionObservationIdentity("content-v2","ru",observed);Require(observedID.Length==64,"safe hashed photo filename");
+   Require(RegionObservationIdentity("content-v2","en",observed)!=observedID,"locale-specific photo prevents surface-text language mixing");
+   observed.ObservationKey=new string('b',64);Require(RegionObservationIdentity("content-v2","ru",observed)!=observedID,"future observation must never use previous photo key");
+   observed.ObservationKey=new string('a',64);Require(RegionObservationIdentity("changed-content","ru",observed)!=observedID,"content versions cannot reuse photos");
+   observed.Visited=false;Require(RegionObservationIdentity("content-v2","ru",observed)=="","before visit no file identity even if a cache exists");observed.Visited=true;observed.Active=true;Require(RegionObservationIdentity("content-v2","ru",observed)=="","active fantasy cannot load observation");observed.Active=false;observed.ObservationKey="../../photo";Require(RegionObservationIdentity("content-v2","ru",observed)=="","malformed observation hash rejected");
+   var firstReference=new RegionObservationReference{id=observedID,blob=new string('a',32)+".png",sha256=new string('b',64)};
+   Require(RegionObservationValidReference(firstReference),"immutable ref validates safe name and content SHA");
+   ui.regionObservationRefs[observedID]=firstReference;var exactSaveRefs=ui.RegionObservationSnapshot();firstReference.blob=new string('c',32)+".png";Require(exactSaveRefs[0].blob==new string('a',32)+".png","save request snapshots immutable references instead of sharing later mutations");
+   string futureLocaleID=new string('f',64);ui.regionObservationRefs[futureLocaleID]=new RegionObservationReference{id=futureLocaleID,blob=new string('d',32)+".png",sha256=new string('e',64)};
+   ui.regionObservationEpoch="early";ui.regionObservationRestoreFrom="early";ui.regionObservationRestore=exactSaveRefs;ui.regionObservationAwaitEpoch=true;ui.RegionObservationAcceptEpoch("loaded");
+   Require(ui.regionObservationRefs.ContainsKey(observedID)&&!ui.regionObservationRefs.ContainsKey(futureLocaleID),"same geometry rollback restores only exact save refs, never later locale PNGs");
+   Require(ui.regionObservationRefs[observedID].blob==new string('a',32)+".png","original immutable blob restored");ui.RegionObservationAcceptEpoch("new-game");Require(ui.regionObservationRefs.Count==0,"unrelated epoch cannot inherit old photos");
+   Require(!RegionObservationValidReference(new RegionObservationReference{id=observedID,blob="../future.png",sha256=new string('b',64)}),"sidecar path traversal fails closed");
+   ui.dataDirectory=System.IO.Path.Combine(System.IO.Path.GetTempPath(),"region-ref-test-"+System.Guid.NewGuid().ToString("N"));System.IO.Directory.CreateDirectory(ui.dataDirectory);System.IO.File.WriteAllText(System.IO.Path.Combine(ui.dataDirectory,"slot1.json"),"opaque save bytes");string opaqueHash=ui.RegionObservationSaveHash("slot1");Require(opaqueHash.Length==64,"save hashed opaquely without JSON parsing");System.IO.File.WriteAllText(System.IO.Path.Combine(ui.dataDirectory,"slot1.json"),"different opaque save bytes");Require(ui.RegionObservationSaveHash("slot1")!=opaqueHash&&ui.RegionObservationSaveHash("../slot1")=="","exact file bytes bind sidecar; slot traversal rejected");
+   var crop=RegionObservationCrop(1280,800,new UnityEngine.Rect(16,104,1248,584));Require(crop.x>16&&crop.xMax<1264&&crop.y>112&&crop.yMax<696,"photo crops central world, excluding HUD edges");
+   System.Console.WriteLine("region UI projection / knowledge / travel / observation privacy PASS");
   }
  }
 }
@@ -179,10 +203,22 @@ namespace AngelsDemons.Poc {
 	dir := t.TempDir()
 	source := filepath.Join(dir, "RegionProof.cs")
 	output := filepath.Join(dir, "RegionProof.exe")
-	if err := os.WriteFile(source, []byte(hudTemplate(t, "region.cs.tmpl")+harness), 0600); err != nil {
+	tpl, err := template.New("region").Delims("<<ANG", "ANG>>").Parse(hudTemplate(t, "region.cs.tmpl"))
+	if err != nil {
 		t.Fatal(err)
 	}
-	if out, err := exec.Command(mono, csc, "/nologo", "/r:"+facade, "/r:"+core, "/r:"+imgui, "/r:"+textRendering, "/out:"+output, source).CombinedOutput(); err != nil {
+	var rendered bytes.Buffer
+	fixture := struct{ Region RegionCatalog }{Region: RegionCatalog{RumourImages: []RegionRumourImage{{ID: "narrow_stair", ResourcePath: "RegionRumours/narrow_stair"}, {ID: "great_descent", ResourcePath: "RegionRumours/great_descent"}, {ID: "future_authored", ResourcePath: "RegionRumours/new/place"}}}}
+	if err := tpl.Execute(&rendered, fixture); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rendered.String(), `case "future_authored":return "RegionRumours/new/place";`) {
+		t.Fatal("data-driven allowlist omitted third authored variant")
+	}
+	if err := os.WriteFile(source, []byte(rendered.String()+harness), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command(mono, csc, "/nologo", "/r:"+facade, "/r:"+core, "/r:"+imgui, "/r:"+textRendering, "/r:"+filepath.Join(managed, "UnityEngine.ScreenCaptureModule.dll"), "/r:"+filepath.Join(managed, "UnityEngine.ImageConversionModule.dll"), "/r:"+filepath.Join(managed, "UnityEngine.JSONSerializeModule.dll"), "/out:"+output, source).CombinedOutput(); err != nil {
 		t.Fatalf("compile full region template against Unity: %v\n%s", err, out)
 	}
 	cmd := exec.Command(mono, output)

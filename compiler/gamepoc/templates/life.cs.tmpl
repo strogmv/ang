@@ -80,7 +80,7 @@ namespace AngelsDemons.Poc
    var color=hover?new Color(1f,.85f,.35f):new Color(.2f,.85f,.8f);Fill(box,new Color(.02f,.13f,.15f,.8f));
    Fill(new Rect(box.x,box.y,3,box.height),color);Fill(new Rect(box.xMax-3,box.y,3,box.height),color);Fill(new Rect(box.x,box.y,box.width,3),color);Fill(new Rect(box.x,box.yMax-3,box.width,3),color);
    Fill(new Rect(box.x+24,box.y+27,4,4),color);Fill(label,new Color(.025f,.06f,.07f,.95f));
-   if(lifeDoorStyle==null)lifeDoorStyle=new GUIStyle(smallStyle){alignment=TextAnchor.MiddleCenter,fontSize=11};lifeDoorStyle.normal.textColor=color;GUI.Label(label,"Войти → "+marker.Name,lifeDoorStyle);
+   if(lifeDoorStyle==null)lifeDoorStyle=new GUIStyle(smallStyle){alignment=TextAnchor.MiddleCenter,fontSize=11};lifeDoorStyle.normal.textColor=color;RegionObservationAnnotate(label);GUI.Label(label,"Войти → "+marker.Name,lifeDoorStyle);
   }
   bool LifeDoorOnScreen(PocLifeMarker marker,Vector2 origin,float tw,float th){var box=LifeDoorRect(marker,origin,tw,th);var label=LifeDoorLabel(marker,origin,tw,th);var viewport=SpatialViewport();return viewport.Contains(box.min)&&viewport.Contains(box.max)&&viewport.Contains(label.min)&&viewport.Contains(label.max);}
   bool doorOutbound,doorReturn;CopperRouteLegAudit doorLeg;

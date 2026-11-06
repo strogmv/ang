@@ -50,13 +50,122 @@ namespace AngelsDemons.Poc {
    PocRegionRumour result=null;if(map!=null)foreach(var report in map.HeardRumours)if(report.Active&&!report.Visited)result=report;return result;
   }
   // Explicit authored allowlist: a server string cannot load an arbitrary asset.
-  static string RegionRumourAssetPath(string variant){return variant=="narrow_stair"?"RegionRumours/narrow_stair":variant=="great_descent"?"RegionRumours/great_descent":"";}
+  static string RegionRumourAssetPath(string variant){switch(variant){
+<<ANG range .Region.RumourImages ANG>>   case <<ANG printf "%q" .ID ANG>>:return <<ANG printf "%q" .ResourcePath ANG>>;
+<<ANG end ANG>>   default:return "";}}
+  // A photo is a fragment of a real displayed frame, keyed to server memory.
+  // One resident observation texture; stale epochs/keys never reuse it.
+  Texture2D regionObservationTexture;
+  string regionObservationTextureID="",regionObservationEpoch="",regionObservationStable="",regionObservationAttempt="";
+  float regionObservationSince;bool regionObservationBusy;
+  int regionObservationOverlayFrame=-10;string regionObservationShownID="";
+  void RegionObservationAnnotate(Rect rect){if(Event.current==null||Event.current.type!=EventType.Repaint||page!="game")return;var v=SpatialViewport();var center=new Rect(v.x+v.width*.2f,v.y+v.height*.2f,v.width*.6f,v.height*.6f);if(center.Overlaps(rect))regionObservationOverlayFrame=Time.frameCount;}
+  bool RegionObservationAnnotated(){if(regionObservationOverlayFrame>=Time.frameCount)return true;var v=SpatialViewport();var center=new Rect(v.x+v.width*.2f,v.y+v.height*.2f,v.width*.6f,v.height*.6f);foreach(var r in BarkDrawnRects)if(center.Overlaps(r))return true;return false;}
+  int regionObservationCaptures,regionObservationDiskLoads;
+  [Serializable] sealed class RegionObservationReference {public string id,blob,sha256;}
+  [Serializable] sealed class RegionObservationManifest {public int version=1;public string content_hash,save_sha256;public RegionObservationReference[] images;}
+  sealed class RegionObservationPending {public string request,slot,action,epoch,saveHash;public RegionObservationReference[] images;}
+  readonly Dictionary<string,RegionObservationReference> regionObservationRefs=new Dictionary<string,RegionObservationReference>(StringComparer.Ordinal);
+  RegionObservationPending regionObservationPending;RegionObservationReference[] regionObservationRestore;
+  string regionObservationRestoreFrom="",regionObservationTextureBlob="";
+  bool regionObservationAwaitEpoch;
+  static bool RegionObservationHex(string value,int length){if(value==null||value.Length!=length)return false;foreach(char c in value)if(!((c>='0'&&c<='9')||(c>='a'&&c<='f')))return false;return true;}
+  static string RegionObservationHash(byte[] bytes){using(var sha=System.Security.Cryptography.SHA256.Create()){var result=new StringBuilder(64);foreach(byte b in sha.ComputeHash(bytes))result.Append(b.ToString("x2",CultureInfo.InvariantCulture));return result.ToString();}}
+  static bool RegionObservationValidReference(RegionObservationReference item){return item!=null&&RegionObservationHex(item.id,64)&&RegionObservationHex(item.sha256,64)&&item.blob!=null&&item.blob.Length==36&&item.blob.EndsWith(".png",StringComparison.Ordinal)&&RegionObservationHex(item.blob.Substring(0,32),32);}
+  RegionObservationReference[] RegionObservationSnapshot(){var values=new List<RegionObservationReference>();foreach(var item in regionObservationRefs.Values)if(RegionObservationValidReference(item))values.Add(new RegionObservationReference{id=item.id,blob=item.blob,sha256=item.sha256});values.Sort((a,b)=>StringComparer.Ordinal.Compare(a.id,b.id));return values.ToArray();}
+  string RegionObservationSaveHash(string slot){
+   if(string.IsNullOrEmpty(dataDirectory)||string.IsNullOrEmpty(slot)||slot.Length>64)return "";foreach(char c in slot)if(!((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_'||c=='-'))return "";
+   try{using(var file=System.IO.File.OpenRead(System.IO.Path.Combine(dataDirectory,slot+".json")))using(var sha=System.Security.Cryptography.SHA256.Create()){var value=new StringBuilder(64);foreach(byte b in sha.ComputeHash(file))value.Append(b.ToString("x2",CultureInfo.InvariantCulture));return value.ToString();}}catch(System.Exception){return "";}
+  }
+  string RegionObservationManifestPath(string hash){return !RegionObservationHex(hash,64)||string.IsNullOrEmpty(dataDirectory)?"":System.IO.Path.Combine(dataDirectory,"region-observations","saves",hash+".json");}
+  void RegionObservationBeforeSaveLoad(string request,string slot,bool save){regionObservationPending=new RegionObservationPending{request=request,slot=slot,action=save?"save":"load",epoch=state==null?"":state.Epoch,saveHash=save?"":RegionObservationSaveHash(slot),images=save?RegionObservationSnapshot():null};}
+  void RegionObservationActionResult(PocActionResult result){
+   if(result.Action=="new"&&result.Ok){regionObservationRefs.Clear();regionObservationRestore=null;regionObservationAwaitEpoch=false;regionObservationPending=null;RegionObservationRelease();return;}
+   var pending=regionObservationPending;if(pending==null||pending.request!=result.RequestId||pending.action!=result.Action||pending.slot!=result.Slot)return;regionObservationPending=null;if(!result.Ok)return;
+   string hash=RegionObservationSaveHash(pending.slot),path=RegionObservationManifestPath(hash);
+   if(pending.action=="save"){
+    if(path==""||resource==null)return;
+    // A manifest is immutable too. An unavailable or partial sidecar fails closed.
+    try{var manifest=new RegionObservationManifest{content_hash=resource.content_hash,save_sha256=hash,images=pending.images};System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path));byte[] bytes=Encoding.UTF8.GetBytes(JsonUtility.ToJson(manifest));using(var file=new System.IO.FileStream(path,System.IO.FileMode.CreateNew,System.IO.FileAccess.Write,System.IO.FileShare.None)){file.Write(bytes,0,bytes.Length);file.Flush();}}catch(System.Exception){}return;
+   }
+   regionObservationRefs.Clear();RegionObservationRelease();regionObservationRestore=new RegionObservationReference[0];regionObservationRestoreFrom=pending.epoch;regionObservationAwaitEpoch=true;
+   if(path==""||hash!=pending.saveHash||resource==null)return;
+   try{var info=new System.IO.FileInfo(path);if(!info.Exists||info.Length>2*1024*1024)return;var manifest=JsonUtility.FromJson<RegionObservationManifest>(System.IO.File.ReadAllText(path));if(manifest==null||manifest.version!=1||manifest.save_sha256!=hash||manifest.content_hash!=resource.content_hash||manifest.images==null||manifest.images.Length>4096)return;
+    var unique=new HashSet<string>(StringComparer.Ordinal);foreach(var item in manifest.images)if(!RegionObservationValidReference(item)||!unique.Add(item.id))return;regionObservationRestore=manifest.images;
+   }catch(System.Exception){}
+  }
+  void RegionObservationAcceptEpoch(string epoch){
+   if(regionObservationEpoch==epoch)return;regionObservationEpoch=epoch;regionObservationRefs.Clear();RegionObservationRelease();regionObservationStable="";regionObservationAttempt="";
+   if(regionObservationAwaitEpoch&&epoch!=regionObservationRestoreFrom&&regionObservationRestore!=null)foreach(var item in regionObservationRestore)regionObservationRefs[item.id]=item;
+   regionObservationAwaitEpoch=false;regionObservationRestore=null;regionObservationRestoreFrom="";
+  }
+  static string RegionObservationIdentity(string content,string locale,PocRegionRumour report){
+   if(report==null||!report.Visited||report.Active||string.IsNullOrEmpty(content)||string.IsNullOrEmpty(locale)||string.IsNullOrEmpty(report.ObservedNodeId)||report.ObservationKey==null||report.ObservationKey.Length!=64)return "";
+   foreach(char c in report.ObservationKey)if(!((c>='0'&&c<='9')||(c>='a'&&c<='f')))return "";
+   string value=locale.Length+":"+locale+content.Length+":"+content+report.ObservedNodeId.Length+":"+report.ObservedNodeId+report.ObservationKey;
+   using(var hash=System.Security.Cryptography.SHA256.Create()){var bytes=hash.ComputeHash(Encoding.UTF8.GetBytes(value));var result=new StringBuilder(64);foreach(byte b in bytes)result.Append(b.ToString("x2",CultureInfo.InvariantCulture));return result.ToString();}
+  }
+  static PocRegionRumour RegionObservedRumour(PocRegionMap map){PocRegionRumour result=null;if(map!=null)foreach(var report in map.HeardRumours){var node=RegionFindNode(map,report.ObservedNodeId);if(report.Visited&&!report.Active&&node!=null&&node.Knowledge=="visited"&&!string.IsNullOrEmpty(report.ObservationKey))result=report;}return result;}
+  string RegionObservationPath(string blob){return string.IsNullOrEmpty(dataDirectory)||blob==null||blob.Length!=36||!blob.EndsWith(".png",StringComparison.Ordinal)||!RegionObservationHex(blob.Substring(0,32),32)?"":System.IO.Path.Combine(dataDirectory,"region-observations",blob);}
+  void RegionObservationRelease(){if(regionObservationTexture!=null)Destroy(regionObservationTexture);regionObservationTexture=null;regionObservationTextureID="";regionObservationTextureBlob="";}
+  Texture2D RegionObservationPhoto(PocRegionRumour report){
+   string id=RegionObservationIdentity(resource==null?"":resource.content_hash,CurrentLocale(),report);
+   if(id==""||regionObservationAwaitEpoch)return null;var node=state==null||state.Life==null?null:RegionFindNode(state.Life.RegionMap,report.ObservedNodeId);if(node==null||node.Knowledge!="visited")return null;
+   RegionObservationReference reference;if(!regionObservationRefs.TryGetValue(id,out reference)||!RegionObservationValidReference(reference))return null;
+   if(regionObservationTextureID==id&&regionObservationTextureBlob==reference.blob)return regionObservationTexture;RegionObservationRelease();regionObservationTextureID=id;regionObservationTextureBlob=reference.blob;
+   string path=RegionObservationPath(reference.blob);if(path=="")return null;Texture2D loaded=null;
+   try{var info=new System.IO.FileInfo(path);if(!info.Exists||info.Length<24||info.Length>3*1024*1024)return null;byte[] bytes=System.IO.File.ReadAllBytes(path);
+    if(RegionObservationHash(bytes)!=reference.sha256||bytes[0]!=137||bytes[1]!=80||bytes[2]!=78||bytes[3]!=71)return null;
+    int w=(bytes[16]<<24)|(bytes[17]<<16)|(bytes[18]<<8)|bytes[19],h=(bytes[20]<<24)|(bytes[21]<<16)|(bytes[22]<<8)|bytes[23];if(w<1||h<1||w>640||h>640)return null;
+    loaded=new Texture2D(2,2,TextureFormat.RGB24,false);if(!ImageConversion.LoadImage(loaded,bytes,false)){Destroy(loaded);return null;}
+    loaded.wrapMode=TextureWrapMode.Clamp;loaded.filterMode=FilterMode.Bilinear;regionObservationTexture=loaded;regionObservationDiskLoads++;return loaded;
+   }catch(System.Exception){if(loaded!=null)Destroy(loaded);return null;}
+  }
+  PocRegionRumour RegionObservationCandidate(){
+   if(regionObservationAwaitEpoch||regionObservationPending!=null||closing||page!="game"||loadingActive||hudDebugOpen||state==null||!state.Active||state.Life==null||state.Life.Transit||state.Path.Count!=0||state.Life.Automatic||!string.IsNullOrEmpty(busy)||(!string.IsNullOrEmpty(observedActor)&&observedActor!="char.hero")||!UnityEngine.Rendering.SplashScreen.isFinished)return null;
+   var sdk=CurrentLocationSDK();if(sdk!=null&&(!locationSDKFrameReady||locationSDKLevel!=sdk||locationSDKCamera==null))return null;
+   var painted=CurrentPaintedScene();if(painted!=null&&PreparePaintedScene(painted).preparationError!=null)return null;
+   var map=state.Life.RegionMap;if(map==null)return null;PocRegionRumour report=null;foreach(var heard in map.HeardRumours)if(heard.Visited&&!heard.Active&&heard.ObservedNodeId==map.CurrentNode)report=heard;if(report==null)return null;var node=RegionFindNode(map,report.ObservedNodeId);
+   return node!=null&&node.Knowledge=="visited"&&node.Current&&node.Id==map.CurrentNode&&node.LevelId==state.Life.LevelId?report:null;
+  }
+  string RegionObservationStamp(PocRegionRumour report){string id=RegionObservationIdentity(resource==null?"":resource.content_hash,CurrentLocale(),report);return id==""?"":state.Epoch+"|"+state.Life.LevelId+"|"+id+"|"+state.PlayerX+","+state.PlayerY+"|"+Screen.width+","+Screen.height;}
+  void RegionObservationUpdate(){
+   string epoch=state==null?"":state.Epoch;RegionObservationAcceptEpoch(epoch);
+   var report=RegionObservationCandidate();string stamp=report==null?"":RegionObservationStamp(report);
+   if(stamp==""||regionObservationOverlayFrame>=Time.frameCount-1){regionObservationStable="";return;}if(stamp!=regionObservationStable){regionObservationStable=stamp;regionObservationSince=Time.realtimeSinceStartup;return;}
+   if(regionObservationBusy||regionObservationAttempt==stamp||Time.realtimeSinceStartup-regionObservationSince<.35f)return;
+   if(RegionObservationPhoto(report)!=null)return;regionObservationAttempt=stamp;regionObservationBusy=true;StartCoroutine(RegionObservationCapture(stamp));
+  }
+  static RectInt RegionObservationCrop(int width,int height,Rect viewport){
+   float scale=Mathf.Min(width/1280f,height/800f),ox=(width-1280*scale)/2,oy=(height-800*scale)/2;
+   int x=Mathf.Clamp(Mathf.RoundToInt(ox+(viewport.x+viewport.width*.2f)*scale),0,width-1),top=Mathf.Clamp(Mathf.RoundToInt(oy+(viewport.y+viewport.height*.2f)*scale),0,height-1);
+   int w=Mathf.Clamp(Mathf.RoundToInt(viewport.width*.6f*scale),1,width-x),h=Mathf.Clamp(Mathf.RoundToInt(viewport.height*.6f*scale),1,height-top);return new RectInt(x,height-top-h,w,h);
+  }
+  System.Collections.IEnumerator RegionObservationCapture(string stamp){
+   Texture2D frame=null,photo=null;
+   try{
+    yield return new WaitForEndOfFrame();var first=RegionObservationCandidate();if(first==null||RegionObservationStamp(first)!=stamp||RegionObservationAnnotated())yield break;yield return new WaitForEndOfFrame();
+    var report=RegionObservationCandidate();if(report==null||RegionObservationStamp(report)!=stamp||RegionObservationAnnotated())yield break;
+    frame=ScreenCapture.CaptureScreenshotAsTexture();if(frame==null||frame.width<640||frame.height<400)yield break;
+    var crop=RegionObservationCrop(frame.width,frame.height,SpatialViewport());float ratio=Mathf.Min(1f,640f/Mathf.Max(crop.width,crop.height));int w=Mathf.Max(1,Mathf.RoundToInt(crop.width*ratio)),h=Mathf.Max(1,Mathf.RoundToInt(crop.height*ratio));
+    var pixels=new Color[w*h];float min=1,max=0;for(int y=0;y<h;y++)for(int x=0;x<w;x++){var c=frame.GetPixelBilinear((crop.x+(x+.5f)*crop.width/w)/frame.width,(crop.y+(y+.5f)*crop.height/h)/frame.height);pixels[y*w+x]=c;float light=(c.r+c.g+c.b)/3;min=Mathf.Min(min,light);max=Mathf.Max(max,light);}
+    if(max<.08f||max-min<.04f)yield break;
+    report=RegionObservationCandidate();if(report==null||RegionObservationStamp(report)!=stamp||RegionObservationAnnotated())yield break;
+    photo=new Texture2D(w,h,TextureFormat.RGB24,false){wrapMode=TextureWrapMode.Clamp,filterMode=FilterMode.Bilinear};photo.SetPixels(pixels);photo.Apply(false,false);
+    string id=RegionObservationIdentity(resource.content_hash,CurrentLocale(),report),blob=Guid.NewGuid().ToString("N")+".png",path=RegionObservationPath(blob);if(path=="")yield break;
+    byte[] png=photo.EncodeToPNG();bool stored=false;try{System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path));using(var file=new System.IO.FileStream(path,System.IO.FileMode.CreateNew,System.IO.FileAccess.Write,System.IO.FileShare.None)){file.Write(png,0,png.Length);file.Flush();}stored=true;}catch(System.Exception){}if(!stored)yield break;
+    // Register only this immutable real capture in the active timeline.
+    regionObservationRefs[id]=new RegionObservationReference{id=id,blob=blob,sha256=RegionObservationHash(png)};RegionObservationRelease();regionObservationTexture=photo;regionObservationTextureID=id;regionObservationTextureBlob=blob;photo=null;regionObservationCaptures++;
+   }finally{if(frame!=null)Destroy(frame);if(photo!=null)Destroy(photo);regionObservationBusy=false;regionObservationAttempt="";regionObservationSince=Time.realtimeSinceStartup;}
+  }
+
   Texture2D RegionRumourTexture(string variant){
    string path=RegionRumourAssetPath(variant);
-   if(path=="")return null;Texture2D texture;if(!hudRegionRumourTextures.TryGetValue(path,out texture)){texture=Resources.Load<Texture2D>(path);hudRegionRumourTextures[path]=texture;}return texture;
+   if(path=="")return null;Texture2D texture;if(!hudRegionRumourTextures.TryGetValue(path,out texture)){if(hudRegionRumourTextures.Count>=2){string evict=null;foreach(var held in hudRegionRumourTextures){evict=held.Key;break;}if(evict!=null){var old=hudRegionRumourTextures[evict];hudRegionRumourTextures.Remove(evict);if(old!=null)Resources.UnloadAsset(old);}}texture=Resources.Load<Texture2D>(path);hudRegionRumourTextures[path]=texture;}return texture;
   }
   void DrawRegionRumours(){
-   var map=state!=null&&state.Life!=null?state.Life.RegionMap:null;var current=RegionCurrentRumour(map);bool visited=false;
+   regionObservationShownID="";
+   var map=state!=null&&state.Life!=null?state.Life.RegionMap:null;var current=RegionCurrentRumour(map);var observed=RegionObservedRumour(map);bool visited=false;
    if(map!=null)foreach(var report in map.HeardRumours)if(report.Visited)visited=true;
    if(hudRegionRumourHeading==null)hudRegionRumourHeading=new GUIStyle(hudWrap){fontStyle=FontStyle.Bold};
    if(hudRegionRumourFallback==null)hudRegionRumourFallback=new GUIStyle(hudWrap){alignment=TextAnchor.MiddleCenter};
@@ -70,7 +179,7 @@ namespace AngelsDemons.Poc {
     else GUI.Label(art,L("ui.region.rumour.image_fallback"),hudRegionRumourFallback);
     GUI.Label(new Rect(338,537,392,37),L("ui.region.rumour.image_caption"),hudWrap);
    }else{
-    GUI.Label(art,L(visited?"ui.region.rumour.visited":"ui.region.rumour.no_image"),hudRegionRumourFallback);
+    var photo=observed==null?null:RegionObservationPhoto(observed);if(photo!=null){regionObservationShownID=regionObservationTextureID;GUI.DrawTexture(art,photo,ScaleMode.ScaleToFit,false);GUI.Label(new Rect(565,539,165,36),L("ui.region.rumour.photo_caption"),hudSmall);}else GUI.Label(art,L(visited?"ui.region.rumour.visited":"ui.region.rumour.no_image"),hudRegionRumourFallback);
     if(visited&&HudButton(new Rect(338,539,220,31),L("ui.region.rumour.return_map")))SetHudMapMode("floor");
    }
    GUI.Label(new Rect(764,279,434,24),L("ui.region.rumour.journal"),hudRegionRumourHeading);

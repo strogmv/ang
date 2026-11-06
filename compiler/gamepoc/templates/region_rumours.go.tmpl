@@ -3,10 +3,15 @@ package poc
 
 import (
  "fmt"
+ "crypto/sha256"
+ "encoding/binary"
+ "encoding/hex"
+ "sort"
  "angelsdemons/server/internal/behavior"
  pb "angelsdemons/server/internal/transport/grpc/pb/game/v1"
 )
 
+type regionRumourImage struct{ID string `json:"id"`;ResourcePath string `json:"resource_path"`}
 type regionRumour struct {
  ID string `json:"id"`
  SubjectID string `json:"subject_id"`
@@ -55,11 +60,26 @@ func(r *Runtime)validateRegionRumours(s state)error {
 func(r *Runtime)regionRumourSourceName(locale,id string)string {
  fallback:=id;if a:=r.world.Life.Person(id);a!=nil{fallback=a.Name};return r.localText(locale,"actor."+id+".name",fallback)
 }
+// The signature contains only remembered cell indices and glyphs. Ticks, live
+// geometry, people and every other private runtime detail are deliberately absent.
+func regionObservationKey(nodeID string,memory map[int]seenCell)string {
+ if nodeID==""||len(memory)==0{return ""}
+ h:=sha256.New();h.Write([]byte("region-observation-v1\x00"));h.Write([]byte(nodeID));h.Write([]byte{0})
+ keys:=make([]int,0,len(memory));for key:=range memory{keys=append(keys,key)};sort.Ints(keys)
+ var b [8]byte
+ for _,key:=range keys{glyph:=memory[key].Glyph;binary.BigEndian.PutUint64(b[:],uint64(key));h.Write(b[:]);binary.BigEndian.PutUint64(b[:],uint64(len(glyph)));h.Write(b[:]);h.Write([]byte(glyph))}
+ return hex.EncodeToString(h.Sum(nil))
+}
+func(r *Runtime)regionObservedBinding(out *pb.PocRegionMap,q regionRumour,visited bool)(string,string){
+ if !visited{return "",""}
+ for _,node:=range out.Nodes {if node.Id!=q.NodeID||(node.Knowledge!="known"&&node.Knowledge!="visited")||node.LevelId==""{continue};key:=regionObservationKey(node.Id,r.state.LifeExploration[node.LevelId]);if key!=""{return node.Id,key}}
+ return "",""
+}
 func(r *Runtime)appendRegionRumours(out *pb.PocRegionMap,locale string){
  sources:=map[string]bool{}
  for _,q:=range r.world.Region.Rumours {if !sources[q.SourceActorID]&&r.regionRumourSourceAvailable(q.SourceActorID){sources[q.SourceActorID]=true;out.RumourSources=append(out.RumourSources,&pb.PocRegionRumourSource{ActorId:q.SourceActorID,Name:r.regionRumourSourceName(locale,q.SourceActorID)})}}
  for _,m:=range r.state.Region.Reports{
-  q:=r.regionRumourByID(m.ID);if q==nil{continue};visited:=r.regionRumourVisited(*q)
-  out.HeardRumours=append(out.HeardRumours,&pb.PocRegionRumour{Id:q.ID,SubjectId:q.SubjectID,SourceActorId:q.SourceActorID,SourceName:r.regionRumourSourceName(locale,q.SourceActorID),Text:r.localText(locale,q.TextKey,q.TextKey),Context:r.localText(locale,q.ContextKey,q.ContextKey),ImageVariant:q.ImageVariant,Active:!visited&&r.state.Region.ActiveReports[q.SubjectID]==q.ID,Visited:visited})
+  q:=r.regionRumourByID(m.ID);if q==nil{continue};visited:=r.regionRumourVisited(*q);observed,key:=r.regionObservedBinding(out,*q,visited)
+  out.HeardRumours=append(out.HeardRumours,&pb.PocRegionRumour{Id:q.ID,SubjectId:q.SubjectID,SourceActorId:q.SourceActorID,SourceName:r.regionRumourSourceName(locale,q.SourceActorID),Text:r.localText(locale,q.TextKey,q.TextKey),Context:r.localText(locale,q.ContextKey,q.ContextKey),ImageVariant:q.ImageVariant,Active:!visited&&r.state.Region.ActiveReports[q.SubjectID]==q.ID,Visited:visited,ObservedNodeId:observed,ObservationKey:key})
  }
 }

@@ -35,6 +35,7 @@ namespace AngelsDemons.Poc {
    GUI.Label(area,title,hudLocationHeading);
   }
   void HudFrame(Rect rect,bool brass=true){
+   RegionObservationAnnotate(rect);
    Fill(new Rect(rect.x+2,rect.y+3,rect.width,rect.height),new Color(0,0,0,.65f));
    Fill(rect,brass?hudBrass:new Color(.34f,.37f,.38f,.98f));
    Fill(new Rect(rect.x+2,rect.y+2,rect.width-4,rect.height-4),new Color(.035f,.042f,.047f,.99f));

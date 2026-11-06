@@ -162,7 +162,7 @@ func TestWayfindingServerPreviewAuthorityPrivacyAndInvalidationNative(t *testing
  type PocWayfindingShapePoint struct{X,Y float64;Junction bool};type PocWayfindingGuide struct{HalfWidthU,HalfWidthV float64;Id,Color string;Path []*PocPoint;Shape []*PocWayfindingShapePoint;AxisU,AxisV *PocWayfindingShapePoint;Underlays []*PocPoint;Authored bool}
  type PocRegionMap struct{Id,Name,CurrentNode,CurrentDeck,SelectedDestinationId string;SelectedLocalLinkIds []string;Nodes []*PocRegionNode;Links []*PocRegionLink;Decks []*PocRegionDeck;RumourSources []*PocRegionRumourSource;HeardRumours []*PocRegionRumour}
  type PocRegionRumourSource struct{ActorId,Name string}
- type PocRegionRumour struct{Id,SubjectId,SourceActorId,SourceName,Text,Context,ImageVariant string;Active,Visited bool}
+ type PocRegionRumour struct{Id,SubjectId,SourceActorId,SourceName,Text,Context,ImageVariant,ObservedNodeId,ObservationKey string;Active,Visited bool}
  type PocRegionNode struct{Id,Name,DeckId,Knowledge,LevelId,Description,Kind,Label string;X,Y,Width,Height float64;Current,CanTravel bool}
  type PocRegionLink struct{Id,FromNode,ToNode,Mode string};type PocRegionDeck struct{Id,Name string;ElevationM float64}
  `,

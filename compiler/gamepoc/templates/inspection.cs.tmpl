@@ -41,7 +41,7 @@ namespace AngelsDemons.Poc {
    const float width=385;float titleHeight=inspectionTitle.CalcHeight(new GUIContent(obj.Name),width-28);float bodyHeight=inspectionBody.CalcHeight(new GUIContent(body),width-28);
    float height=titleHeight+bodyHeight+34;var viewport=SpatialViewport();float x=Mathf.Clamp(mouse.x+20,viewport.xMin+10,viewport.xMax-width-10),y=Mathf.Clamp(mouse.y+20,viewport.yMin+8,Mathf.Max(viewport.yMin+8,viewport.yMax-height-8));
    Fill(new Rect(x,y,width,height),new Color(.025f,.035f,.04f,.98f));Fill(new Rect(x,y,3,height),new Color(.75f,.61f,.32f));
-   GUI.Label(new Rect(x+14,y+12,width-28,titleHeight),obj.Name,inspectionTitle);GUI.Label(new Rect(x+14,y+18+titleHeight,width-28,bodyHeight),body,inspectionBody);
+   RegionObservationAnnotate(new Rect(x,y,width,height));GUI.Label(new Rect(x+14,y+12,width-28,titleHeight),obj.Name,inspectionTitle);GUI.Label(new Rect(x+14,y+18+titleHeight,width-28,bodyHeight),body,inspectionBody);
   }
   PocInspectionObject InspectionObject(string id){if(state.Life!=null)foreach(var obj in state.Life.Inspections)if(obj.Id==id)return obj;return null;}
   bool InspectionHas(PocInspectionObject obj,string id){if(obj!=null)foreach(var line in obj.Fragments)if(line.Id==id)return true;return false;}

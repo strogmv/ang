@@ -296,6 +296,7 @@ namespace AngelsDemons.Poc
             };
             session.OnActionResult += result =>
             {
+                RegionObservationActionResult(result);
                 busy = "";
                 if (!result.Ok) { PracticeActionResult(result); message = "Действие не выполнено: " + result.Message; openGame = false; return; }
                 if (result.Action == "save") { message = "Игра сохранена"; saveConfirmed = true; }
@@ -345,6 +346,7 @@ namespace AngelsDemons.Poc
             if (!verify) AdvanceSpatialPreview();
             if (!verify) UpdateHudKeys();
             if (!verify && Input.GetKeyDown(KeyCode.Escape)) page = page == "game" ? "menu" : state != null && state.Active ? "game" : "menu";
+            RegionObservationUpdate();
             if (verify && !closing) ProofStep();
         }
 
@@ -459,6 +461,7 @@ namespace AngelsDemons.Poc
             busy = save ? "Сохраняем…" : "Загружаем…";
             if (!save) BeginLoading("load_game");
             string request = Guid.NewGuid().ToString("N");
+            RegionObservationBeforeSaveLoad(request,id,save);
             if (save) session.SendSaveGame(new PocSaveRequest { Slot = id, Epoch = state.Epoch, RequestId = request });
             else session.SendLoadGame(new PocLoadRequest { Slot = id, Epoch = state.Epoch, RequestId = request });
         }
@@ -802,7 +805,7 @@ namespace AngelsDemons.Poc
             Vector2 at = origin + new Vector2((position.x - position.y) * tw / 2 + tw / 2, (position.x + position.y) * th / 2 + th / 2);
             float scale=SpatialSpriteScale(tw);if(!SpatialDrawVisible(new Rect(at.x-65,at.y-49*scale,170,60*scale)))return;
             Color before = GUI.color; GUI.color = color; GUI.DrawTexture(new Rect(at.x - 8*scale, at.y - 23*scale, 16*scale, 23*scale), disc); GUI.color = before;
-            GUI.Label(new Rect(at.x - 65, at.y - 49, 170, 25), name, smallStyle);
+            RegionObservationAnnotate(new Rect(at.x - 65+SpatialViewport().x, at.y - 49+SpatialViewport().y, 170, 25));GUI.Label(new Rect(at.x - 65, at.y - 49, 170, 25), name, smallStyle);
         }
 
         void ProofStep()
@@ -997,6 +1000,6 @@ namespace AngelsDemons.Poc
             }
         }
         void OnApplicationQuit() { DisposeHost(); }
-        void OnDestroy() { ReleaseWayfindingCanvas(); ReleaseLocationSDK(); DisposeHost(); }
+        void OnDestroy() { RegionObservationRelease(); ReleaseWayfindingCanvas(); ReleaseLocationSDK(); DisposeHost(); }
     }
 }

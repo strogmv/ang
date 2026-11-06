@@ -9,7 +9,7 @@ import (
 type regionDeck struct {ID string `json:"id"`;Name string `json:"name"`;ElevationM float64 `json:"elevation_m"`}
 type regionNode struct {ID string `json:"id"`;Name string `json:"name"`;Label string `json:"label,omitempty"`;Kind string `json:"kind,omitempty"`;DeckID string `json:"deck_id"`;X float64 `json:"x"`;Y float64 `json:"y"`;Width float64 `json:"width"`;Height float64 `json:"height"`;LevelID string `json:"level_id"`;InitialKnowledge string `json:"initial_knowledge"`;Description string `json:"description"`}
 type regionLink struct {ID string `json:"id"`;FromNode string `json:"from_node"`;ToNode string `json:"to_node"`;Mode string `json:"mode"`;InitialKnown bool `json:"initial_known"`;LifeEdges []string `json:"life_edges,omitempty"`}
-type regionCatalog struct {ID string `json:"id"`;Name string `json:"name"`;Decks []regionDeck `json:"decks"`;Nodes []regionNode `json:"nodes"`;Links []regionLink `json:"links"`;Rumours []regionRumour `json:"rumours,omitempty"`}
+type regionCatalog struct {ID string `json:"id"`;Name string `json:"name"`;Decks []regionDeck `json:"decks"`;Nodes []regionNode `json:"nodes"`;Links []regionLink `json:"links"`;Rumours []regionRumour `json:"rumours,omitempty"`;RumourImages []regionRumourImage `json:"rumour_images,omitempty"`}
 // Initialized empty maps are valid durable knowledge, not missing state. Keep
 // their JSON fields so a save before the first discovered link reloads as {}.
 type regionKnowledge struct {Initialized bool `json:"initialized,omitempty"`;KnownNodes map[string]bool `json:"known_nodes"`;KnownLinks map[string]bool `json:"known_links"`;Visited map[string]int64 `json:"visited"`;Reports []regionReportMemory `json:"reports,omitempty"`;ActiveReports map[string]string `json:"active_reports,omitempty"`}

@@ -11,6 +11,7 @@ func TestRegionRumourCatalogValidatesPrivateBindings(t *testing.T) {
 	fixture := func() RegionCatalog {
 		r := regionFixture()
 		r.Nodes[1].LevelID = "stair.level"
+		r.RumourImages = []RegionRumourImage{{ID: "narrow_stair", ResourcePath: "RegionRumours/narrow_stair"}}
 		r.Rumours = []RegionRumour{{ID: "report.a", SubjectID: "subject", NodeID: "hidden", SourceActorID: "speaker", TextKey: "rumour.private.a", ContextKey: "rumour.private.context", ImageVariant: "narrow_stair"}}
 		return r
 	}
