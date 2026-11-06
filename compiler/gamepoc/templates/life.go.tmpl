@@ -360,6 +360,8 @@ func (r *Runtime) lifeCommand(q *pb.PocLifeCommand) error {
 		return textError{Key: "error.combat_actor_inactive"}
 	}
 	switch q.Action {
+ case "hear_rumour":
+  return r.hearRegionRumour(q.Destination)
  case "encounter_choice", "encounter_greet", "debug_next_morning": return r.encounterCommand(q)
  case "interact":return r.playableInteract(q.Destination)
  case "illumination_power_off","illumination_power_on":return r.illuminationCommand(q.Action,q.Destination)

@@ -9,13 +9,15 @@ import (
 type regionDeck struct {ID string `json:"id"`;Name string `json:"name"`;ElevationM float64 `json:"elevation_m"`}
 type regionNode struct {ID string `json:"id"`;Name string `json:"name"`;Label string `json:"label,omitempty"`;Kind string `json:"kind,omitempty"`;DeckID string `json:"deck_id"`;X float64 `json:"x"`;Y float64 `json:"y"`;Width float64 `json:"width"`;Height float64 `json:"height"`;LevelID string `json:"level_id"`;InitialKnowledge string `json:"initial_knowledge"`;Description string `json:"description"`}
 type regionLink struct {ID string `json:"id"`;FromNode string `json:"from_node"`;ToNode string `json:"to_node"`;Mode string `json:"mode"`;InitialKnown bool `json:"initial_known"`;LifeEdges []string `json:"life_edges,omitempty"`}
-type regionCatalog struct {ID string `json:"id"`;Name string `json:"name"`;Decks []regionDeck `json:"decks"`;Nodes []regionNode `json:"nodes"`;Links []regionLink `json:"links"`}
+type regionCatalog struct {ID string `json:"id"`;Name string `json:"name"`;Decks []regionDeck `json:"decks"`;Nodes []regionNode `json:"nodes"`;Links []regionLink `json:"links"`;Rumours []regionRumour `json:"rumours,omitempty"`}
 // Initialized empty maps are valid durable knowledge, not missing state. Keep
 // their JSON fields so a save before the first discovered link reloads as {}.
-type regionKnowledge struct {Initialized bool `json:"initialized,omitempty"`;KnownNodes map[string]bool `json:"known_nodes"`;KnownLinks map[string]bool `json:"known_links"`;Visited map[string]int64 `json:"visited"`}
+type regionKnowledge struct {Initialized bool `json:"initialized,omitempty"`;KnownNodes map[string]bool `json:"known_nodes"`;KnownLinks map[string]bool `json:"known_links"`;Visited map[string]int64 `json:"visited"`;Reports []regionReportMemory `json:"reports,omitempty"`;ActiveReports map[string]string `json:"active_reports,omitempty"`}
 
 func(k regionKnowledge)clone()regionKnowledge{
  out:=k
+ if k.Reports!=nil{out.Reports=append([]regionReportMemory{},k.Reports...)}
+ if k.ActiveReports!=nil{out.ActiveReports=map[string]string{};for id,v:=range k.ActiveReports{out.ActiveReports[id]=v}}
  if k.KnownNodes!=nil{out.KnownNodes=map[string]bool{};for id,v:=range k.KnownNodes{out.KnownNodes[id]=v}}
  if k.KnownLinks!=nil{out.KnownLinks=map[string]bool{};for id,v:=range k.KnownLinks{out.KnownLinks[id]=v}}
  if k.Visited!=nil{out.Visited=map[string]int64{};for id,v:=range k.Visited{out.Visited[id]=v}}
@@ -45,14 +47,14 @@ func(r *Runtime)learnRegionTraversal(edgeID string){
 }
 func(r *Runtime)validateRegionKnowledge(s state)error{
  k:=s.Region
- if !k.Initialized{if len(k.KnownNodes)>0||len(k.KnownLinks)>0||len(k.Visited)>0{return fmt.Errorf("uninitialized region knowledge")};return nil}
+ if !k.Initialized{if len(k.KnownNodes)>0||len(k.KnownLinks)>0||len(k.Visited)>0||len(k.Reports)>0||len(k.ActiveReports)>0{return fmt.Errorf("uninitialized region knowledge")};return nil}
  if k.KnownNodes==nil||k.KnownLinks==nil||k.Visited==nil||r.world.Region.ID==""{return fmt.Errorf("missing region knowledge")}
  nodes:=map[string]bool{};links:=map[string]regionLink{}
  for _,n:=range r.world.Region.Nodes{nodes[n.ID]=true};for _,e:=range r.world.Region.Links{links[e.ID]=e}
  for id,v:=range k.KnownNodes{if !nodes[id]||!v{return fmt.Errorf("invalid known region node")}}
  for id,v:=range k.KnownLinks{e,ok:=links[id];if !ok||!v||!k.KnownNodes[e.FromNode]||!k.KnownNodes[e.ToNode]{return fmt.Errorf("invalid known region link")}}
  for id,at:=range k.Visited{if !k.KnownNodes[id]||at<0||at>s.Life.Seconds{return fmt.Errorf("invalid region visit")}}
- return nil
+ return r.validateRegionRumours(s)
 }
 func(r *Runtime)regionNodeForLevel(level string)*regionNode{for i:=range r.world.Region.Nodes{if r.world.Region.Nodes[i].LevelID==level{return &r.world.Region.Nodes[i]}};return nil}
 func(r *Runtime)regionLevelName(locale,level string)string{
@@ -95,6 +97,7 @@ func(r *Runtime)appendRegionMap(view *pb.PocLifeView,locales ...string){
  }
  for _,e:=range r.world.Region.Links{if k.KnownLinks[e.ID]&&k.KnownNodes[e.FromNode]&&k.KnownNodes[e.ToNode]{result.Links=append(result.Links,&pb.PocRegionLink{Id:e.ID,FromNode:e.FromNode,ToNode:e.ToNode,Mode:e.Mode})}}
  for _,d:=range r.world.Region.Decks{if visibleDecks[d.ID]{result.Decks=append(result.Decks,&pb.PocRegionDeck{Id:d.ID,Name:r.localText(locale,"region.deck."+d.ID+".name",d.Name),ElevationM:d.ElevationM})}}
+ r.appendRegionRumours(result,locale)
  r.appendRegionSelectedLeg(result,locale)
  view.RegionMap=result
 }

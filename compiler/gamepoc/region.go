@@ -10,11 +10,12 @@ import (
 // RegionCatalog is private authoring data. Unity only receives the server's
 // knowledge projection, never this catalog or its undiscovered rooms.
 type RegionCatalog struct {
-	ID    string       `json:"id"`
-	Name  string       `json:"name"`
-	Decks []RegionDeck `json:"decks"`
-	Nodes []RegionNode `json:"nodes"`
-	Links []RegionLink `json:"links"`
+	ID      string         `json:"id"`
+	Name    string         `json:"name"`
+	Decks   []RegionDeck   `json:"decks"`
+	Nodes   []RegionNode   `json:"nodes"`
+	Links   []RegionLink   `json:"links"`
+	Rumours []RegionRumour `json:"rumours,omitempty"`
 }
 type RegionDeck struct {
 	ID         string  `json:"id"`
@@ -45,7 +46,7 @@ type RegionLink struct {
 }
 
 func (r *RegionCatalog) validate(life json.RawMessage) error {
-	if r.ID == "" && len(r.Nodes) == 0 && len(r.Links) == 0 && len(r.Decks) == 0 {
+	if r.ID == "" && len(r.Nodes) == 0 && len(r.Links) == 0 && len(r.Decks) == 0 && len(r.Rumours) == 0 {
 		return nil
 	}
 	if r.ID == "" || r.Name == "" || len(r.Nodes) == 0 || len(r.Nodes) > 4096 || len(r.Links) > 8192 || len(r.Decks) == 0 || len(r.Decks) > 64 {
@@ -123,5 +124,5 @@ func (r *RegionCatalog) validate(life json.RawMessage) error {
 	sort.Slice(r.Decks, func(i, j int) bool { return r.Decks[i].ID < r.Decks[j].ID })
 	sort.Slice(r.Nodes, func(i, j int) bool { return r.Nodes[i].ID < r.Nodes[j].ID })
 	sort.Slice(r.Links, func(i, j int) bool { return r.Links[i].ID < r.Links[j].ID })
-	return nil
+	return r.validateRumours(life)
 }

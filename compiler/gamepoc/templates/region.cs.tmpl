@@ -7,10 +7,13 @@ using AngelsDemons.Game.V1;
 using UnityEngine;
 namespace AngelsDemons.Poc {
  public sealed partial class AngelsDemonsPoc {
-  bool hudMapFloor=true,hudRegionFollowCurrent=true,hudRegionPointerDown,hudRegionDragging;
+  bool hudMapFloor=true,hudRegionFollowCurrent=true,hudRegionPointerDown,hudRegionDragging,hudRegionRumoursOpen;
   string hudRegionMapID="",hudRegionDeckID="",hudRegionNodeID="";
   float hudRegionZoom=1f;
   Vector2 hudRegionPan,hudRegionPointerStart,hudRegionPanStart,hudRegionDetailScroll;
+  Vector2 hudRegionRumourJournalScroll,hudRegionRumourSourceScroll;
+  readonly Dictionary<string,Texture2D> hudRegionRumourTextures=new Dictionary<string,Texture2D>(StringComparer.Ordinal);
+  GUIStyle hudRegionRumourHeading,hudRegionRumourFallback;
   readonly Rect hudRegionCanvas=new Rect(324,282,650,340);
 
   GUIStyle hudRegionLabel;
@@ -25,17 +28,72 @@ namespace AngelsDemons.Poc {
   }
 
   public void SetHudMapMode(string mode){
-   if(mode!="floor"&&mode!="local")return;
-   hudMapFloor=mode=="floor";hudRegionPointerDown=false;
+   if(mode!="floor"&&mode!="local"&&mode!="rumours")return;
+   hudRegionRumoursOpen=mode=="rumours";hudMapFloor=mode!="local";hudRegionPointerDown=false;hudRegionDragging=false;
   }
   void OpenHudMap(){SetHudMapMode("floor");hudRegionFollowCurrent=true;page="map";}
   bool HudHasRegionMap(){return state!=null&&state.Life!=null&&state.Life.RegionMap!=null&&state.Life.RegionMap.Nodes.Count>0;}
   void DrawHudMap(){
-   if(hudMapFloor)DrawRegionMap();else DrawHudLocalMap();
-   Rect local=new Rect(970,190,112,32),floor=new Rect(1090,190,114,32);
-   if(!hudMapFloor)Fill(new Rect(local.x,local.y-3,local.width,2),hudBrass);else Fill(new Rect(floor.x,floor.y-3,floor.width,2),hudBrass);
+   if(hudRegionRumoursOpen)DrawRegionRumours();else if(hudMapFloor)DrawRegionMap();else DrawHudLocalMap();
+   Rect rumours=new Rect(820,190,142,32),local=new Rect(970,190,112,32),floor=new Rect(1090,190,114,32);
+   if(hudRegionRumoursOpen)Fill(new Rect(rumours.x,rumours.y-3,rumours.width,2),hudBrass);else if(!hudMapFloor)Fill(new Rect(local.x,local.y-3,local.width,2),hudBrass);else Fill(new Rect(floor.x,floor.y-3,floor.width,2),hudBrass);
+   var map=state!=null&&state.Life!=null?state.Life.RegionMap:null;
+   string rumourLabel=L("ui.region.rumour.tab");if(map!=null&&map.HeardRumours.Count>0)rumourLabel+=" · "+map.HeardRumours.Count.ToString(CultureInfo.InvariantCulture);
+   if(HudButton(rumours,rumourLabel))SetHudMapMode("rumours");
    if(HudButton(local,L("ui.region.tab_local")))SetHudMapMode("local");
    if(HudButton(floor,L("ui.region.tab_floor")))SetHudMapMode("floor");
+  }
+
+  // Reports are a separate journal. They never become map nodes, route targets
+  // or client-side evidence of a visit. Only the server supplies Active/Visited.
+  static PocRegionRumour RegionCurrentRumour(PocRegionMap map){
+   PocRegionRumour result=null;if(map!=null)foreach(var report in map.HeardRumours)if(report.Active&&!report.Visited)result=report;return result;
+  }
+  // Explicit authored allowlist: a server string cannot load an arbitrary asset.
+  static string RegionRumourAssetPath(string variant){return variant=="narrow_stair"?"RegionRumours/narrow_stair":variant=="great_descent"?"RegionRumours/great_descent":"";}
+  Texture2D RegionRumourTexture(string variant){
+   string path=RegionRumourAssetPath(variant);
+   if(path=="")return null;Texture2D texture;if(!hudRegionRumourTextures.TryGetValue(path,out texture)){texture=Resources.Load<Texture2D>(path);hudRegionRumourTextures[path]=texture;}return texture;
+  }
+  void DrawRegionRumours(){
+   var map=state!=null&&state.Life!=null?state.Life.RegionMap:null;var current=RegionCurrentRumour(map);bool visited=false;
+   if(map!=null)foreach(var report in map.HeardRumours)if(report.Visited)visited=true;
+   if(hudRegionRumourHeading==null)hudRegionRumourHeading=new GUIStyle(hudWrap){fontStyle=FontStyle.Bold};
+   if(hudRegionRumourFallback==null)hudRegionRumourFallback=new GUIStyle(hudWrap){alignment=TextAnchor.MiddleCenter};
+   GUI.Label(new Rect(324,190,480,27),L("ui.region.rumour.title"),hudHeading);
+   GUI.Label(new Rect(324,229,880,35),L("ui.region.rumour.caption"),hudWrap);
+   HudFrame(new Rect(324,274,420,310),false);
+   GUI.Label(new Rect(338,286,392,25),L(current!=null?"ui.region.rumour.imagined":"ui.region.rumour.memory"),hudRegionRumourHeading);
+   var art=new Rect(338,319,392,209);
+   if(current!=null){
+    var texture=RegionRumourTexture(current.ImageVariant);if(texture!=null)GUI.DrawTexture(art,texture,ScaleMode.ScaleToFit,true);
+    else GUI.Label(art,L("ui.region.rumour.image_fallback"),hudRegionRumourFallback);
+    GUI.Label(new Rect(338,537,392,37),L("ui.region.rumour.image_caption"),hudWrap);
+   }else{
+    GUI.Label(art,L(visited?"ui.region.rumour.visited":"ui.region.rumour.no_image"),hudRegionRumourFallback);
+    if(visited&&HudButton(new Rect(338,539,220,31),L("ui.region.rumour.return_map")))SetHudMapMode("floor");
+   }
+   GUI.Label(new Rect(764,279,434,24),L("ui.region.rumour.journal"),hudRegionRumourHeading);
+   if(map==null||map.HeardRumours.Count==0)GUI.Label(new Rect(764,318,424,92),L("ui.region.rumour.empty_journal"),hudWrap);
+   else{
+    const float width=412;float total=0;
+    foreach(var report in map.HeardRumours){total+=hudRegionRumourHeading.CalcHeight(new GUIContent(report.SourceName),width)+8+hudWrap.CalcHeight(new GUIContent(report.Text),width)+12;if(!string.IsNullOrEmpty(report.Context))total+=hudWrap.CalcHeight(new GUIContent(report.Context),width)+8;if(report.Active&&!report.Visited)total+=22;total+=15;}
+    hudRegionRumourJournalScroll=GUI.BeginScrollView(new Rect(760,311,444,273),hudRegionRumourJournalScroll,new Rect(0,0,422,Mathf.Max(268,total)));
+    float y=0;foreach(var report in map.HeardRumours){
+     float h=hudRegionRumourHeading.CalcHeight(new GUIContent(report.SourceName),width);GUI.Label(new Rect(4,y,width,h),report.SourceName,hudRegionRumourHeading);y+=h+8;
+     h=hudWrap.CalcHeight(new GUIContent(report.Text),width);GUI.Label(new Rect(4,y,width,h),report.Text,hudWrap);y+=h+12;
+     if(!string.IsNullOrEmpty(report.Context)){h=hudWrap.CalcHeight(new GUIContent(report.Context),width);GUI.Label(new Rect(4,y,width,h),report.Context,hudWrap);y+=h+8;}
+     if(report.Active&&!report.Visited){GUI.Label(new Rect(4,y,width,20),L("ui.region.rumour.current_image"),hudSmall);y+=22;}
+     Fill(new Rect(4,y,width,1),new Color(.30f,.32f,.29f));y+=15;
+    }GUI.EndScrollView();
+   }
+   GUI.Label(new Rect(324,596,880,21),L("ui.region.rumour.sources"),hudSmall);
+   if(map==null||map.RumourSources.Count==0){GUI.Label(new Rect(324,626,880,45),L("ui.region.rumour.no_source"),hudWrap);return;}
+   hudRegionRumourSourceScroll=GUI.BeginScrollView(new Rect(324,620,880,64),hudRegionRumourSourceScroll,new Rect(0,0,Mathf.Max(860,map.RumourSources.Count*284),42));
+   int index=0;foreach(var source in map.RumourSources){
+    string label=L("ui.region.rumour.listen").Replace("{name}",source.Name);
+    if(HudButton(new Rect(index*284,2,276,36),label,CanSend()&&!loadingActive)){LifeCommand("hear_rumour",source.ActorId);hudRegionRumourJournalScroll=Vector2.zero;}index++;
+   }GUI.EndScrollView();
   }
 
   static bool RegionNodeKnown(PocRegionNode node){return node!=null&&(node.Knowledge=="known"||node.Knowledge=="visited");}
@@ -237,7 +295,7 @@ namespace AngelsDemons.Poc {
   }
 
   void DrawRegionMap(){
-   GUI.Label(new Rect(324,190,630,27),L("ui.region.map_title"),hudHeading);
+   GUI.Label(new Rect(324,190,480,27),L("ui.region.map_title"),hudHeading);
    GUI.Label(new Rect(324,223,880,22),L("ui.region.memory_caption"),hudSmall);
    var map=state!=null&&state.Life!=null?state.Life.RegionMap:null;var decks=RegionKnownDecks(map);
    if(map==null||decks.Count==0){GUI.Label(new Rect(324,274,880,50),L("ui.region.empty_map"),hudWrap);return;}

@@ -1002,6 +1002,8 @@ func Generate(project string) error {
 		"wayfinding.go.tmpl":              filepath.Join(project, "internal/poc/wayfinding.gen.go"),
 		"wayfinding_test.go.tmpl":         filepath.Join(project, "internal/poc/wayfinding_test.go"),
 		"region.go.tmpl":                  filepath.Join(project, "internal/poc/region.gen.go"),
+		"region_rumours.go.tmpl":          filepath.Join(project, "internal/poc/region_rumours.gen.go"),
+		"region_rumours_test.go.tmpl":     filepath.Join(project, "internal/poc/region_rumours_generated_test.go"),
 		"region_test.go.tmpl":             filepath.Join(project, "internal/poc/region_generated_test.go"),
 		"region.cs.tmpl":                  filepath.Join(unity, "Assets/Generated/Poc/PocRegionMap.cs"),
 		"spatial.cs.tmpl":                 filepath.Join(unity, "Assets/Generated/Poc/PocSpatialView.cs"),

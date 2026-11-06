@@ -30,10 +30,14 @@ func TestRegionUIUsesOnlyChipKnowledgeAndServerTravel(t *testing.T) {
 			t.Errorf("missing region UI contract %q", want)
 		}
 	}
-	for _, bad := range []string{"Resources.Load", "resource.", "state.Entities", "state.SceneAgents", "planning/", "teleport", "ETA", "GUI.matrix", "RotateAroundPivot"} {
+	for _, bad := range []string{"resource.", "state.Entities", "state.SceneAgents", "planning/", "teleport", "ETA", "GUI.matrix", "RotateAroundPivot"} {
 		if strings.Contains(s, bad) {
 			t.Errorf("region UI may fabricate information or load developer state: %q", bad)
 		}
+	}
+	// Reports may load their two authored illustrations, never hidden geography.
+	if strings.Count(s, "Resources.Load") != 1 || !strings.Contains(s, "Resources.Load<Texture2D>(path)") || !strings.Contains(s, "string path=RegionRumourAssetPath(variant)") {
+		t.Fatal("rumour artwork must use the single explicit asset allowlist")
 	}
 }
 
@@ -60,7 +64,9 @@ func TestRegionUINativeProjectionKnowledgeAndTravel(t *testing.T) {
 	}
 	harness := `
 namespace AngelsDemons.Game.V1 {
- public class PocRegionMap {public string Id="",Name="",CurrentNode="",CurrentDeck="",SelectedDestinationId="";public System.Collections.Generic.List<string> SelectedLocalLinkIds=new System.Collections.Generic.List<string>();public System.Collections.Generic.List<PocRegionDeck> Decks=new System.Collections.Generic.List<PocRegionDeck>();public System.Collections.Generic.List<PocRegionNode> Nodes=new System.Collections.Generic.List<PocRegionNode>();public System.Collections.Generic.List<PocRegionLink> Links=new System.Collections.Generic.List<PocRegionLink>();}
+ public class PocRegionMap {public string Id="",Name="",CurrentNode="",CurrentDeck="",SelectedDestinationId="";public System.Collections.Generic.List<string> SelectedLocalLinkIds=new System.Collections.Generic.List<string>();public System.Collections.Generic.List<PocRegionDeck> Decks=new System.Collections.Generic.List<PocRegionDeck>();public System.Collections.Generic.List<PocRegionNode> Nodes=new System.Collections.Generic.List<PocRegionNode>();public System.Collections.Generic.List<PocRegionLink> Links=new System.Collections.Generic.List<PocRegionLink>();public System.Collections.Generic.List<PocRegionRumour> HeardRumours=new System.Collections.Generic.List<PocRegionRumour>();public System.Collections.Generic.List<PocRegionRumourSource> RumourSources=new System.Collections.Generic.List<PocRegionRumourSource>();}
+ public class PocRegionRumour {public string Id="",SubjectId="",SourceActorId="",SourceName="",Text="",Context="",ImageVariant="";public bool Active,Visited;}
+ public class PocRegionRumourSource {public string ActorId="",Name="";}
  public class PocRegionDeck {public string Id="",Name="";public double ElevationM;}
  public class PocRegionNode {public string Id="",Name="",DeckId="",Knowledge="",LevelId="",Description="",Kind="",Label="";public double X,Y,Width,Height;public bool Current,CanTravel;}
  public class PocRegionLink {public string Id="",FromNode="",ToNode="",Mode="";}
@@ -153,6 +159,10 @@ namespace AngelsDemons.Poc {
    map.Links.Add(new AngelsDemons.Game.V1.PocRegionLink {FromNode="market",ToNode="home",Mode="monorail"});
    Require(ui.RegionNodeDescription(map,known).Contains("Monorail \u2192 home"),"localized connection format contains the known localized place name");
    ui.SetHudMapMode("local");Require(!ui.hudMapFloor,"local tab reachable");ui.OpenHudMap();Require(ui.hudMapFloor&&ui.page=="map"&&ui.hudRegionFollowCurrent,"M opens floor by default");
+   ui.SetHudMapMode("rumours");Require(ui.hudRegionRumoursOpen&&ui.hudMapFloor,"rumour journal reachable without replacing local map mode");ui.SetHudMapMode("floor");Require(!ui.hudRegionRumoursOpen&&ui.hudMapFloor,"district map remains reachable");
+   Require(RegionRumourAssetPath("narrow_stair")=="RegionRumours/narrow_stair"&&RegionRumourAssetPath("great_descent")=="RegionRumours/great_descent","authored variants map to their dedicated artwork");
+   Require(RegionRumourAssetPath("../secret")==""&&RegionRumourAssetPath("level.hidden")==""&&RegionRumourAssetPath(null)=="","unknown variants cannot become resource paths");
+   var reportA=new AngelsDemons.Game.V1.PocRegionRumour{Id="a",Active=true,ImageVariant="narrow_stair"};var reportB=new AngelsDemons.Game.V1.PocRegionRumour{Id="b",Active=true,ImageVariant="great_descent"};map.HeardRumours.Add(reportA);Require(RegionCurrentRumour(map)==reportA,"first received account supplies the image");reportA.Active=false;map.HeardRumours.Add(reportB);Require(RegionCurrentRumour(map)==reportB&&map.HeardRumours.Count==2,"second account changes image and keeps history");reportB.Visited=true;Require(RegionCurrentRumour(map)==null,"server visit removes imagination even if active flag remains malformed");Require(RegionFindNode(map,"hidden")==null&&RegionDeckNodes(map,"low").Count==2,"reports never reveal geographic nodes");
    ui.RegionRefreshSelection(map,RegionKnownDecks(map));Require(ui.hudRegionDeckID=="low"&&ui.hudRegionNodeID=="home","current place selected from wire only");
    Near(ui.hudRegionZoom,1,"opening view shows all known destinations");
    ui.RegionFocusNode(map,visited);
