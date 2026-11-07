@@ -221,8 +221,8 @@ type CompiledResidentStep struct {
 	MinSeconds int    `json:"min_seconds"`
 }
 
-// IsMultideck reports any multi-surface authoring. Such fields without at
-// least one deck are rejected rather than silently compiled as a flat floor.
+// IsMultideck reports authoring that needs vertical geometry/navigation.
+// Single-floor obstacles use the same engine without a dummy upper deck.
 func (l Layout) IsMultideck() bool {
 	return len(l.Decks) > 0 || len(l.Connectors) > 0 || len(l.Supports) > 0 || len(l.Railings) > 0 || len(l.Obstacles) > 0 || len(l.CutawayGroups) > 0 || l.BaseSurfaceID != ""
 }
@@ -381,13 +381,13 @@ func oppositeSide(s Side) Side {
 // navigation plane. The base band keeps plan coordinates (navigation row = y).
 func compileMultideck(p preparedCatalog, layout Layout, out *CompiledLevel, support, blocked []bool, material map[Cell]string, sightClear map[int]bool) *ValidationError {
 	b := &mdBuilder{layout: layout, out: out, w: layout.Width, d: layout.Depth, byID: map[string]*mdSurface{}, ids: map[string]string{}, groups: map[string]CutawayGroup{}, walls: map[int][]mdInterval{}, sightSolid: map[int][]mdInterval{}, nodeAt: map[int]NavNode{}, nodeOwner: map[int]string{}, landingOf: map[mdKey]string{}, headEdges: map[mdEdgeKey]string{}, beams: map[*mdSurface]map[int]int{}, supportAt: map[*mdSurface]map[int]bool{}}
-	if len(layout.Decks) == 0 {
-		return issue("multideck_without_decks", "layout", "connectors, supports, railings, obstacles, cutaway groups and base_surface_id require at least one authored deck")
+	if len(layout.Decks) == 0 && (len(layout.Obstacles) == 0 || len(layout.Connectors) > 0 || len(layout.Supports) > 0 || len(layout.Railings) > 0) {
+		return issue("multideck_without_decks", "layout", "a base-only vertical layout needs obstacles; connectors, supports and railings require an authored deck")
 	}
 	if len(layout.Decks) > maxSurfaceCount-1 || len(layout.Connectors) > maxConnectorCount || len(layout.Supports) > 4096 || len(layout.Railings) > 4096 || len(layout.Obstacles) > 4096 || len(layout.CutawayGroups) > 256 {
 		return issue("multideck_budget", "layout", "multi-deck layout exceeds 31 decks, 64 connectors or 4096 supports/railings/obstacles")
 	}
-	if len(layout.ReservedPaths) > 0 {
+	if len(layout.ReservedPaths) > 0 && len(layout.Decks) > 0 {
 		return issue("unsupported_multideck_guides", "layout.reserved_paths", "floor guides/wayfinding lines are single-surface only; multi-deck guides are a later step")
 	}
 	count := b.w * b.d
@@ -595,6 +595,15 @@ func compileMultideck(p preparedCatalog, layout Layout, out *CompiledLevel, supp
 		for _, at := range clearance.Cells {
 			if base.blocked[b.index(at)] {
 				return issue("clearance_obstructed", "layout", fmt.Sprintf("%s access at (%d,%d) is covered by a multi-deck element", clearance.Kind, at.X, at.Y), clearance.InstanceID)
+			}
+		}
+	}
+	// Obstacles/headroom are applied after planar paths were expanded. Check
+	// every reserved cell again against the final base movement geometry.
+	for i, path := range out.ReservedPaths {
+		for _, at := range path.Cells {
+			if base.blocked[b.index(at)] {
+				return issue("reserved_path_obstructed", fmt.Sprintf("compiled.reserved_paths[%d]", i), fmt.Sprintf("reserved route at (%d,%d) is covered by vertical geometry", at.X, at.Y), path.ID)
 			}
 		}
 	}
