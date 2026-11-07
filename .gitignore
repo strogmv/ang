@@ -46,3 +46,7 @@ dist/
 
 # MCP doctor state written by tests and by `ang mcp`
 **/.ang/doctor_state.json
+
+# Godot import cache is always local.
+**/.godot/
+/examples/godot/market/

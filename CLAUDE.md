@@ -27,7 +27,9 @@ docs/           reference docs; docs/tech-debt-backlog.md is the backlog
 - `ang build` refuses to run against this checkout itself; always pass a project directory.
 - Do not run `ang build` / `make generate` in a real project (e.g. dealingi-back) to test a change:
   use `ang validate <dir>` or `ang build --check` there, or regenerate `examples/blog`.
-- The only target ANG generates is Go (`lang: "go"`, framework `chi` or `grpc`, db `postgres`).
+- The backend target is Go (`lang: "go"`, framework `chi` or `grpc`, db `postgres`).
+- The independent `ang godot` location target compiles SDK CUE into a placement
+  manifest and Godot TSCN; see `docs/godot-target.md` for its CLI and world frame.
 
 ## Checks
 
