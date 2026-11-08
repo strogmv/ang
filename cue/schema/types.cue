@@ -1581,6 +1581,8 @@ package schema
 	copy_proto_to?: [...string]
 	// Project-relative output .gd file for the reachable RPC protojson contract.
 	gdscript_out?: string
+	// Subscription message: diagnostics_all:bool, diagnostics: repeated string, static_on_change:bool.
+	view_subscription?: string
 	// Directory (relative to the project, may leave it, e.g. a Unity project's
 	// Assets/Generated) that receives the generated C# client: the message classes
 	// (protoc --csharp_out, protoc must be installed), gRPC stubs written against
@@ -1611,6 +1613,10 @@ package schema
 }
 
 #GRPCField: {
+	// Absent means live. Diagnostic keys are Message.field.
+	delivery?: "live" | "diagnostic" | "static_on_change"
+	// Static fields name a plain uint64 sibling with an explicit wire number.
+	revision?: string
 	// Wire field number, 1..536870911 (19000-19999 are reserved by protobuf).
 	n: int & >=1 & <=536870911
 	// double float int32 int64 uint32 uint64 bool string bytes, or a message/enum name

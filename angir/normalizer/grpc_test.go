@@ -82,3 +82,45 @@ func TestExtractGRPCRejects(t *testing.T) {
 		})
 	}
 }
+
+func TestGRPCDeliveryValidation(t *testing.T) {
+	sub := `view_subscription: "Subscription"
+ messages: Subscription: fields: {diagnostics: {n:1,type:"string",repeated:true}, diagnostics_all:{n:2,type:"bool"},static_on_change:{n:3,type:"bool"}}
+ messages: In: fields: sub: {n:1,type:"Subscription"}
+ `
+	valid := `messages: Out: fields: {map: {n:1,type:"string",delivery:"static_on_change",revision:"revision"}, revision:{n:2,type:"uint64"},debug:{n:3,type:"string",delivery:"diagnostic"}}`
+	g, err := extractGRPC(t, sub+valid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.ViewSubscription != "Subscription" || g.Messages[1].Fields[0].Delivery != "static_on_change" || g.Messages[1].Fields[0].Revision != "revision" {
+		t.Fatal("annotations were lost", g)
+	}
+	for _, tc := range []struct{ body, want string }{
+		{strings.Replace(valid, `delivery:"static_on_change"`, `delivery:"unknown"`, 1), "unknown delivery"},
+		{strings.Replace(valid, `revision:"revision"`, `revision:"missing"`, 1), "plain uint64 sibling"},
+		{strings.Replace(valid, `n:2,type:"uint64"`, `n:2,type:"int64"`, 1), "plain uint64 sibling"},
+		{`messages: Out: fields: {a:{n:1,type:"string",delivery:"static_on_change",revision:"r"},b:{n:2,type:"string",delivery:"static_on_change",revision:"r"},r:{n:3,type:"uint64"}}`, "shared revision"},
+		{`messages: Out: oneofs: msg: a:{n:1,type:"string",delivery:"diagnostic"}`, "not allowed in oneof"},
+	} {
+		if _, err := extractGRPC(t, sub+tc.body); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("%s: %v", tc.want, err)
+		}
+	}
+	for _, body := range []string{
+		`messages: Out: fields: {parent:{n:1,type:"Child",delivery:"static_on_change",revision:"r"},r:{n:2,type:"uint64"}}
+        messages: Child: fields: debug:{n:1,type:"string",delivery:"diagnostic"}`,
+		`messages: Out: fields: x:{n:1,type:"ViewProjector"}
+        messages: ViewProjector: fields: x:{n:1,type:"string"}`,
+	} {
+		if _, err := extractGRPC(t, sub+body); err == nil {
+			t.Fatal("accepted invalid delivery structure")
+		}
+	}
+	if _, err := extractGRPC(t, strings.Replace(sub, `type:"bool"`, `type:"string"`, 1)+valid); err == nil || !strings.Contains(err.Error(), "requires diagnostics_all") {
+		t.Fatal(err)
+	}
+	if _, err := extractGRPC(t, `messages: In: fields: a:{n:1,type:"string"}`+"\n"+valid); err == nil || !strings.Contains(err.Error(), "requires view_subscription") {
+		t.Fatal(err)
+	}
+}

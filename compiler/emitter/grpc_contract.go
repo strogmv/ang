@@ -299,6 +299,13 @@ func (e *Emitter) emitGRPCServer(def *ir.GRPC) error {
 		return fmt.Errorf("generated grpc stubs are invalid: %w", err)
 	}
 	files := map[string][]byte{name: src, base + "_grpc.pb.go": stubs}
+	delivery, err := RenderGRPCDelivery(def, pbName)
+	if err != nil {
+		return err
+	}
+	if delivery != nil {
+		files[base+"_delivery.pb.go"] = delivery
+	}
 	for fname, content := range files {
 		p := e.outDir(append(append([]string{}, pbDir...), fname)...)
 		if err := WriteFileIfChanged(p, content, 0o644); err != nil {

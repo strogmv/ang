@@ -11,19 +11,20 @@ import (
 
 // GRPCDef is the normalized `GRPC:` declaration of cue/api (schema.#GRPC).
 type GRPCDef struct {
-	Package         string        `json:"package,omitempty"`
-	GoPackage       string        `json:"go_package,omitempty"`
-	CSharpNamespace string        `json:"csharp_namespace,omitempty"`
-	GDScriptOut     string        `json:"gdscript_out,omitempty"`
-	CopyProtoTo     []string      `json:"copy_proto_to,omitempty"`
-	Listen          string        `json:"listen,omitempty"`
-	Handlers        string        `json:"handlers,omitempty"`
-	CSharpOut       string        `json:"csharp_out,omitempty"`
-	Reflection      bool          `json:"reflection,omitempty"`
-	Enums           []GRPCEnum    `json:"enums,omitempty"`
-	Messages        []GRPCMessage `json:"messages,omitempty"`
-	Services        []GRPCService `json:"services,omitempty"`
-	Source          string        `json:"source,omitempty"`
+	Package          string        `json:"package,omitempty"`
+	GoPackage        string        `json:"go_package,omitempty"`
+	CSharpNamespace  string        `json:"csharp_namespace,omitempty"`
+	ViewSubscription string        `json:"view_subscription,omitempty"`
+	GDScriptOut      string        `json:"gdscript_out,omitempty"`
+	CopyProtoTo      []string      `json:"copy_proto_to,omitempty"`
+	Listen           string        `json:"listen,omitempty"`
+	Handlers         string        `json:"handlers,omitempty"`
+	CSharpOut        string        `json:"csharp_out,omitempty"`
+	Reflection       bool          `json:"reflection,omitempty"`
+	Enums            []GRPCEnum    `json:"enums,omitempty"`
+	Messages         []GRPCMessage `json:"messages,omitempty"`
+	Services         []GRPCService `json:"services,omitempty"`
+	Source           string        `json:"source,omitempty"`
 }
 
 type GRPCEnum struct {
@@ -57,6 +58,8 @@ type GRPCOneof struct {
 }
 
 type GRPCField struct {
+	Delivery    string `json:"delivery,omitempty"`
+	Revision    string `json:"revision,omitempty"`
 	Name        string `json:"name,omitempty"`
 	Number      int    `json:"number,omitempty"`
 	Type        string `json:"type,omitempty"`
@@ -98,16 +101,17 @@ func (n *Normalizer) ExtractGRPC(val cue.Value) (*GRPCDef, error) {
 		return nil, nil
 	}
 	def := &GRPCDef{
-		Package:         getString(g, "package"),
-		GoPackage:       getString(g, "go_package"),
-		CSharpNamespace: getString(g, "csharp_namespace"),
-		CopyProtoTo:     getStringList(g, "copy_proto_to"),
-		GDScriptOut:     strings.TrimSpace(getString(g, "gdscript_out")),
-		Listen:          getStringWithDefault(g, "listen", ":50051"),
-		Handlers:        strings.Trim(getString(g, "handlers"), "/ "),
-		CSharpOut:       strings.TrimSpace(getString(g, "csharp_out")),
-		Reflection:      true,
-		Source:          formatPos(g),
+		Package:          getString(g, "package"),
+		ViewSubscription: getString(g, "view_subscription"),
+		GoPackage:        getString(g, "go_package"),
+		CSharpNamespace:  getString(g, "csharp_namespace"),
+		CopyProtoTo:      getStringList(g, "copy_proto_to"),
+		GDScriptOut:      strings.TrimSpace(getString(g, "gdscript_out")),
+		Listen:           getStringWithDefault(g, "listen", ":50051"),
+		Handlers:         strings.Trim(getString(g, "handlers"), "/ "),
+		CSharpOut:        strings.TrimSpace(getString(g, "csharp_out")),
+		Reflection:       true,
+		Source:           formatPos(g),
 	}
 	if rv := g.LookupPath(cue.ParsePath("reflection")); rv.Exists() {
 		if b, err := rv.Bool(); err == nil {
@@ -209,6 +213,8 @@ func (n *Normalizer) ExtractGRPC(val cue.Value) (*GRPCDef, error) {
 func readGRPCField(name string, v cue.Value) GRPCField {
 	num, _ := v.LookupPath(cue.ParsePath("n")).Int64()
 	f := GRPCField{Name: name, Number: int(num), Type: getString(v, "type"), MapKey: getString(v, "map_key"), Description: getString(v, "description")}
+	f.Delivery = getString(v, "delivery")
+	f.Revision = getString(v, "revision")
 	f.Repeated, _ = v.LookupPath(cue.ParsePath("repeated")).Bool()
 	f.Optional, _ = v.LookupPath(cue.ParsePath("optional")).Bool()
 	f.Deprecated, _ = v.LookupPath(cue.ParsePath("deprecated")).Bool()
@@ -290,7 +296,55 @@ func (g *GRPCDef) Validate() error {
 		}
 	}
 
+	if g.ViewSubscription != "" {
+		for _, name := range []string{"ViewProjector", "NewViewProjector"} {
+			if msgs[name] != nil || enums[name] != nil {
+				return fmt.Errorf("GRPC.view_subscription reserves generated symbol %s", name)
+			}
+		}
+		sub := msgs[g.ViewSubscription]
+		if sub == nil {
+			return fmt.Errorf("GRPC.view_subscription: unknown message %q", g.ViewSubscription)
+		}
+		for _, want := range []GRPCField{{Name: "diagnostics_all", Type: "bool"}, {Name: "diagnostics", Type: "string", Repeated: true}, {Name: "static_on_change", Type: "bool"}} {
+			found := false
+			for _, f := range sub.Fields {
+				if f.Name == want.Name && f.Type == want.Type && f.Repeated == want.Repeated && f.MapKey == "" && !f.Optional {
+					found = true
+				}
+			}
+			if !found {
+				return fmt.Errorf("GRPC.view_subscription %s requires %s of type %s (repeated=%t)", sub.Name, want.Name, want.Type, want.Repeated)
+			}
+		}
+	}
 	checkType := func(m GRPCMessage, f GRPCField) error {
+		switch f.Delivery {
+		case "", "live":
+			if f.Revision != "" {
+				return fmt.Errorf("%s.%s: revision requires static_on_change", m.Name, f.Name)
+			}
+		case "diagnostic":
+			if g.ViewSubscription == "" || f.Revision != "" {
+				return fmt.Errorf("%s.%s: diagnostic requires view_subscription and no revision", m.Name, f.Name)
+			}
+		case "static_on_change":
+			if g.ViewSubscription == "" {
+				return fmt.Errorf("%s.%s: static_on_change requires view_subscription", m.Name, f.Name)
+			}
+			found := false
+			for _, r := range m.Fields {
+				if r.Name == f.Revision && r.Type == "uint64" && !r.Repeated && r.MapKey == "" && !r.Optional && r.Delivery == "" {
+					found = true
+				}
+			}
+			if !found || f.Revision == f.Name {
+				return fmt.Errorf("%s.%s: revision must name a plain uint64 sibling", m.Name, f.Name)
+			}
+		default:
+			return fmt.Errorf("%s.%s: unknown delivery %q", m.Name, f.Name, f.Delivery)
+		}
+
 		if !grpcScalars[f.Type] && enums[f.Type] == nil && msgs[f.Type] == nil {
 			return fmt.Errorf("%s: message %s field %s: unknown type %q", m.Source, m.Name, f.Name, f.Type)
 		}
@@ -337,19 +391,55 @@ func (g *GRPCDef) Validate() error {
 			nums[f.Number], names[f.Name] = f.Name, true
 			return nil
 		}
+		revisions := map[string]bool{}
 		for _, f := range m.Fields {
+			if f.Revision != "" {
+				if revisions[f.Revision] {
+					return fmt.Errorf("%s: shared revision %s", m.Name, f.Revision)
+				}
+				revisions[f.Revision] = true
+			}
 			if err := use(f); err != nil {
 				return err
 			}
 		}
 		for _, o := range m.Oneofs {
 			for _, f := range o.Members {
+				if f.Delivery != "" && f.Delivery != "live" {
+					return fmt.Errorf("%s.%s: delivery annotations are not allowed in oneof", m.Name, f.Name)
+				}
 				if f.Repeated || f.MapKey != "" || f.Optional {
 					return fmt.Errorf("%s: message %s oneof %s member %s: repeated/map/optional not allowed in oneof", m.Source, m.Name, o.Name, f.Name)
 				}
 				if err := use(f); err != nil {
 					return err
 				}
+			}
+		}
+	}
+
+	var annotatedBelow func(string, map[string]bool) bool
+	annotatedBelow = func(name string, seen map[string]bool) bool {
+		if seen[name] || msgs[name] == nil {
+			return false
+		}
+		seen[name] = true
+		m := msgs[name]
+		fields := append([]GRPCField{}, m.Fields...)
+		for _, o := range m.Oneofs {
+			fields = append(fields, o.Members...)
+		}
+		for _, f := range fields {
+			if (f.Delivery != "" && f.Delivery != "live") || annotatedBelow(f.Type, seen) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, m := range g.Messages {
+		for _, f := range m.Fields {
+			if f.Delivery == "static_on_change" && annotatedBelow(f.Type, map[string]bool{}) {
+				return fmt.Errorf("%s.%s: static value cannot contain delivery annotations; annotate its children instead", m.Name, f.Name)
 			}
 		}
 	}

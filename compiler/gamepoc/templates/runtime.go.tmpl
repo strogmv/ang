@@ -173,6 +173,10 @@ type saveFile struct {
 	State         json.RawMessage
 }
 type connection struct {
+<<ANG if .ViewDelivery ANG>>
+ delivery *pb.ViewProjector
+ deliveryEpoch string
+<<ANG end ANG>>
 	out         chan *pb.ServerMessage
 	stop        chan struct{}
 	closed      bool
@@ -300,6 +304,9 @@ func (r *Runtime) Play(stream pb.GameService_PlayServer) error {
 	// Transport capacity/locales belong to immutable session content, not r.world.
 	transport := r.storageRuntime()
 	c := &connection{out: make(chan *pb.ServerMessage, transport.world.Config.QueueCapacity), stop: make(chan struct{}), locale: transport.validLocale(hello.Locale)}
+<<ANG if .ViewDelivery ANG>>
+ c.delivery = pb.NewViewProjector(hello.GetViewSubscription())
+<<ANG end ANG>>
 	select {
 	case r.input <- input{client: c, join: true}:
 	case <-stream.Context().Done():
@@ -577,6 +584,17 @@ func (r *Runtime) send(c *connection, m *pb.ServerMessage) {
 	if c == nil || c.closed {
 		return
 	}
+<<ANG if .ViewDelivery ANG>>
+ if c.delivery != nil {
+  if s := m.GetGameState(); s != nil && s.Epoch != c.deliveryEpoch {
+   c.delivery.ResetSnapshots()
+   c.deliveryEpoch = s.Epoch
+  }
+  projected, err := c.delivery.Project(m)
+  if err != nil { r.close(c); return }
+  m = projected.(*pb.ServerMessage)
+ }
+<<ANG end ANG>>
 	select {
 	case c.out <- m:
 	default:
@@ -625,6 +643,13 @@ func (r *Runtime) action(c *connection, id, action, slot string, err error) {
 }
 func (r *Runtime) command(in input) {
 	m, c := in.msg, in.client
+<<ANG if .ViewDelivery ANG>>
+ if sub := m.GetViewSubscription(); sub != nil {
+  if c.delivery == nil { c.delivery = pb.NewViewProjector(sub) } else { c.delivery.SetSubscription(sub) }
+  r.sendState(c)
+  return
+ }
+<<ANG end ANG>>
 	if request := m.GetLocale(); request != nil {
 		c.locale = r.validLocale(request.Locale)
 		r.sendState(c)

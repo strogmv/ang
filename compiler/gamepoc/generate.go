@@ -188,6 +188,7 @@ type Menu struct {
 }
 
 type Compiled struct {
+	ViewDelivery     bool                   `json:"-"`
 	CartParking      *CartParkingCatalog    `json:"cart_parking,omitempty"`
 	MedicalCapsules  *MedicalCapsuleCatalog `json:"medical_capsules,omitempty"`
 	SanitaryServices *SanitaryCatalog       `json:"sanitary_services,omitempty"`
@@ -863,6 +864,7 @@ func Generate(project string) error {
 	if err != nil {
 		return err
 	}
+	compiled.ViewDelivery = def.ViewSubscription != ""
 	unity := filepath.Clean(filepath.Join(project, compiled.Config.UnityDir))
 	worldJSON, err := json.MarshalIndent(compiled, "", "  ")
 	if err != nil {
@@ -1115,6 +1117,7 @@ func Generate(project string) error {
 		"train_motion.go.tmpl":                  filepath.Join(project, "internal/poc/train_motion.gen.go"),
 		"train_motion_test.go.tmpl":             filepath.Join(project, "internal/poc/train_motion_generated_test.go"),
 		"train_fleet_fixture_test.go.tmpl":      filepath.Join(project, "internal/poc/train_fleet_fixture_generated_test.go"),
+		"view_delivery_test.go.tmpl":            filepath.Join(project, "internal/poc/view_delivery_generated_test.go"),
 		"runtime.go.tmpl":                       filepath.Join(project, "internal/poc/runtime.gen.go"),
 		"location_sdk.go.tmpl":                  filepath.Join(project, "internal/poc/location_sdk.gen.go"),
 		"gates.go.tmpl":                         filepath.Join(project, "internal/poc/gates.gen.go"),
@@ -1258,6 +1261,13 @@ func Generate(project string) error {
 		return err
 	}
 	files[filepath.Join(pbDir, "game_grpc.pb.go")] = stubs
+	delivery, err := emitter.RenderGRPCDelivery(def, "gamev1")
+	if err != nil {
+		return err
+	}
+	if delivery != nil {
+		files[filepath.Join(pbDir, "game_delivery.pb.go")] = delivery
+	}
 	csDir := filepath.Join(unity, "Assets/Generated/AngelsDemons")
 	for _, svc := range def.Services {
 		files[filepath.Join(csDir, "Grpc", svc.Name+"Grpc.cs")] = []byte(emitter.RenderCSharpStubs(def, svc))
