@@ -79,6 +79,25 @@ func TestFastCalendarKeepsPublicationRate(t *testing.T) {
 }
 <<ANG end ANG>>
 
+// A debug build must not leak unseen actors or geometry to a game client: only a
+// subscription asking for diagnostic debug views receives the full picture.
+func TestLeanSubscriptionNeverReceivesDebugPerception(t *testing.T) {
+ r:=lifeRuntimeFixture(t)
+ r.world.Config.DebugPerception=true
+ unseenFull:=0
+ for _,sub:=range []*pb.ViewSubscription{{StaticOnChange:true,DiagnosticsAll:true},{StaticOnChange:true}} {
+  c:=&connection{out:make(chan *pb.ServerMessage,32),stop:make(chan struct{}),delivery:pb.NewViewProjector(sub)}
+  r.sendState(c);s:=(<-c.out).GetGameState();if s==nil||s.PlayerView==nil{t.Fatal("no state")}
+  if s.DebugPerception!=sub.DiagnosticsAll{t.Fatalf("debug perception %v for diagnostics %v",s.DebugPerception,sub.DiagnosticsAll)}
+  unseen:=0;for _,a:=range s.SceneAgents{if !viewSees(s.PlayerView,a.X,a.Y){unseen++}}
+  if sub.DiagnosticsAll{unseenFull=unseen;continue}
+  if unseen!=0{t.Fatalf("%d unseen actors leaked to a lean subscription",unseen)}
+  if len(s.Terrain)!=len(s.PlayerView.Terrain){t.Fatal("lean terrain is not the hero's view")}
+  for y:=range s.Terrain{if s.Terrain[y]!=s.PlayerView.Terrain[y]{t.Fatal("lean terrain row is not the hero's view")}}
+ }
+ if unseenFull==0{t.Fatal("fixture has no unseen actor: the leak check would prove nothing")}
+}
+
 func TestViewDeliveryLifeProjectionAndSaveLoad(t *testing.T) {
  r:=lifeRuntimeFixture(t)
  c:=&connection{out:make(chan *pb.ServerMessage,32),stop:make(chan struct{}),delivery:pb.NewViewProjector(&pb.ViewSubscription{StaticOnChange:true})}

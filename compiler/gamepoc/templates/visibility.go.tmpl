@@ -109,7 +109,9 @@ func viewSees(v *pb.PocObserverView,x,y int32)bool{return v!=nil&&y>=0&&int(y)<l
 func(r *Runtime) appendPerception(msg *pb.PocGameState){r.appendPerceptionFor(msg,nil)}
 func(r *Runtime) appendPerceptionFor(msg *pb.PocGameState,c *connection){
  if !r.state.Active{return}
- debug:=r.world.Config.DebugPerception
+ // The build flag allows debug perception; only a connection that subscribed to
+ // the diagnostic debug views receives it. A game client gets the hero's view.
+ debug:=r.world.Config.DebugPerception&&c.wantsField("game.v1.PocGameState.debug_views")
  hearingCells:=debug&&c.wantsField("game.v1.PocObserverView.hearing_cells")
  hearingSound:=c.wantsField("game.v1.PocObserverView.hearing_sound")
  msg.DebugPerception=debug;msg.PlayerView=r.observerViewFields(playerActorID,r.state.Player,hearingCells,hearingSound)
