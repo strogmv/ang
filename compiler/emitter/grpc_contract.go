@@ -172,6 +172,15 @@ func (e *Emitter) emitGRPCContract(def *ir.GRPC) error {
 	if err := WriteFileIfChanged(main, src, 0o644); err != nil {
 		return fmt.Errorf("write grpc proto: %w", err)
 	}
+	if def.GDScriptOut != "" {
+		gd, err := RenderGDScriptContract(def, e.GoModule)
+		if err != nil {
+			return err
+		}
+		if err := WriteFileIfChanged(e.outDir(def.GDScriptOut), gd, 0o644); err != nil {
+			return err
+		}
+	}
 	logGenerated("Generated gRPC Proto: %s\n", main)
 	return nil
 }

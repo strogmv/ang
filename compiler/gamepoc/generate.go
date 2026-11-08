@@ -35,6 +35,7 @@ import (
 	"github.com/strogmv/ang/compiler/inventory"
 	inv "github.com/strogmv/ang/compiler/inventory/runtime"
 	"github.com/strogmv/ang/compiler/locationsdk"
+	"github.com/strogmv/ang/compiler/schemavendor"
 	"github.com/strogmv/ang/compiler/wounds"
 	woundsRuntime "github.com/strogmv/ang/compiler/wounds/runtime"
 )
@@ -855,6 +856,9 @@ func Generate(project string) error {
 	if err != nil {
 		return err
 	}
+	if _, err := schemavendor.Sync(project, schemavendor.Options{Always: true}); err != nil {
+		return err
+	}
 	compiled, def, err := readCompiled(project)
 	if err != nil {
 		return err
@@ -1231,6 +1235,13 @@ func Generate(project string) error {
 			}
 		}
 		files[dest] = b
+	}
+	if def.GDScriptOut != "" {
+		gd, err := emitter.RenderGDScriptContract(def, "angelsdemons/server")
+		if err != nil {
+			return err
+		}
+		files[filepath.Join(project, def.GDScriptOut)] = gd
 	}
 	protoRel := emitter.GRPCProtoPath(def)
 	protoText := []byte(emitter.RenderGRPCProto(def, "angelsdemons/server"))

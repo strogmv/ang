@@ -14,6 +14,7 @@ type GRPCDef struct {
 	Package         string        `json:"package,omitempty"`
 	GoPackage       string        `json:"go_package,omitempty"`
 	CSharpNamespace string        `json:"csharp_namespace,omitempty"`
+	GDScriptOut     string        `json:"gdscript_out,omitempty"`
 	CopyProtoTo     []string      `json:"copy_proto_to,omitempty"`
 	Listen          string        `json:"listen,omitempty"`
 	Handlers        string        `json:"handlers,omitempty"`
@@ -101,6 +102,7 @@ func (n *Normalizer) ExtractGRPC(val cue.Value) (*GRPCDef, error) {
 		GoPackage:       getString(g, "go_package"),
 		CSharpNamespace: getString(g, "csharp_namespace"),
 		CopyProtoTo:     getStringList(g, "copy_proto_to"),
+		GDScriptOut:     strings.TrimSpace(getString(g, "gdscript_out")),
 		Listen:          getStringWithDefault(g, "listen", ":50051"),
 		Handlers:        strings.Trim(getString(g, "handlers"), "/ "),
 		CSharpOut:       strings.TrimSpace(getString(g, "csharp_out")),

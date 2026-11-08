@@ -97,3 +97,10 @@ s.SendMoveTo(new MoveTo { X = 3, Y = 4 });   // one Send<Member> per member of t
 Needs `Google.Protobuf` and `Grpc.Core.Api` (and `Grpc.Net.Client` + an HTTP/2 handler such as
 `Cysharp/YetAnotherHttpHandler` for Unity's `GrpcChannel`). Verified: the generated sources compile
 with `netstandard2.1`, and a .NET client built on the session plays against the generated Go server.
+
+## Godot / GDScript contract
+
+`gdscript_out: "../godot/generated/game_contract.gd"` emits reachable typed
+protojson message classes alongside the normal gRPC outputs. See
+[GDScript contract](gdscript-contract.md) for semantics, identifiers, integer
+boundaries and golden/native tests.

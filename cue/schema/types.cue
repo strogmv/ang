@@ -1579,6 +1579,8 @@ package schema
 	// Extra directories (relative to the project) that also receive a copy of the
 	// generated .proto, e.g. a Unity client's Assets/Proto.
 	copy_proto_to?: [...string]
+	// Project-relative output .gd file for the reachable RPC protojson contract.
+	gdscript_out?: string
 	// Directory (relative to the project, may leave it, e.g. a Unity project's
 	// Assets/Generated) that receives the generated C# client: the message classes
 	// (protoc --csharp_out, protoc must be installed), gRPC stubs written against
