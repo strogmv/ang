@@ -441,7 +441,7 @@ func resolveBarkPlace(p barksPlaceIn, life barksLife, c Compiled) (rt.Place, err
 }
 
 // compileBarks builds the engine model, checks the content and renders the report rows; nil without world.barks.
-func compileBarks(unity string, c *Compiled) error {
+func compileBarks(project string, c *Compiled) error {
 	in := c.barksIn
 	if in == nil {
 		return nil
@@ -553,7 +553,7 @@ func compileBarks(unity string, c *Compiled) error {
 	m = m.Sorted()
 	// the fit check uses the very fonts the client draws with (WorldText metrics)
 	fonts := map[string]barks.Font{}
-	loaded, err := loadWorldTextFonts(unity, c.WorldText)
+	loaded, err := loadWorldTextFonts(project, c.WorldText)
 	if err != nil {
 		return fmt.Errorf("barks: %w", err)
 	}

@@ -15,7 +15,7 @@ import (
 func worldTextFixture(t *testing.T) (string, Compiled) {
 	t.Helper()
 	unity := t.TempDir()
-	dir := filepath.Join(unity, "Assets", "Resources", "WorldText")
+	dir := filepath.Join(unity, "metrics")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func worldTextFixture(t *testing.T) (string, Compiled) {
 	}
 	c := Compiled{
 		LocationSDK: &locationsdk.RuntimeBundle{Levels: []locationsdk.RuntimeLevel{level}},
-		WorldText: WorldTextCatalog{Fonts: []WorldTextFontRef{{Style: "stencil", Metrics: "WorldText/stencil", TrackingEM: 0.06, LinePitch: 1.4}, {Style: "chalk", Metrics: "WorldText/chalk", TrackingEM: 0.02, LinePitch: 1.35}},
+		WorldText: WorldTextCatalog{MetricsDir: "metrics", Fonts: []WorldTextFontRef{{Style: "stencil", Metrics: "WorldText/stencil", TrackingEM: 0.06, LinePitch: 1.4}, {Style: "chalk", Metrics: "WorldText/chalk", TrackingEM: 0.02, LinePitch: 1.35}},
 			VistaSign: &WorldTextVistaSign{Style: "stencil", Surface: "steel", Ink: "#000000", WidthMM: 2700, HeightMM: 600, MarginMM: 60, MinGlyphMM: 150}},
 		Localization: LocalizationCatalog{DefaultLocale: "ru", FallbackLocale: "en", Locales: []string{"ru", "en"}, Messages: []LocalizationMessage{
 			msg("sign.strips", "ГОРЯЧЕЕ · КАША · ЧАЙ", "HOT · PORRIDGE · TEA"), msg("sign.number", "{number}", "{number}"),

@@ -52,6 +52,7 @@ type Visibility struct {
 }
 
 type Config struct {
+	GodotTargets          []string          `json:"godot_targets,omitempty"`
 	Rendering             UnityRendering    `json:"rendering"`
 	DebugPerception       bool              `json:"debug_perception"`
 	CaptureDemo           DemoConfig        `json:"capture_demo"`
@@ -188,6 +189,8 @@ type Menu struct {
 }
 
 type Compiled struct {
+	GodotTargets     []string               `json:"-"`
+	GodotTheme       *GodotTheme            `json:"-"`
 	ViewDelivery     bool                   `json:"-"`
 	CartParking      *CartParkingCatalog    `json:"cart_parking,omitempty"`
 	MedicalCapsules  *MedicalCapsuleCatalog `json:"medical_capsules,omitempty"`
@@ -203,7 +206,7 @@ type Compiled struct {
 	Wayfinding       WayfindingCatalog          `json:"wayfinding,omitempty"`
 	ModularLocations []ModularLocation          `json:"modular_locations,omitempty"`
 	LocationSDK      *locationsdk.RuntimeBundle `json:"location_sdk,omitempty"`
-	// World text (demo-hub v11-text): fonts of world.world_text; the per-locale layout is compiled with the Unity fonts.
+	// Fonts of world.world_text; per-locale layouts use engine-neutral font metrics.
 	WorldText               WorldTextCatalog               `json:"-"`
 	WorldTextDrawn          *WorldTextRuntime              `json:"-"`
 	Localization            LocalizationCatalog            `json:"localization,omitempty"`
@@ -324,6 +327,8 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	if err := d.Decode(&out.Config); err != nil {
 		return out, nil, err
 	}
+	out.GodotTargets = out.Config.GodotTargets
+	out.Config.GodotTargets = nil
 	out.Config.Rendering = out.Config.Rendering.normalized()
 	if out.Config.CaptureDemo.TargetActor == "" {
 		out.Config.CaptureDemo.TargetActor = "char.hero"
@@ -483,6 +488,11 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 		decoder.DisallowUnknownFields()
 		if err := decoder.Decode(&out.WorldText); err != nil {
 			return out, nil, fmt.Errorf("world_text: %w", err)
+		}
+	}
+	if theme := world.LookupPath(cue.ParsePath("godot_theme")); theme.Exists() {
+		if err := theme.Decode(&out.GodotTheme); err != nil {
+			return out, nil, err
 		}
 	}
 	if localization := world.LookupPath(cue.ParsePath("localization")); localization.Exists() {
@@ -870,11 +880,11 @@ func Generate(project string) error {
 	if err != nil {
 		return err
 	}
-	compiled.WorldTextDrawn, err = compileWorldText(unity, compiled)
+	compiled.WorldTextDrawn, err = compileWorldText(project, compiled)
 	if err != nil {
 		return err
 	}
-	if err := compileBarks(unity, &compiled); err != nil {
+	if err := compileBarks(project, &compiled); err != nil {
 		return err
 	}
 	if err := compileWounds(&compiled); err != nil {
@@ -895,6 +905,12 @@ func Generate(project string) error {
 	if compiled.BarksView == nil {
 		compiled.BarksView = defaultBarksView()
 	}
+	if err := writeGodotTheme(project, compiled.GodotTheme); err != nil {
+		return err
+	}
+	if err := writeGodotTranslations(project, compiled.GodotTargets, compiled.Localization); err != nil {
+		return err
+	}
 	viewJSON, err := clientResource(compiled)
 	if err != nil {
 		return err
@@ -907,6 +923,9 @@ func Generate(project string) error {
 	files := map[string][]byte{
 		filepath.Join(project, "internal/poc/world.json"):       worldJSON,
 		filepath.Join(unity, "Assets/Resources/PocConfig.json"): viewJSON,
+	}
+	for _, target := range compiled.GodotTargets {
+		files[filepath.Join(project, target, "generated/presentation.json")] = viewJSON
 	}
 	if compiled.CalendarEncounter != nil {
 		files[filepath.Join(unity, "Assets/Resources/Generated/CalendarEncounterPresentation.json")] = compiled.CalendarEncounter.Presentation

@@ -15,16 +15,17 @@ import (
 )
 
 // World text (demo-hub v11-text, owner rule 31.10.2026, document 09): every in-world inscription is a slot on a
-// surface (locationsdk.TextSlot) + a localization key or a price list; Unity draws it as its own layer in the
+// surface (locationsdk.TextSlot) + a localization key or a price list; clients draw it as their own layer in the
 // player's language. This compiler resolves each slot in EVERY locale of the catalog (key, language-neutral
-// arguments, store prices of the inventory = the server's prices), measures it with the same font metrics Unity lays
-// it out with (Assets/Resources/<metrics>.json, made from OFL fonts by the book's atlas tool) and rejects a text that
+// arguments, store prices of the inventory = the server's prices), measures it with the engine-neutral metrics used to lay
+// it out (world_text.metrics_dir, made from OFL fonts by the book's atlas tool) and rejects a text that
 // does not fit, needs a glyph the font lacks, or falls under the slot's minimum glyph height. Unity receives the
 // resolved lines, the layout mode and the cap height per locale: what was checked is what is drawn.
 
 // WorldTextCatalog is world.world_text: the lettering of each style.
 type WorldTextCatalog struct {
-	Fonts []WorldTextFontRef `json:"fonts"`
+	MetricsDir string             `json:"metrics_dir,omitempty"`
+	Fonts      []WorldTextFontRef `json:"fonts"`
 	// Plates of corridor vistas with a sign_key (presentation of layout vistas): style and limits.
 	VistaSign *WorldTextVistaSign `json:"vista_sign,omitempty"`
 }
@@ -125,8 +126,11 @@ func (f worldTextFont) width(line string) (float64, error) {
 	return w, nil
 }
 
-func loadWorldTextFonts(unity string, catalog WorldTextCatalog) (map[string]worldTextFont, error) {
+func loadWorldTextFonts(project string, catalog WorldTextCatalog) (map[string]worldTextFont, error) {
 	fonts := map[string]worldTextFont{}
+	if len(catalog.Fonts) > 0 && (catalog.MetricsDir == "" || filepath.IsAbs(catalog.MetricsDir)) {
+		return nil, fmt.Errorf("world text needs a project-relative engine-neutral metrics_dir")
+	}
 	for _, ref := range catalog.Fonts {
 		if ref.Style != "stencil" && ref.Style != "chalk" && ref.Style != "matrix" || fonts[ref.Style].advance != nil {
 			return nil, fmt.Errorf("world text: unknown or duplicate font style %q", ref.Style)
@@ -134,7 +138,7 @@ func loadWorldTextFonts(unity string, catalog WorldTextCatalog) (map[string]worl
 		if !strings.HasPrefix(ref.Metrics, "WorldText/") || strings.Contains(ref.Metrics, "..") || ref.TrackingEM < 0 || ref.TrackingEM > 1 || ref.LinePitch < 1 || ref.LinePitch > 3 {
 			return nil, fmt.Errorf("world text: font %s needs metrics WorldText/*, tracking 0..1 em, line pitch 1..3", ref.Style)
 		}
-		raw, err := os.ReadFile(filepath.Join(unity, "Assets", "Resources", filepath.FromSlash(ref.Metrics)+".json"))
+		raw, err := os.ReadFile(filepath.Join(project, catalog.MetricsDir, filepath.Base(ref.Metrics)+".json"))
 		if err != nil {
 			return nil, fmt.Errorf("world text: font metrics of %s: %w", ref.Style, err)
 		}
@@ -267,7 +271,7 @@ func worldTextPrice(d struct{ num, den int64 }, locale string) string {
 }
 
 // compileWorldText resolves and checks every slot of every SDK level in every locale.
-func compileWorldText(unity string, c Compiled) (*WorldTextRuntime, error) {
+func compileWorldText(project string, c Compiled) (*WorldTextRuntime, error) {
 	if c.LocationSDK == nil {
 		return nil, nil
 	}
@@ -299,7 +303,7 @@ func compileWorldText(unity string, c Compiled) (*WorldTextRuntime, error) {
 	if len(slots) == 0 {
 		return nil, nil
 	}
-	fonts, err := loadWorldTextFonts(unity, c.WorldText)
+	fonts, err := loadWorldTextFonts(project, c.WorldText)
 	if err != nil {
 		return nil, err
 	}
