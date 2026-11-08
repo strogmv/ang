@@ -1583,6 +1583,8 @@ package schema
 	gdscript_out?: string
 	// Subscription message: diagnostics_all:bool, diagnostics: repeated string, static_on_change:bool.
 	view_subscription?: string
+	// Emit a protojson WebSocket adapter for bidi RPCs, sharing the gRPC handler.
+	websocket?: bool | *false
 	// Directory (relative to the project, may leave it, e.g. a Unity project's
 	// Assets/Generated) that receives the generated C# client: the message classes
 	// (protoc --csharp_out, protoc must be installed), gRPC stubs written against

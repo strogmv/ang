@@ -88,6 +88,10 @@ func clientResource(c Compiled) ([]byte, error) {
 			"capture_support_distance_cells": c.Inventory.Preparation.SupportDistance,
 		},
 	}
+	// Immutable model calibration only; routes and hidden station poses stay server-owned.
+	if c.TrainMotion != nil {
+		view["train_modules"] = c.TrainMotion.Modules
+	}
 	// World text (demo-hub v11-text) only when the world has inscriptions: earlier projects keep their resource.
 	if c.WorldTextDrawn != nil {
 		view["world_text"] = c.WorldTextDrawn

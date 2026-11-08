@@ -17,6 +17,7 @@ import (
 // GodotTheme is engine-native resource authoring, independent of any game skin.
 // Property order is explicit because it also makes resource diffs reviewable.
 type GodotTheme struct {
+	OutputDir    string               `json:"output_dir,omitempty"`
 	ResourceName string               `json:"resource_name"`
 	Target       string               `json:"target"`
 	DefaultSkin  string               `json:"default_skin"`
@@ -233,6 +234,13 @@ func writeGodotTheme(project string, t *GodotTheme) error {
 		return fmt.Errorf("Theme requires relative target, skins and Steam Deck minimum >=12 px")
 	}
 	root := filepath.Join(project, t.Target)
+	outputDir := t.OutputDir
+	if outputDir == "" {
+		outputDir = "theme"
+	}
+	if filepath.IsAbs(outputDir) || filepath.Clean(outputDir) == ".." || strings.HasPrefix(filepath.Clean(outputDir), ".."+string(filepath.Separator)) {
+		return fmt.Errorf("Theme output_dir must stay inside target")
+	}
 	for _, a := range t.Fonts {
 		if a.Family == "" || a.Role == "" || a.License != "OFL-1.1" || !a.Cyrillic {
 			return fmt.Errorf("Theme font needs family/role/OFL-1.1/Cyrillic declaration")
@@ -290,11 +298,11 @@ func writeGodotTheme(project string, t *GodotTheme) error {
 		}
 		return results[i].Pair < results[j].Pair
 	})
-	if err := os.MkdirAll(filepath.Join(root, "theme"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, outputDir), 0o755); err != nil {
 		return err
 	}
 	for name, raw := range files {
-		if err := os.WriteFile(filepath.Join(root, "theme", name), raw, 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(root, outputDir, name), raw, 0o644); err != nil {
 			return err
 		}
 	}

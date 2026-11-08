@@ -134,3 +134,21 @@ func TestTrainMotionFullGeneration(t *testing.T) {
 		t.Fatal("full generated resource lost external geometry or legacy passenger PNG/berth")
 	}
 }
+
+func TestClientTrainCalibrationHasNoRouteSnapshot(t *testing.T) {
+	c := Compiled{TrainMotion: &TrainMotionCatalog{Modules: []TrainModule{{ID: "car.01", OffsetM: 0, LengthM: 13.6}}}}
+	raw, err := clientResource(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var resource map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &resource); err != nil {
+		t.Fatal(err)
+	}
+	if len(resource["train_modules"]) == 0 {
+		t.Fatal("no train calibration")
+	}
+	if _, ok := resource["train_motion"]; ok {
+		t.Fatal("private train route snapshot leaked")
+	}
+}

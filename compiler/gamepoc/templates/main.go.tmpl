@@ -17,12 +17,19 @@ import (
  "angelsdemons/server/internal/poc"
  pb "angelsdemons/server/internal/transport/grpc/pb/game/v1"
  "google.golang.org/grpc"
+// <<ANG if .WebSocket ANG>>
+ transport "angelsdemons/server/internal/transport/grpc"
+// <<ANG end ANG>>
 )
 
 func main() {
  data:=flag.String("data",".local/poc-saves","save directory")
  addr:=flag.String("listen","127.0.0.1:0","loopback listener")
  parent:=flag.Bool("parent-stdin",false,"stop when parent closes stdin")
+<<ANG if .WebSocket ANG>>
+ wsAddr:=flag.String("ws-listen","127.0.0.1:0","protojson WebSocket listener")
+ allowRemote:=flag.Bool("allow-remote",false,"explicitly permit non-loopback WebSocket")
+<<ANG end ANG>>
  flag.Parse()
  token:=os.Getenv("GAME_BOOTSTRAP_TOKEN")
  if token=="" { fmt.Fprintln(os.Stderr,"GAME_BOOTSTRAP_TOKEN is required");os.Exit(1) }
@@ -36,6 +43,13 @@ func main() {
  runDone:=make(chan struct{});go func(){runtime.Run(ctx);close(runDone)}()
  var nonce [8]byte;_,_=rand.Read(nonce[:])
  ready:=map[string]string{"address":"http://"+lis.Addr().String(),"host_id":hex.EncodeToString(nonce[:])}
+<<ANG if .WebSocket ANG>>
+ ws,err:=net.Listen("tcp",*wsAddr);if err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(1)}
+ wsOptions:=transport.WebSocketOptions{AllowRemote:*allowRemote}
+ if err:=transport.ValidateWebSocketAddress(ws.Addr(),wsOptions);err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(1)}
+ ready["websocket"]="ws://"+ws.Addr().String()+"/game.v1.GameService/Play"
+ go func(){if err:=transport.ServeWebSocket(ctx,ws,transport.Handlers{GameService:runtime},wsOptions);err!=nil{fmt.Fprintln(os.Stderr,err);cancel()}}()
+<<ANG end ANG>>
  _=json.NewEncoder(os.Stdout).Encode(ready)
  go func(){if err:=server.Serve(lis);err!=nil{fmt.Fprintln(os.Stderr,err);cancel()}}()
  <-ctx.Done();server.Stop();<-runDone

@@ -312,6 +312,15 @@ func (e *Emitter) emitGRPCServer(def *ir.GRPC) error {
 			return fmt.Errorf("write %s: %w", p, err)
 		}
 	}
+	if def.WebSocket {
+		ws, err := RenderGRPCWebSocket(def, imp, pbName)
+		if err != nil {
+			return err
+		}
+		if err := WriteFileIfChanged(e.outDir("internal", "transport", "grpc", "websocket.gen.go"), ws, 0o644); err != nil {
+			return err
+		}
+	}
 	server, err := format.Source(RenderGRPCServer(def, imp, pbName))
 	if err != nil {
 		return fmt.Errorf("generated grpc server is invalid: %w", err)

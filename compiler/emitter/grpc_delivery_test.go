@@ -98,6 +98,13 @@ import (
  "google.golang.org/protobuf/encoding/protojson"
 )
 func TestProjection(t *testing.T) {
+ lean:=NewViewProjector(&Subscription{})
+ if lean.WantsField("sample.v1.Envelope.diagnostic") {t.Fatal("unsubscribed diagnostic producer enabled")}
+ if !lean.WantsField("sample.v1.Envelope.live")||!lean.WantsField("sample.v1.Envelope.tiles") {t.Fatal("live/static producer suppressed")}
+ if !NewViewProjector(nil).WantsField("sample.v1.Envelope.diagnostic") {t.Fatal("legacy producer suppressed")}
+ lean.SetSubscription(&Subscription{Diagnostics:[]string{"sample.v1.Envelope.diagnostic"}})
+ if !lean.WantsField("sample.v1.Envelope.diagnostic") {t.Fatal("selected producer suppressed")}
+
  flag:=false
  in:=&Envelope{Settings:&Settings{Mode:"sample"},Tags:map[string]int64{"a":9007199254740993},Flag:&flag,Diagnostic:"private",Tiles:[]string{"map"},Child:&Row{Label:"child"},Rows:[]*Row{{Label:"row"}},Lookup:map[string]*Row{"a":{Label:"lookup",Nested:map[string]*Row{"b":{Label:"nested"}}},"a/6/b":{Label:"slash"}},Live:true}
  original:=proto.Clone(in)

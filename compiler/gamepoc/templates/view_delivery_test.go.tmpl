@@ -3,6 +3,15 @@ package poc
 <<ANG if .ViewDelivery ANG>>
 import (
  "testing"
+ "encoding/json"
+ "os"
+ "sort"
+// <<ANG if .WebSocket ANG>>
+ "errors"
+ transport "angelsdemons/server/internal/transport/grpc"
+ "github.com/gorilla/websocket"
+// <<ANG end ANG>>
+ "google.golang.org/protobuf/encoding/protojson"
  "context"
  "net"
  "time"
@@ -79,4 +88,69 @@ func TestViewDeliveryStreamReconnectSaveLoad(t *testing.T) {
  if reconnected.Epoch!=loaded.Epoch||len(reconnected.Terrain)==0||reconnected.Life==nil||reconnected.Life.RegionMap==nil||reconnected.PlayerView==nil||len(reconnected.PlayerView.Terrain)==0 {t.Fatal("wire reconnect missed static baseline")}
  if err:=stream.CloseSend();err!=nil {t.Fatal(err)}
 }
+// TestViewDeliveryFrameCost measures the complete frozen-market publication,
+// including building, projection and protojson. No ticking or socket wait time.
+func TestViewDeliveryFrameCost(t *testing.T) {
+ if os.Getenv("ANG_FRAME_COST")=="" {t.Skip("opt-in M5 timing")}
+ r:=lifeRuntimeFixture(t)
+ if err:=r.lifeCommand(&pb.PocLifeCommand{Action:"goto",Destination:"level.c7_market"});err!=nil{t.Fatal(err)}
+ results:=map[string]any{}
+ for _,profile:=range []string{"lean","full"} {
+  var sub *pb.ViewSubscription
+  if profile=="lean" {sub=&pb.ViewSubscription{StaticOnChange:true}}
+  c:=&connection{out:make(chan *pb.ServerMessage,32),stop:make(chan struct{}),delivery:pb.NewViewProjector(sub)}
+  var samples []float64
+  for i:=0;i<103;i++ {
+   start:=time.Now();r.sendState(c);m:=<-c.out
+   if _,err:=(protojson.MarshalOptions{UseProtoNames:true}).Marshal(m);err!=nil{t.Fatal(err)}
+   us:=float64(time.Since(start).Nanoseconds())/1000
+   if i>=3 {samples=append(samples,us)}
+  }
+  sum:=0.0;for _,us:=range samples{sum+=us};sort.Float64s(samples)
+  results[profile]=map[string]any{"n":len(samples),"mean_us":sum/float64(len(samples)),"p95_us":samples[94],"samples_us":samples}
+ }
+ data,_:=json.Marshal(results);t.Log(string(data))
+}
+<<ANG if .WebSocket ANG>>
+func TestWebSocketPlayLifeSaveReconnect(t *testing.T) {
+ r,err:=New(t.TempDir(),"token");if err!=nil{t.Fatal(err)}
+ ctx,cancel:=context.WithTimeout(context.Background(),90*time.Second);defer cancel()
+ done:=make(chan struct{});go func(){defer close(done);r.Run(ctx)}();defer func(){cancel();<-done}()
+ lis,err:=net.Listen("tcp","127.0.0.1:0");if err!=nil{t.Fatal(err)}
+ serve:=make(chan error,1);go func(){serve<-transport.ServeWebSocket(ctx,lis,transport.Handlers{GameService:r},transport.WebSocketOptions{})}()
+ defer func(){cancel();if err:=<-serve;err!=nil{t.Error(err)}}()
+ url:="ws://"+lis.Addr().String()+"/game.v1.GameService/Play"
+ open:=func(token string)*websocket.Conn{t.Helper();c,_,err:=websocket.DefaultDialer.DialContext(ctx,url,nil);if err!=nil{t.Fatal(err)};_ = c.SetReadDeadline(time.Now().Add(90*time.Second));b,_:=protojson.Marshal(&pb.ClientMessage{Msg:&pb.ClientMessage_Hello{Hello:&pb.Hello{SessionToken:token,ViewSubscription:&pb.ViewSubscription{StaticOnChange:true}}}});if err:=c.WriteMessage(websocket.TextMessage,b);err!=nil{t.Fatal(err)};return c}
+ bad:=open("bad");_,_,err=bad.ReadMessage();var closeErr *websocket.CloseError;if !errors.As(err,&closeErr)||closeErr.Code!=websocket.ClosePolicyViolation{t.Fatalf("bad token accepted: %v",err)};_ = bad.Close()
+ c:=open("token");defer func(){_ = c.Close()}()
+ send:=func(m *pb.ClientMessage){t.Helper();b,err:=(protojson.MarshalOptions{UseProtoNames:true}).Marshal(m);if err!=nil{t.Fatal(err)};if err:=c.WriteMessage(websocket.TextMessage,b);err!=nil{t.Fatal(err)}}
+ recv:=func()*pb.ServerMessage{t.Helper();_,b,err:=c.ReadMessage();if err!=nil{t.Fatal(err)};m:=new(pb.ServerMessage);if err:=protojson.Unmarshal(b,m);err!=nil{t.Fatal(err)};return m}
+ next:=func()*pb.PocGameState{t.Helper();for{if s:=recv().GetGameState();s!=nil{return s}}}
+ action:=func(id string){t.Helper();for{if a:=recv().GetActionResult();a!=nil&&a.RequestId==id{if !a.Ok{t.Fatal(a)};return}}}
+ s:=next();send(&pb.ClientMessage{Msg:&pb.ClientMessage_NewGame{NewGame:&pb.PocNewGameRequest{Epoch:s.Epoch,RequestId:"ws-new",Scenario:"life",Seed:20261107}}});action("ws-new");s=next()
+ if len(s.Terrain)==0||len(s.DebugViews)!=0 {t.Fatal("new game omitted lean static snapshot")}
+ send(&pb.ClientMessage{Msg:&pb.ClientMessage_LifeCommand{LifeCommand:&pb.PocLifeCommand{Epoch:s.Epoch,RequestId:"ws-market",Action:"goto",Destination:"level.c7_market"}}});action("ws-market");s=next()
+ if s.Life==nil||s.Life.LevelId!="level.c7_market"||len(s.DebugViews)!=0{t.Fatal("missing lean market snapshot")}
+ send(&pb.ClientMessage{Msg:&pb.ClientMessage_GameOptions{GameOptions:&pb.PocOptionsRequest{Epoch:s.Epoch,RequestId:"ws-resume",Speed:1}}});action("ws-resume");s=next()
+ send(&pb.ClientMessage{Msg:&pb.ClientMessage_MoveTo{MoveTo:&pb.MoveTo{Epoch:s.Epoch,InputSeq:1,X:s.PlayerX,Y:s.PlayerY,Deck:s.PlayerDeck}}})
+ for{if m:=recv().GetMoveResult();m!=nil{if !m.Ok{t.Fatal(m)};break}}
+ slot:=r.world.Config.SaveSlots[0]
+ send(&pb.ClientMessage{Msg:&pb.ClientMessage_SaveGame{SaveGame:&pb.PocSaveRequest{Epoch:s.Epoch,RequestId:"ws-save",Slot:slot}}});action("ws-save")
+ send(&pb.ClientMessage{Msg:&pb.ClientMessage_LoadGame{LoadGame:&pb.PocLoadRequest{Epoch:s.Epoch,RequestId:"ws-load",Slot:slot}}});action("ws-load");loaded:=next()
+ if loaded.Epoch==s.Epoch||len(loaded.Terrain)==0||loaded.Life.RegionMap==nil||loaded.PlayerView==nil||len(loaded.PlayerView.Terrain)==0{t.Fatal("load did not send full static snapshot")}
+ _ = c.WriteControl(websocket.CloseMessage,websocket.FormatCloseMessage(websocket.CloseNormalClosure,""),time.Now().Add(time.Second));for{if _,_,err:=c.ReadMessage();err!=nil{break}};_ = c.Close()
+ // Closure is sent after Play exits and releases the shared one-player gate.
+ c=open("token");again:=next()
+ if again.Epoch!=loaded.Epoch||len(again.Terrain)==0||again.Life==nil||again.Life.RegionMap==nil||again.PlayerView==nil||len(again.PlayerView.Terrain)==0{t.Fatal("reconnect did not send full static snapshot")}
+}
+func TestWebSocketLoopbackPolicy(t *testing.T){
+ addr,err:=net.ResolveTCPAddr("tcp","0.0.0.0:8080");if err!=nil{t.Fatal(err)}
+ if transport.ValidateWebSocketAddress(addr,transport.WebSocketOptions{})==nil{t.Fatal("wildcard accepted by default")}
+ if err:=transport.ValidateWebSocketAddress(addr,transport.WebSocketOptions{AllowRemote:true});err!=nil{t.Fatal(err)}
+ loop,_:=net.ResolveTCPAddr("tcp","127.0.0.1:0");if err:=transport.ValidateWebSocketAddress(loop,transport.WebSocketOptions{});err!=nil{t.Fatal(err)}
+ // A real non-loopback listener is refused before serving any HTTP request.
+ lis,err:=net.Listen("tcp","0.0.0.0:0");if err!=nil{t.Fatal(err)};defer lis.Close()
+ if transport.ServeWebSocket(context.Background(),lis,transport.Handlers{},transport.WebSocketOptions{})==nil{t.Fatal("non-loopback served")}
+}
+<<ANG end ANG>>
 <<ANG end ANG>>

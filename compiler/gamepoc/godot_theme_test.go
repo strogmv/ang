@@ -87,3 +87,20 @@ func TestGodotThemeWritesSkins(t *testing.T) {
 		t.Fatal("minimum weakened below Deck requirement")
 	}
 }
+
+func TestGodotThemeGeneratedOutputDirectory(t *testing.T) {
+	root := t.TempDir()
+	theme := GodotTheme{Target: "client", OutputDir: "generated/theme", ResourceName: "example", DefaultSkin: "copper", MinTextPX: 12, Tokens: map[string]float64{"body": 18}, Properties: []GodotThemeProperty{{Name: "default_font_size", Token: "body"}}, Skins: []GodotThemeSkin{{ID: "copper", Roles: map[string]string{}}}}
+	if err := writeGodotTheme(root, &theme); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "client/generated/theme/example.tres")); err != nil {
+		t.Fatal(err)
+	}
+	for _, invalid := range []string{"../escape", "/absolute"} {
+		theme.OutputDir = invalid
+		if writeGodotTheme(root, &theme) == nil {
+			t.Fatal("escaping output directory accepted")
+		}
+	}
+}

@@ -20,6 +20,7 @@ type GRPCDef struct {
 	Listen           string        `json:"listen,omitempty"`
 	Handlers         string        `json:"handlers,omitempty"`
 	CSharpOut        string        `json:"csharp_out,omitempty"`
+	WebSocket        bool          `json:"websocket,omitempty"`
 	Reflection       bool          `json:"reflection,omitempty"`
 	Enums            []GRPCEnum    `json:"enums,omitempty"`
 	Messages         []GRPCMessage `json:"messages,omitempty"`
@@ -110,6 +111,7 @@ func (n *Normalizer) ExtractGRPC(val cue.Value) (*GRPCDef, error) {
 		Listen:           getStringWithDefault(g, "listen", ":50051"),
 		Handlers:         strings.Trim(getString(g, "handlers"), "/ "),
 		CSharpOut:        strings.TrimSpace(getString(g, "csharp_out")),
+		WebSocket:        getOptionalBoolField(g, "websocket"),
 		Reflection:       true,
 		Source:           formatPos(g),
 	}
@@ -259,6 +261,18 @@ func getIntList(v cue.Value, path string) []int {
 // Validate checks names, numbers and type references. The wire contract is the
 // numbers, so a duplicate, a reserved or a protobuf-internal number is an error.
 func (g *GRPCDef) Validate() error {
+	if g.WebSocket {
+		bidi := false
+		for _, service := range g.Services {
+			for _, method := range service.Methods {
+				bidi = bidi || method.Stream == "bidi"
+			}
+		}
+		if !bidi {
+			return fmt.Errorf("GRPC.websocket requires a bidirectional RPC")
+		}
+	}
+
 	enums := map[string]*GRPCEnum{}
 	msgs := map[string]*GRPCMessage{}
 	for i := range g.Enums {

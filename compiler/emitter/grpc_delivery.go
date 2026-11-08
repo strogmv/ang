@@ -72,6 +72,13 @@ func (p *ViewProjector) SetSubscription(sub *%s) {
 func (p *ViewProjector) ResetSnapshots() {
  for key, s := range p.snapshots { s.sent = false; p.snapshots[key] = s }
 }
+// WantsField lets a producer avoid constructing unsubscribed diagnostic views.
+// Live and static fields are always wanted. Call from the same serialized owner
+// as SetSubscription/Project; ancestor diagnostics must also be checked by callers.
+func (p *ViewProjector) WantsField(name string) bool {
+ rule := deliveryRules[protoreflect.FullName(name)]
+ return !rule.diagnostic || p.wantsDiagnostic(protoreflect.FullName(name))
+}
 func (p *ViewProjector) wantsDiagnostic(name protoreflect.FullName) bool {
  if p.subscription == nil || p.subscription.DiagnosticsAll { return true }
  for _, key := range p.subscription.Diagnostics { if key == string(name) { return true } }

@@ -191,6 +191,7 @@ type Menu struct {
 type Compiled struct {
 	GodotTargets     []string               `json:"-"`
 	GodotTheme       *GodotTheme            `json:"-"`
+	WebSocket        bool                   `json:"-"`
 	ViewDelivery     bool                   `json:"-"`
 	CartParking      *CartParkingCatalog    `json:"cart_parking,omitempty"`
 	MedicalCapsules  *MedicalCapsuleCatalog `json:"medical_capsules,omitempty"`
@@ -875,6 +876,7 @@ func Generate(project string) error {
 		return err
 	}
 	compiled.ViewDelivery = def.ViewSubscription != ""
+	compiled.WebSocket = def.WebSocket
 	unity := filepath.Clean(filepath.Join(project, compiled.Config.UnityDir))
 	worldJSON, err := json.MarshalIndent(compiled, "", "  ")
 	if err != nil {
@@ -1283,6 +1285,16 @@ func Generate(project string) error {
 		return err
 	}
 	files[filepath.Join(pbDir, "game_grpc.pb.go")] = stubs
+	if def.WebSocket {
+		imp, pkg := emitter.GRPCGoPackage(def, "angelsdemons/server")
+		ws, err := emitter.RenderGRPCWebSocket(def, imp, pkg)
+		if err != nil {
+			return err
+		}
+		files[filepath.Join(project, "internal/transport/grpc/websocket.gen.go")] = ws
+		files[filepath.Join(project, "internal/transport/grpc/server.gen.go")] = emitter.RenderGRPCServer(def, imp, pkg)
+	}
+
 	delivery, err := emitter.RenderGRPCDelivery(def, "gamev1")
 	if err != nil {
 		return err

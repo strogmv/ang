@@ -601,6 +601,12 @@ func (r *Runtime) send(c *connection, m *pb.ServerMessage) {
 		r.close(c)
 	}
 }
+func (c *connection) wantsField(name string) bool {
+<<ANG if .ViewDelivery ANG>>
+ if c != nil && c.delivery != nil { return c.delivery.WantsField(name) }
+<<ANG end ANG>>
+ return true
+}
 func (r *Runtime) sendState(c *connection) {
 	if r.state.Life.Enabled {
 		r.sendLifeState(c)
@@ -628,7 +634,7 @@ func (r *Runtime) sendState(c *connection) {
 			msg.Entities = append(msg.Entities, &pb.Entity{Id: e.ID, Name: e.Name, Kind: "npc", FactionId: e.Faction, X: int32(e.Position.X), Y: int32(e.Position.Y)})
 		}
 	}
-	r.appendPerception(msg)
+	r.appendPerceptionFor(msg,c)
 	r.send(c, &pb.ServerMessage{Msg: &pb.ServerMessage_GameState{GameState: msg}})
 }
 func (r *Runtime) action(c *connection, id, action, slot string, err error) {

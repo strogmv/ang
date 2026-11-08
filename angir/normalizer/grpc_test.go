@@ -124,3 +124,10 @@ func TestGRPCDeliveryValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestGRPCWebSocketRequiresBidi(t *testing.T) {
+	def := GRPCDef{WebSocket: true}
+	if def.Validate() == nil {
+		t.Fatal("WebSocket accepted without a bidi RPC")
+	}
+}

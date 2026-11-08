@@ -258,7 +258,8 @@ func (r *Runtime) sendLifeState(c *connection) {
 		}
 	}
 	if r.world.Config.DebugPerception {
-		view.Events = append([]string(nil), s.Life.Events...)
+		if c.wantsField("game.v1.PocLifeView.events") {view.Events = append([]string(nil), s.Life.Events...)}
+  if c.wantsField("game.v1.PocLifeView.people") {
 		for _, a := range s.Life.Actors {
 			p := r.world.Life.Person(a.ID)
 			level := r.world.Life.Locations[a.Level].Name
@@ -268,6 +269,7 @@ func (r *Runtime) sendLifeState(c *connection) {
 			view.People = append(view.People, &pb.PocLifePerson{Id: a.ID, Name: p.Name, LevelName: level, Activity: r.localActivity(c.locale, a.Label)})
 		}
 	}
+ }
 	for _, marker := range r.world.Life.Locations[hero.Level].Markers {
 		exit := false
 		for _, edge := range r.world.Life.Edges {
@@ -285,15 +287,14 @@ func (r *Runtime) sendLifeState(c *connection) {
 			view.Markers = append(view.Markers, &pb.PocLifeMarker{Name: r.lifeEdgeName(c.locale, edge), X: int32(edge.Exit.X), Y: int32(edge.Exit.Y), EdgeId: edge.ID, TravelSeconds: edge.TravelSeconds})
 		}
 	}
-	r.appendNPCDebugJournal(view)
-	r.appendPopulationDebug(view)
+	if c.wantsField("game.v1.PocLifeView.events") {r.appendNPCDebugJournal(view);r.appendPopulationDebug(view)}
 	r.appendRegionMap(view, c.locale)
 	r.appendWayfinding(view, c.locale)
 	msg.Life = view
 	r.appendCombat(msg)
 	r.appendCombatPanel(msg, c.locale)
 	r.appendInventory(msg, c.locale)
-	v.appendPerception(msg)
+	v.appendPerceptionFor(msg,c)
  r.appendMedicalCapsules(msg,hero,c.locale)
  r.appendSanitaryServices(msg,hero,c.locale)
  r.appendPlayableScene(view,hero,msg.PlayerView,c.locale)
