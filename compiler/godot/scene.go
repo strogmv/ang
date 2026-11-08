@@ -21,6 +21,7 @@ var sceneTemplate string
 
 type Options struct {
 	// Models belongs to the client: stable model_ref -> res:// PackedScene.
+	Finishing   *Finishing
 	FloorOnly   bool
 	WorldText   bool
 	Attachments map[string][]Attachment
@@ -32,14 +33,18 @@ type resource struct{ ID, Path string }
 type node struct{ Name, InstanceID, ModelRef, ResourceID, Transform string }
 type box struct{ Name, SourceID, Position, Size, Material string }
 type scene struct {
-	FloorOnly                        bool
-	WorldText                        bool
-	LayoutID, Frame, CameraTransform string
-	Resources                        []resource
-	Attachments                      []attachmentNode
-	Nodes                            []node
-	Boxes                            []box
-	CameraSize, Elevation, Azimuth   float64
+	ToneMapper                                 int
+	FinishHeader, FinishBindings, FinishLights string
+	FinishProfile                              string
+	KeyEnergy                                  float64
+	FloorOnly                                  bool
+	WorldText                                  bool
+	LayoutID, Frame, CameraTransform           string
+	Resources                                  []resource
+	Attachments                                []attachmentNode
+	Nodes                                      []node
+	Boxes                                      []box
+	CameraSize, Elevation, Azimuth             float64
 }
 
 // Render validates all model bindings before rendering any output. No asset or
@@ -48,7 +53,7 @@ func Render(level locationsdk.CompiledLevel, manifest placement.Manifest, option
 	if manifest.Schema != placement.Schema || manifest.WorldFrame != placement.WorldFrame || manifest.LayoutID != level.ID || manifest.StructuralHash != level.StructuralHash {
 		return nil, fmt.Errorf("godot: manifest does not match compiled level")
 	}
-	s := scene{FloorOnly: options.FloorOnly, WorldText: options.WorldText, LayoutID: level.ID, Frame: placement.WorldFrame, Elevation: 35, Azimuth: 37}
+	s := scene{KeyEnergy: .8, FloorOnly: options.FloorOnly, WorldText: options.WorldText, LayoutID: level.ID, Frame: placement.WorldFrame, Elevation: 35, Azimuth: 37}
 	if level.Camera != nil {
 		s.Elevation = level.Camera.ElevationDegrees
 		s.Azimuth = level.Camera.AzimuthDegrees
@@ -108,15 +113,47 @@ func Render(level locationsdk.CompiledLevel, manifest placement.Manifest, option
 			s.Attachments = append(s.Attachments, attachmentNode{a.Name, fmt.Sprintf("Placements/Placement_%03d", j), vector(a.Position), a.SourcePath})
 		}
 	}
+	surfaces := map[string]bool{}
+	if level.Navigation != nil {
+		for _, a := range level.Navigation.Surfaces {
+			surfaces[a.ID] = true
+		}
+		for _, a := range level.Navigation.Obstacles {
+			surfaces[a.ID] = true
+		}
+	}
+	header, bindings, lights, roles, replaced, err := options.Finishing.render(manifest, surfaces)
+	if err != nil {
+		return nil, err
+	}
+	s.FinishHeader = header
+	s.FinishBindings = bindings
+	s.FinishLights = lights
+	if options.Finishing != nil {
+		if options.Finishing.Environment != nil {
+			s.ToneMapper = options.Finishing.Environment.ToneMapper
+		}
+		s.FinishProfile, err = options.Finishing.Environment.render()
+		if err != nil {
+			return nil, err
+		}
+		if e := options.Finishing.Environment; e != nil && !e.DefaultFill {
+			s.KeyEnergy = 0
+		}
+	}
 	addBox := func(id string, r locationsdk.Rect, bottom, top int, material string) {
-		if top <= bottom {
+		if top <= bottom || replaced[id] {
 			return
 		}
 		p := placement.FromPlan(placement.Vec3{(float64(r.X) + float64(r.W)/2) * unit, float64(bottom+top) / 2000, (float64(r.Y) + float64(r.H)/2) * unit})
 		if options.FloorOnly {
 			p[1] = float64(top) / 1000
 		}
-		s.Boxes = append(s.Boxes, box{fmt.Sprintf("Structure_%03d", len(s.Boxes)), id, vector(p), vector(placement.Vec3{float64(r.W) * unit, float64(top-bottom) / 1000, float64(r.H) * unit}), material})
+		ref := roles[material]
+		if ref == "" {
+			ref = "SubResource(" + strconv.Quote(material) + ")"
+		}
+		s.Boxes = append(s.Boxes, box{fmt.Sprintf("Structure_%03d", len(s.Boxes)), id, vector(p), vector(placement.Vec3{float64(r.W) * unit, float64(top-bottom) / 1000, float64(r.H) * unit}), ref})
 	}
 	if n := level.Navigation; n != nil {
 		for _, surface := range n.Surfaces {
@@ -129,7 +166,11 @@ func Render(level locationsdk.CompiledLevel, manifest placement.Manifest, option
 		}
 		for _, o := range n.Obstacles {
 			if manifest.Instances[o.ID].ModelRef == "" {
-				addBox(o.ID, o.Rect, o.BottomMM, o.TopMM, "wall")
+				role := "wall"
+				if o.Style == "panel" && roles["steel"] != "" {
+					role = "steel"
+				}
+				addBox(o.ID, o.Rect, o.BottomMM, o.TopMM, role)
 			}
 		}
 	} else {

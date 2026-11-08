@@ -11,7 +11,7 @@ import (
 
 func(r *Runtime)lifeEdgeName(locale string,edge behavior.LifeEdge)string{
  name:=r.regionLevelName(locale,edge.To);if edge.NameKey!=""{name=r.localText(locale,edge.NameKey,name)}
- if edge.Fare!=nil{scale:=r.world.Inventory.Currencies[edge.Fare.Currency].Scale;name=strings.ReplaceAll(name,"{amount}",inv.FormatMoney(edge.Fare.AmountMinor,scale));name=strings.ReplaceAll(name,"{currency}",edge.Fare.Currency)}
+ if edge.Fare!=nil{scale:=r.world.Inventory.Currencies[edge.Fare.Currency].Scale;name=strings.ReplaceAll(name,"{amount}",strings.ReplaceAll(inv.FormatMoney(edge.Fare.AmountMinor,scale),".",r.localText(locale,"ui.format.decimal_separator",".")));name=strings.ReplaceAll(name,"{currency}",edge.Fare.Currency)}
  return name
 }
 // Kernel invokes this only for the controlled actor once exit, timetable and

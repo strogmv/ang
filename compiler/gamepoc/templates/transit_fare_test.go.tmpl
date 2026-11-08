@@ -3,6 +3,8 @@ package poc
 
 import (
  "reflect"
+ "strings"
+ "angelsdemons/server/internal/inventory"
  "testing"
  "angelsdemons/server/internal/behavior"
  pb "angelsdemons/server/internal/transport/grpc/pb/game/v1"
@@ -26,4 +28,15 @@ func TestTransitFareInsufficientFundsLatchesUntilExplicitRetry(t *testing.T){
  for i:=0;i<12;i++{r.step()};hero:=r.state.Life.Actor(playerActorID);if hero.Trip!=nil||hero.AdmissionDeniedEdge!=e.ID||hero.Label!="transit.fare_denied"||!reflect.DeepEqual(before.Accounts,r.state.Inventory.Accounts)||!reflect.DeepEqual(before.Cursors,r.state.Inventory.Cursors)||before.Revision!=r.state.Inventory.Revision{t.Fatal("denial moved actor, retried payment or changed inventory")}
  destination:="";for _,d:=range r.wayfindingLocal("en"){if d.EdgeID==e.ID{destination=d.ID;break}};if err:=r.lifeCommand(&pb.PocLifeCommand{Action:"route_preview",Destination:destination});err!=nil{t.Fatal(err)};view:=&pb.PocLifeView{};r.appendWayfinding(view,"en");if view.Wayfinding.Status!="ready"||!view.Wayfinding.Reachable{t.Fatal("denied platform cannot offer explicit retry")};account=r.state.Inventory.Accounts[payer];account.Balance=e.Fare.AmountMinor;r.state.Inventory.Accounts[payer]=account;if err:=r.lifeCommand(&pb.PocLifeCommand{Action:"route_go",Destination:destination});err!=nil||hero.AdmissionDeniedEdge!=""||hero.Level!=e.To{t.Fatal("funded explicit route retry did not complete transition",err)}
  if !r.lifeWalkTo(hero.Position)||hero.AdmissionDeniedEdge!=""{t.Fatal("accepted explicit movement did not release admission latch")}
+}
+
+func TestTransitFareMarkerLocaleDecimalSeparator(t *testing.T){
+ r,e,_:=paidTransitFixture(t)
+ scale:=r.world.Inventory.Currencies[e.Fare.Currency].Scale
+ raw:=inventory.FormatMoney(e.Fare.AmountMinor,scale)
+ for _,locale:=range []string{"ru","en"}{
+  sep:=r.localText(locale,"ui.format.decimal_separator",".")
+  want:=strings.ReplaceAll(raw,".",sep)
+  if got:=r.lifeEdgeName(locale,e);!strings.Contains(got,want){t.Fatalf("%s paid marker %q lacks localized amount %q",locale,got,want)}
+ }
 }

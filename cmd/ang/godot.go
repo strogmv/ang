@@ -110,7 +110,14 @@ func runGodot(args []string, stdout, stderr io.Writer) error {
 			return e
 		}
 	}
-	scene, err := godot.Render(level, manifest, godot.Options{Attachments: attachments.Models, WorldText: *worldText, Models: modelMap, Camera: authoring.Camera})
+	var finishing *godot.Finishing
+	if value := v.LookupPath(cue.ParsePath("finishing")); value.Exists() {
+		finishing = new(godot.Finishing)
+		if err = value.Decode(finishing); err != nil {
+			return err
+		}
+	}
+	scene, err := godot.Render(level, manifest, godot.Options{Finishing: finishing, Attachments: attachments.Models, WorldText: *worldText, Models: modelMap, Camera: authoring.Camera})
 	if err != nil {
 		return err
 	}
@@ -121,6 +128,10 @@ func runGodot(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	placements, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return err
+	}
+	finishData, err := json.MarshalIndent(finishing, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -135,7 +146,7 @@ func runGodot(args []string, stdout, stderr io.Writer) error {
 		name string
 		data []byte
 	}{
-		{"compiled.json", append(compiled, '\n')}, {"placements.json", append(placements, '\n')}, {"location.tscn", scene},
+		{"finishing.json", append(finishData, '\n')}, {"compiled.json", append(compiled, '\n')}, {"placements.json", append(placements, '\n')}, {"location.tscn", scene},
 	} {
 		if err = writeLocationSDKFile(filepath.Join(*out, f.name), f.data); err != nil {
 			return err

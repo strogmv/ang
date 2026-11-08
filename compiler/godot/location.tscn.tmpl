@@ -4,6 +4,7 @@
 {{range .Resources}}
 [ext_resource type="PackedScene" path={{quote .Path}} id={{quote .ID}}]
 {{end}}
+{{.FinishHeader}}
 [sub_resource type="StandardMaterial3D" id="floor"]
 albedo_color = Color(0.24, 0.26, 0.28, 1)
 roughness = 0.85
@@ -17,6 +18,7 @@ size = Vector2(1, 1){{else}}[sub_resource type="BoxMesh" id="box"]
 size = Vector3(1, 1, 1){{end}}
 
 [sub_resource type="Environment" id="environment"]
+tonemap_mode = {{.ToneMapper}}
 background_mode = 1
 background_color = Color(0.08, 0.09, 0.11, 1)
 ; Server presentation controls a colour ambient; this scene has no Sky.
@@ -27,10 +29,16 @@ ambient_light_energy = 0.65
 [node name="Location" type="Node3D"]
 metadata/layout_id = {{quote .LayoutID}}
 metadata/world_frame = {{quote .Frame}}
+{{.FinishProfile}}
 
 {{if .WorldText}}[node name="WorldText" type="Node3D" parent="."]
 script = ExtResource("world_text")
 level_id = {{quote .LayoutID}}
+{{end}}
+{{if .FinishBindings}}[node name="Finish" type="Node" parent="."]
+script = ExtResource("location_finish")
+material_bindings = {
+{{.FinishBindings}}}
 {{end}}
 [node name="Structure" type="Node3D" parent="."]
 {{range .Boxes}}
@@ -38,7 +46,7 @@ level_id = {{quote .LayoutID}}
 position = {{.Position}}
 scale = {{.Size}}
 mesh = SubResource("box")
-material_override = SubResource({{quote .Material}})
+material_override = {{.Material}}
 metadata/source_id = {{quote .SourceID}}
 {{end}}
 [node name="Placements" type="Node3D" parent="."]
@@ -71,5 +79,7 @@ environment = SubResource("environment")
 [node name="Key" type="DirectionalLight3D" parent="LightingRig"]
 rotation_degrees = Vector3(-55, -25, 0)
 light_color = Color(1, 0.91, 0.78, 1)
-light_energy = 0.8
+light_energy = {{.KeyEnergy}}
 shadow_enabled = false
+
+{{.FinishLights}}

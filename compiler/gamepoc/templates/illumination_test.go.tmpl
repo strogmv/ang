@@ -455,3 +455,20 @@ func TestPresentationDaylightRemainsSeparateFromPhysicalLight(t *testing.T){
  if math.Abs(m.Day+m.Dusk+m.Night-1)>1e-9||m.PresentationBrightness<.64||m.PresentationBrightness>1 {t.Fatalf("invalid authored weights: %+v",m)}
  }
 }
+
+func TestIlluminationAuthoredSecondaryLevelsHavePhysicalMeters(t *testing.T){
+ r,_,_:=illuminationFixture(t);h:=r.state.Life.Actor(playerActorID);first:=h.Level;checked:=0
+ for id,c:=range r.world.Illumination.Levels{
+  if id==first{continue};v:=r.world.Decks[id];if v==nil{t.Fatal("physical level lacks volume",id)}
+  h.Body=nil;h.Level=id
+  found:=false
+  for y,line:=range r.world.Life.Locations[id].Terrain{for x:=range line{
+   p:=behavior.Cell{X:x,Y:y};_,height,_,ok:=v.Locate(p);if !ok{continue};h.Position=p
+   m:=r.illuminationBody(h);if !m.Known{t.Fatal("authored secondary level returned unknown",id)}
+   for _,point:=range m.Points{if point.Z<float64(height)||point.Z>float64(height)+2000{t.Fatal("lost absolute floor datum",id,point,height)}}
+   found=true;break
+  };if found{break}}
+  if !found||len(c.Emitters)==0{t.Fatal("empty secondary physical light",id)};checked++
+ }
+ if checked==0{t.Skip("no authored secondary physical lighting")}
+}
