@@ -23,7 +23,14 @@ type sdkBundle struct {
 	PublicArchitecture bool       `json:"public_architecture"`
 	Levels             []sdkLevel `json:"levels"`
 }
+// Reservation geometry stays private. Wayfinding may use known corridor cells
+// for an existing destination; reservations create no destinations or knowledge.
+type sdkReservedPath struct {
+ ID string `json:"id"`
+ Cells []behavior.Cell `json:"cells"`
+}
 type sdkLevel struct {
+ ReservedPaths []sdkReservedPath `json:"reserved_paths"`
 	ID                 string        `json:"id"`
 	Scenario           string        `json:"scenario"`
 	UnitMM             int           `json:"unit_mm"`
@@ -66,6 +73,7 @@ func (r *Runtime) prepareLocationSDK() error {
 	r.canonicalWorld = r.world
 	r.sdkWorlds = map[string]worldData{}
 	b := r.world.LocationSDK
+	r.world.FloorReservations = map[string]map[behavior.Cell]bool{}
 	if b.Schema == "" && len(b.Levels) == 0 {
 		return nil
 	}
@@ -92,6 +100,19 @@ func (r *Runtime) prepareLocationSDK() error {
 				}
 			}
 		}
+		reserved := map[behavior.Cell]bool{}
+        if len(l.ReservedPaths)>0 && l.Navigation!=nil && (len(l.Navigation.Surfaces)!=1 || !l.Navigation.Surfaces[0].Walkable || l.Navigation.Surfaces[0].NavRow!=0 || len(l.Navigation.Connectors)!=0 || len(l.Navigation.Links)!=0) {
+            return fmt.Errorf("SDK level %q floor guides require a single base surface",l.ID)
+        }
+        for _,path:=range l.ReservedPaths {
+            for _,at:=range path.Cells {
+                if at.X<0||at.X>=l.Width||at.Y<0||at.Y>=l.Depth||l.Terrain[at.Y][at.X]!='.' {
+                    return fmt.Errorf("SDK level %q reserved path %q outside final walkable floor",l.ID,path.ID)
+                }
+                reserved[at]=true
+            }
+        }
+        for _,binding:=range r.world.ModularLocations {if binding.LayoutID==l.ID {r.world.FloorReservations[binding.LevelID]=reserved}}
 		walks := map[string]bool{".": true}
 		if l.StartSecond < 0 || l.StartSecond >= 86400 {
 			return fmt.Errorf("SDK level %q start second", l.ID)
@@ -144,7 +165,7 @@ func (r *Runtime) prepareLocationSDK() error {
 		if decks != nil {
 			volumes = map[string]*behavior.DeckVolume{l.ID: decks}
 		}
-		r.sdkWorlds[l.ID] = worldData{Decks: volumes, Config: cfg, ContentHash: r.world.ContentHash, Localization: r.world.Localization, Life: life, Inventory: inventory, Terrain: life.Locations[l.ID].Terrain, Walkable: walks, Opaque: map[string]bool{"#": true, " ": true}, MoveCost: map[string]int{".": 1}, Spawn: location(l.Spawn), Visibility: r.world.Visibility}
+		r.sdkWorlds[l.ID] = worldData{FloorReservations: map[string]map[behavior.Cell]bool{l.ID:reserved}, Decks: volumes, Config: cfg, ContentHash: r.world.ContentHash, Localization: r.world.Localization, Life: life, Inventory: inventory, Terrain: life.Locations[l.ID].Terrain, Walkable: walks, Opaque: map[string]bool{"#": true, " ": true}, MoveCost: map[string]int{".": 1}, Spawn: location(l.Spawn), Visibility: r.world.Visibility}
 	}
 	// Story locations bound to a multi-deck layout (doc 80, demo-hub) see in 3D exactly as its SDK stand: the Life terrain
 	// and links already are its navigation plane (compileModularLocations); the volume adds slabs, solids and stair heights.
@@ -171,6 +192,7 @@ func (r *Runtime) prepareLocationSDK() error {
 		}
 	}
 	r.canonicalWorld.Decks = r.world.Decks
+	r.canonicalWorld.FloorReservations = r.world.FloorReservations
 	// Movement v2: the hero body reads stair nodes and links of the same volumes.
 	r.world.Life.Decks = r.world.Decks
 	r.canonicalWorld.Life.Decks = r.world.Decks

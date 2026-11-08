@@ -91,6 +91,7 @@ type worldData struct {
  CombatLife combatLifeCatalog `json:"combat_life"`
  CombatSpacing combatSpacing `json:"combat_spacing"`
 	Decks                   map[string]*behavior.DeckVolume `json:"-"`
+	FloorReservations map[string]map[behavior.Cell]bool `json:"-"`
 	ModularLocations        []worldModular                  `json:"modular_locations"`
 	PaintedInventoryAnchors map[string]map[string]inv.Cell  `json:"painted_inventory_anchors"`
 	LocationSDK             sdkBundle                       `json:"location_sdk"`

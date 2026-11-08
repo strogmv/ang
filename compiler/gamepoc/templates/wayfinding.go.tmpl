@@ -36,6 +36,20 @@ func(r *Runtime)wayfindingPath(level string,from,to behavior.Cell)[]behavior.Cel
  route:=space.Path(from,to,behavior.Cell{},0);if from!=to&&len(route)==0{return nil}
  return append([]behavior.Cell{from},route...)
 }
+// Existing destination guides prefer a connected compiled reservation. A
+// maintenance reservation alone creates no paint, name or public destination.
+// If its endpoints are not on one known reserved component, ordinary known
+// floor still provides the approach (for example the spur to a lift).
+func(r *Runtime)wayfindingGuidePath(level string,from,to behavior.Cell)[]behavior.Cell{
+ reserved:=r.world.FloorReservations[level]
+ if reserved[from]&&reserved[to]&&r.wayfindingWalks(level,from)&&r.wayfindingWalks(level,to){
+  rows:=r.world.Life.Locations[level].Terrain
+  space:=behavior.Space{Width:len(rows[0]),Height:len(rows),MaxSearchCells:len(rows)*len(rows[0]),Walkable:func(at behavior.Cell)bool{return reserved[at]&&r.wayfindingWalks(level,at)}}
+  route:=space.Path(from,to,behavior.Cell{},0)
+  if from==to||len(route)>0{return append([]behavior.Cell{from},route...)}
+ }
+ return r.wayfindingPath(level,from,to)
+}
 func(r *Runtime)wayfindingLocal(locale string)[]wayfindingResolved{
  hero:=r.state.Life.Actor(playerActorID);if hero==nil||hero.Trip!=nil{return nil};var out []wayfindingResolved;edges:=map[string]bool{}
  for _,d:=range r.world.Wayfinding.Destinations{if d.Level!=hero.Level||!r.wayfindingWalks(hero.Level,d.At){continue};if d.EdgeID!=""{e:=r.world.Life.Edge(d.EdgeID);if e==nil||!r.lifeExitKnown(*e)||!r.regionPlaceKnown(e.To){continue};edges[e.ID]=true};out=append(out,wayfindingResolved{Number:d.MarkerNumber,ID:d.ID,Name:r.localText(locale,d.NameKey,d.ID),Color:d.Color,Kind:d.Kind,At:d.At,EdgeID:d.EdgeID});if d.EdgeID!=""{edge:=r.world.Life.Edge(d.EdgeID);out[len(out)-1].Mode=edge.Mode;if edge.NameKey!=""{out[len(out)-1].Name=r.lifeEdgeName(locale,*edge)}}}
@@ -90,7 +104,7 @@ func(r *Runtime)appendWayfinding(view *pb.PocLifeView,locale string){
  hero,_:=r.wayfindingContext();if hero==nil{return};out:=&pb.PocWayfindingView{LevelId:hero.Level,Status:"none"};view.Wayfinding=out;if hero.Trip!=nil{out.Status="transit";r.wayfinding.Selected="";return}
  for _,d:=range r.wayfindingLocal(locale){out.Destinations=append(out.Destinations,&pb.PocWayfindingDestination{Id:d.ID,Name:d.Name,Color:d.Color,Kind:d.Kind,X:int32(d.At.X),Y:int32(d.At.Y),ServiceAvailable:d.EdgeID!="",TravelMode:d.Mode,Number:int32(d.Number)})}
  budget:=16384;for _,d:=range r.world.Wayfinding.Destinations{if d.Level!=hero.Level||d.GuideFrom==nil||!r.wayfindingWalks(hero.Level,d.At){continue};if d.EdgeID!=""{found:=false;for _,v:=range out.Destinations{if v.Id==d.ID{found=true;break}};if !found{continue}}
-  path,exists:=r.wayfinding.Guides[d.ID];if !exists{path=r.wayfindingPath(hero.Level,*d.GuideFrom,d.At);r.wayfinding.Guides[d.ID]=path};if len(path)<2||len(path)>budget{continue};budget-=len(path);guide:=&pb.PocWayfindingGuide{Id:d.ID,Color:d.Color,Path:wayfindingPoints(path),Shape:r.wayfindingShape(d),Authored:len(d.GuideRoute)>0};if len(guide.Shape)>1{if d.GuideWidth!=nil{guide.HalfWidthU=d.GuideWidth.U;guide.HalfWidthV=d.GuideWidth.V};guide.Underlays=wayfindingPoints(d.GuideUnderlays);if d.GuideFrame!=nil{guide.AxisU=&pb.PocWayfindingShapePoint{X:d.GuideFrame.U.X,Y:d.GuideFrame.U.Y};guide.AxisV=&pb.PocWayfindingShapePoint{X:d.GuideFrame.V.X,Y:d.GuideFrame.V.Y}}};out.Guides=append(out.Guides,guide)
+  path,exists:=r.wayfinding.Guides[d.ID];if !exists{path=r.wayfindingGuidePath(hero.Level,*d.GuideFrom,d.At);r.wayfinding.Guides[d.ID]=path};if len(path)<2||len(path)>budget{continue};budget-=len(path);guide:=&pb.PocWayfindingGuide{Id:d.ID,Color:d.Color,Path:wayfindingPoints(path),Shape:r.wayfindingShape(d),Authored:len(d.GuideRoute)>0};if len(guide.Shape)>1{if d.GuideWidth!=nil{guide.HalfWidthU=d.GuideWidth.U;guide.HalfWidthV=d.GuideWidth.V};guide.Underlays=wayfindingPoints(d.GuideUnderlays);if d.GuideFrame!=nil{guide.AxisU=&pb.PocWayfindingShapePoint{X:d.GuideFrame.U.X,Y:d.GuideFrame.U.Y};guide.AxisV=&pb.PocWayfindingShapePoint{X:d.GuideFrame.V.X,Y:d.GuideFrame.V.Y}}};out.Guides=append(out.Guides,guide)
  }
  if r.wayfinding.Selected==""{if r.wayfinding.Rejected!=""{out.Status="unknown";out.RejectedDestinationId=r.wayfinding.Rejected};return};d,ok:=r.resolveWayfinding(locale,r.wayfinding.Selected);if !ok{r.wayfinding.Rejected=r.wayfinding.Selected;r.wayfinding.Selected="";r.wayfinding.RouteReady=false;out.Status="unknown";out.RejectedDestinationId=r.wayfinding.Rejected;return}
  out.SelectedDestinationId=d.ID;out.SelectedName=d.Name;out.SelectedColor=d.Color;out.LocalExitId=d.EdgeID;out.LocalExitMode=d.Mode;if edge:=r.world.Life.Edge(d.EdgeID);edge!=nil{out.LocalExitName=r.lifeEdgeName(locale,*edge)}

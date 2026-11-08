@@ -70,9 +70,13 @@ func compileModularLocations(raw json.RawMessage, bundle *locationsdk.RuntimeBun
 		// Document 80 + demo-hub: a multi-deck layout binds to a story location as
 		// its whole navigation plane (one band per walkable surface, one block per
 		// stair) with the stair-end links; the runtime adds the 3D sight volume.
-		// Floor guides, painted backgrounds and SDK stand residents stay single-
-		// surface / SDK-only: they are rejected rather than flattened.
-		if l.Navigation != nil && len(l.ReservedPaths) > 0 {
+		// Vertical obstacles also produce Navigation, but keep a single base
+		// surface at row zero. Only that case can carry planar floor guides;
+		// actual decks (including nonwalkable roofs) must never be flattened.
+		if l.Navigation != nil && len(l.ReservedPaths) > 0 &&
+			(l.Navigation.BaseSurface == "" || len(l.Navigation.Surfaces) != 1 || l.Navigation.Surfaces[0].ID != l.Navigation.BaseSurface ||
+				!l.Navigation.Surfaces[0].Walkable || l.Navigation.Surfaces[0].NavRow != 0 ||
+				len(l.Navigation.Connectors) != 0 || len(l.Navigation.Links) != 0) {
 			return nil, nil, fmt.Errorf("modular location %s: multi-deck layout %s carries floor guides (single-surface only)", id, layout)
 		}
 		if len(l.Residents) > 0 {

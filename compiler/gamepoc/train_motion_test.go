@@ -150,7 +150,17 @@ func TestTrainMotionAuthoredCUE(t *testing.T) {
 	if got := c.TrainMotion.Bindings; len(got) != 3 || got[0].LevelID != "level.c7_market" || got[1].LevelID != "level.c7_transport_hub" || got[2].LevelID != "level.poc_housing" {
 		t.Fatal("wrong physical views")
 	}
-	if c.TrainMotion.Bindings[1].PassageID != "hub.lower_freight_rail" || c.TrainMotion.Bindings[2].PassageID != "housing.lower_rail" {
+	hubNative := false
+	for _, b := range c.ModularLocations {
+		if b.LevelID == "level.c7_transport_hub" {
+			hubNative = true
+		}
+	}
+	hubBinding := c.TrainMotion.Bindings[1]
+	if hubNative && (hubBinding.PassageID != "" || hubBinding.X != -60.2 || hubBinding.Y != -6 || hubBinding.Z != 200 || hubBinding.YawDegrees != 90 || hubBinding.StartM != 360.2 || hubBinding.EndM != 420) {
+		t.Fatal("native hub lost the existing lower through-rail transform")
+	}
+	if (!hubNative && hubBinding.PassageID != "hub.lower_freight_rail") || c.TrainMotion.Bindings[2].PassageID != "housing.lower_rail" {
 		t.Fatal("missing explicit rail identity")
 	}
 
@@ -191,6 +201,9 @@ func TestTrainMotionAuthoredCUE(t *testing.T) {
 	}
 	metrics := map[string]float64{}
 	for _, scene := range c.Art.Painted {
+		if hubNative && scene.LevelID == "level.c7_transport_hub" {
+			t.Fatal("native hub retained incompatible painted geometry")
+		}
 		for _, passage := range scene.AmbientPassages {
 			if scene.LevelID == "level.poc_monorail" && passage.ID == "station.back_rail" {
 				if passage.PeriodSeconds != 300 || passage.NightPeriodSeconds != 3600 || passage.DwellSeconds != 20 || len(passage.BerthDoors) != 2 || passage.MotionSource == "train_motion" || passage.MetricRail != nil {
@@ -211,7 +224,7 @@ func TestTrainMotionAuthoredCUE(t *testing.T) {
 			}
 		}
 	}
-	if metrics["level.c7_transport_hub"] != 29.9 || metrics["level.poc_housing"] != 60 {
+	if (!hubNative && metrics["level.c7_transport_hub"] != 29.9) || metrics["level.poc_housing"] != 60 {
 		t.Fatal("missing fixed authored rail datums in actual CUE")
 	}
 }

@@ -200,7 +200,7 @@ type medicalPatient struct{UnitID string}
 type medicalState struct{Patients map[string]medicalPatient}
 type sanitaryState struct{Users map[string]medicalPatient}
 type hostState struct{Sanitary sanitaryState;Medical medicalState;Life behavior.LifeState;LifeExploration map[string]map[int]seenCell;Region regionKnowledge;Epoch string;Paused bool;Tick int64}
-type worldModel struct{Life behavior.LifeModel;Wayfinding wayfindingCatalog;Region regionCatalog;Walkable map[string]bool}
+type worldModel struct{FloorReservations map[string]map[behavior.Cell]bool;Life behavior.LifeModel;Wayfinding wayfindingCatalog;Region regionCatalog;Walkable map[string]bool}
 type Runtime struct{world worldModel;state hostState;wayfinding wayfindingSession;entered string;syncs int}
 func(r *Runtime)localText(locale,key,fallback string)string{if strings.HasPrefix(key,"wayfinding."){return locale+":"+key};return fallback}
 func(r *Runtime)lifeExitKnown(e behavior.LifeEdge)bool{return r.wayfindingWalks(e.From,e.Exit)}

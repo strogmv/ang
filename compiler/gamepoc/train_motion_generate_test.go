@@ -88,7 +88,7 @@ func TestTrainMotionFullGeneration(t *testing.T) {
 		t.Fatal("generated server lost train catalog")
 	}
 	bindings := world.TrainMotion.Bindings
-	if len(bindings) != 3 || bindings[1].LevelID != "level.c7_transport_hub" || bindings[1].PassageID != "hub.lower_freight_rail" {
+	if len(bindings) != 3 || bindings[1].LevelID != "level.c7_transport_hub" || bindings[1].PassageID != "" || bindings[1].X != -60.2 || bindings[1].Y != -6 || bindings[1].Z != 200 || bindings[1].YawDegrees != 90 {
 		t.Fatal("generated server retained old station route")
 	}
 	clientRaw, err := os.ReadFile(filepath.Join(absolute, world.Config.UnityDir, "Assets/Resources/PocConfig.json"))
@@ -108,10 +108,22 @@ func TestTrainMotionFullGeneration(t *testing.T) {
 		t.Fatal("generated client has no content hash")
 	}
 	hub, station := false, false
+	for _, b := range world.ModularLocations {
+		if b.LevelID == "level.c7_transport_hub" {
+			for _, l := range world.LocationSDK.Levels {
+				if l.ID == b.LayoutID && l.Navigation != nil && len(l.Navigation.Surfaces) == 1 {
+					hub = true
+				}
+			}
+		}
+	}
 	for _, scene := range client.Art.Painted {
+		if scene.LevelID == "level.c7_transport_hub" {
+			t.Fatal("native hub retained obsolete painted calibration")
+		}
 		for _, p := range scene.AmbientPassages {
 			if p.ID == "hub.lower_freight_rail" {
-				hub = p.MotionSource == "train_motion" && p.Image == "" && p.MetricRail != nil
+				t.Fatal("native hub retained retired painted aperture")
 			}
 			if p.ID == "station.back_rail" {
 				station = p.MotionSource != "train_motion" && p.Image != "" && p.DwellSeconds == 20 && len(p.BerthDoors) == 2

@@ -101,3 +101,27 @@ func TestLocationSDKHostRejectsOrdinaryLevelIDCollision(t *testing.T) {
   if err:=r.prepareLocationSDK();err==nil{t.Fatal("SDK ID collision made normal saves/render mode ambiguous")}
  })}
 }
+
+func TestTransportHubModularStoryGeometryAndSemanticConsumers(t *testing.T) {
+ r:=lifeRuntimeFixture(t);const hub="level.c7_transport_hub"
+ var layout *sdkLevel
+ for _,b:=range r.world.ModularLocations{if b.LevelID==hub{for i:=range r.world.LocationSDK.Levels{l:=&r.world.LocationSDK.Levels[i];if l.ID==b.LayoutID{layout=l}}}}
+ if layout==nil{t.Skip("no authored modular transport hub")}
+ if layout.Width!=128||layout.Depth!=64||layout.Navigation==nil||len(layout.Navigation.Surfaces)!=1||len(layout.Navigation.Connectors)!=0{t.Fatal("transport hub must keep one vertical base surface")}
+ if !reflect.DeepEqual(layout.Terrain,r.world.Life.Locations[hub].Terrain)||r.world.Decks[hub]==nil{t.Fatal("story did not consume compiled terrain/volume")}
+ paths:=map[string]bool{};for _,p:=range layout.ReservedPaths{paths[p.ID]=true;for _,at:=range p.Cells{if !r.world.FloorReservations[hub][at]||!r.world.Life.Walks(hub,at){t.Fatal("runtime lost reserved floor",p.ID,at)}}}
+ for _,id:=range []string{"th.bypass","th.public.cross","th.platform.route","th.lift.approach","th.chase.maintenance"}{if !paths[id]{t.Fatal("missing approved reservation",id)}}
+ guard:=r.world.Life.Person("char.poc_hub_guard");if guard==nil||len(guard.Steps)!=1||guard.Steps[0].Level!=hub||guard.Steps[0].At!=(behavior.Cell{X:72,Y:24}){t.Fatal("guard post disagrees with SDK semantic anchor")}
+ numbers:=map[int]bool{}
+ for _,d:=range r.world.Wayfinding.Destinations{if d.Level==hub{if !r.world.Life.Walks(hub,d.At){t.Fatal("blocked wayfinding approach",d.ID)};numbers[d.MarkerNumber]=true}}
+ for n:=1;n<=6;n++{if !numbers[n]{t.Fatal("missing hub marker",n)}}
+ objects:=0;for _,o:=range r.world.Life.Inspection.Objects{if o.Level==hub{objects++;if !r.world.Life.Walks(hub,o.At){t.Fatal("blocked inspection approach",o.ID)}}};if objects!=7{t.Fatal("hub inspections lost",objects)}
+ deliveries:=0;for _,d:=range r.world.Inventory.Deliveries{if d.Pickup.Level==hub{deliveries++;if !r.world.Life.Walks(hub,behavior.Cell{X:d.Pickup.At.X,Y:d.Pickup.At.Y}){t.Fatal("delivery pickup is outside compiled floor",d.ID)}}};if deliveries!=8{t.Fatal("hub deliveries lost",deliveries)}
+ for _,id:=range []string{"station_hub_walk","hub_station_walk","market_hub_walk","hub_market_walk","station_hub_rail","hub_station_rail"}{e:=r.world.Life.Edge(id);if e==nil||!r.world.Life.Walks(e.From,e.Exit)||!r.world.Life.Walks(e.To,e.Entry){t.Fatal("Life edge differs from semantic entrances",id)}}
+ // Exercise actual controlled transitions on the new physical geometry.
+ for _,id:=range []string{"station_hub_walk","hub_market_walk","market_hub_walk","hub_station_walk"}{
+  e:=r.world.Life.Edge(id);h:=r.state.Life.Actor(playerActorID);h.Level=e.From;h.Position=e.Exit;h.Goal=e.Exit;h.Path=nil;h.PendingPath=nil;h.Trip=nil;h.Manual=true;h.OverrideLevel="";h.OverrideEdge="";h.Arrived=false;r.syncLifeHero();r.updateLifeExploration();r.syncRegionKnowledge();before:=r.state.Life.Seconds
+  if err:=r.lifeCommand(&pb.PocLifeCommand{Action:"enter",Destination:e.ID});err!=nil{t.Fatal(id,err)}
+  h=r.state.Life.Actor(playerActorID);if h.Level!=e.To||h.Trip!=nil||r.state.Life.Seconds-before!=e.TravelSeconds{t.Fatal("physical transition failed",id,h)}
+ }
+}

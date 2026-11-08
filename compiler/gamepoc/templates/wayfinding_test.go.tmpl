@@ -25,3 +25,26 @@ func TestWayfindingExplicitGoPauseStaleAndUnknownTargets(t *testing.T){
  rows:=r.world.Life.Locations[d.Level].Terrain;delete(r.state.LifeExploration[d.Level],d.At.Y*len(rows[d.At.Y])+d.At.X);v:=wayfindingView(r);if v.SelectedDestinationId!=""||v.Reachable{t.Fatal("unknown target retained from preview cache")};for _,target:=range v.Destinations{if target.Id==d.ID{t.Fatal("unknown destination metadata leaked")}}
  before=r.snapshotState();if r.lifeCommand(&pb.PocLifeCommand{Action:"route_preview",Destination:"unknown.hidden.destination"})==nil||!reflect.DeepEqual(before,r.snapshotState()){t.Fatal("unknown selection changed actor or knowledge")}
 }
+
+func TestWayfindingCompiledReservationsDriveGuidesWithoutRevealingUnknownFloor(t *testing.T){
+ r:=sdkHostRuntime(t)
+ l:=&r.world.LocationSDK.Levels[0]
+ // A U-shaped reservation is deliberately longer than the direct floor path.
+ // This JSON subset is exactly the compiled SDK cells field consumed by host.
+ l.Terrain=[]string{"#######","#.....#","#.....#","#.....#","#######"}
+ l.ReservedPaths=[]sdkReservedPath{{ID:"public",Cells:[]behavior.Cell{{X:1,Y:1},{X:1,Y:2},{X:1,Y:3},{X:2,Y:3},{X:3,Y:3},{X:4,Y:3},{X:5,Y:3},{X:5,Y:2},{X:5,Y:1}}}}
+ r.world.ModularLocations=nil
+ if err:=r.prepareLocationSDK();err!=nil{t.Fatal(err)}
+ if v:=sdkHostNew(t,r,"sdk:"+sdkHostTestID,"reserved-start");!v.Ok{t.Fatal(v)}
+ from,to:=behavior.Cell{X:1,Y:1},behavior.Cell{X:5,Y:1}
+ r.world.Wayfinding=wayfindingCatalog{Destinations:[]wayfindingDestination{{ID:"way.test",NameKey:"wayfinding.test",Level:l.ID,At:to,GuideFrom:&from,Kind:"landmark",Color:"#83A7BD"}}}
+ memory:=map[int]seenCell{};for y,row:=range l.Terrain{for x:=range row{memory[y*l.Width+x]=seenCell{Glyph:string(row[x])}}};r.state.LifeExploration[l.ID]=memory
+ v:=wayfindingView(r);if len(v.Guides)!=1||len(v.Guides[0].Path)!=9{t.Fatalf("compiled reservation not used on wire: %v",v.Guides)}
+ for _,p:=range v.Guides[0].Path{if !r.world.FloorReservations[l.ID][behavior.Cell{X:int(p.X),Y:int(p.Y)}]{t.Fatal("guide left compiled reservation")}}
+ delete(memory,3*l.Width+3);v=wayfindingView(r)
+ for _,g:=range v.Guides{for _,p:=range g.Path{if p.X==3&&p.Y==3{t.Fatal("reserved geometry bypassed chip memory")}}}
+ if len(r.world.Wayfinding.Destinations)!=1{t.Fatal("reservation manufactured destinations")}
+ // A malformed imported reservation cannot bypass final floor validation.
+ r.world=r.canonicalWorld;r.world.LocationSDK.Levels[0].ReservedPaths[0].Cells=append(l.ReservedPaths[0].Cells,behavior.Cell{X:0,Y:0})
+ if err:=r.prepareLocationSDK();err==nil{t.Fatal("reserved wall accepted by host")}
+}
