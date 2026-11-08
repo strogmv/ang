@@ -6,12 +6,16 @@ import (
  "encoding/json"
  "os"
  "sort"
+<<ANG if .GodotTargets ANG>>
+ "reflect"
+<<ANG end ANG>>
 // <<ANG if .WebSocket ANG>>
  "errors"
  transport "angelsdemons/server/internal/transport/grpc"
  "github.com/gorilla/websocket"
 // <<ANG end ANG>>
  "google.golang.org/protobuf/encoding/protojson"
+ "google.golang.org/protobuf/proto"
  "context"
  "net"
  "time"
@@ -19,6 +23,61 @@ import (
  "google.golang.org/grpc/credentials/insecure"
  pb "angelsdemons/server/internal/transport/grpc/pb/game/v1"
 )
+
+<<ANG if .GodotTargets ANG>>
+func TestTickAlignedPublicationAndHeroStamp(t *testing.T) {
+ r,c:=heroBodyHub(t)
+ heroBodySteer(t,r,c,"stop",0,0)
+ c.delivery=pb.NewViewProjector(&pb.ViewSubscription{StaticOnChange:true})
+ r.client=c
+ r.state.Paused=false;r.state.Speed=1
+ now:=time.Now();r.lastAdvance=now;r.sampleAt=now
+ previous:=r.state.Tick;received:=0
+ for i:=1;i<=200;i++ {
+  r.advance(now.Add(time.Duration(i)*10*time.Millisecond))
+  for len(c.out)>0 {
+   s:=(<-c.out).GetGameState()
+   if s==nil||!s.PublishedAfterTick||s.Tick-previous!=1||s.SimTimeNs!=s.Tick*r.tickNS()||s.HeroBody==nil||s.HeroBody.SampleNs!=s.Tick*r.tickNS(){t.Fatalf("misaligned sample: %v previous %d",s,previous)}
+   var train trainMotionSnapshot;if err:=json.Unmarshal([]byte(s.Life.TrainMotionJson),&train);err!=nil||train.SampleSimNS!=s.SimTimeNs{t.Fatal("continuous train stamp differs from frame",err)}
+   for _,a:=range s.SceneAgents {if a.MotionStartNs>s.SimTimeNs||a.MovementStepNs<=0{t.Fatal("NPC motion contract",a)}}
+   previous=s.Tick;received++
+  }
+ }
+ if received!=20 {t.Fatalf("published %d times for 20 ticks",received)}
+ before:=r.snapshotState();r.sendState(c);<-c.out
+ if !reflect.DeepEqual(before,r.snapshotState()){t.Fatal("observation changed simulation")}
+ r.advance(now.Add(5*time.Second))
+ if len(c.out)!=1 {t.Fatal("automatic pause must publish without a world step")}
+ paused:=(<-c.out).GetGameState()
+ if paused==nil||!paused.Paused||paused.PublishedAfterTick||paused.Tick!=previous {t.Fatal("invalid automatic pause transition",paused)}
+}
+
+// A faster calendar must not multiply wall-clock publication: TickHz frames
+// per second, each carrying Speed ticks at a tick-aligned stamp.
+func TestFastCalendarKeepsPublicationRate(t *testing.T) {
+ for _,speed:=range []int32{3,10} {
+  r,c:=heroBodyHub(t)
+  heroBodySteer(t,r,c,"stop",0,0)
+  c.delivery=pb.NewViewProjector(&pb.ViewSubscription{StaticOnChange:true})
+  r.client=c
+  r.state.Paused=false;r.state.Speed=speed
+  now:=time.Now();r.lastAdvance=now;r.sampleAt=now
+  r.publishedTick=r.state.Tick
+  previous:=r.state.Tick;start:=r.state.Tick;received:=0
+  for i:=1;i<=200;i++ {
+   r.advance(now.Add(time.Duration(i)*10*time.Millisecond))
+   for len(c.out)>0 {
+    s:=(<-c.out).GetGameState()
+    if s==nil||!s.PublishedAfterTick||s.Tick-previous!=int64(speed)||s.SimTimeNs!=s.Tick*r.tickNS()||s.HeroBody==nil||s.HeroBody.SampleNs!=s.Tick*r.tickNS(){t.Fatalf("speed %d: misaligned sample: %v previous %d",speed,s,previous)}
+    previous=s.Tick;received++
+   }
+  }
+  ticks:=r.state.Tick-start
+  if ticks!=int64(200*speed/10) {t.Fatalf("speed %d advanced %d ticks",speed,ticks)}
+  if received!=int(ticks)/int(speed) {t.Fatalf("speed %d: published %d frames for %d ticks",speed,received,ticks)}
+ }
+}
+<<ANG end ANG>>
 
 func TestViewDeliveryLifeProjectionAndSaveLoad(t *testing.T) {
  r:=lifeRuntimeFixture(t)
@@ -100,14 +159,15 @@ func TestViewDeliveryFrameCost(t *testing.T) {
   if profile=="lean" {sub=&pb.ViewSubscription{StaticOnChange:true}}
   c:=&connection{out:make(chan *pb.ServerMessage,32),stop:make(chan struct{}),delivery:pb.NewViewProjector(sub)}
   var samples []float64
+  var jsonBytes, binaryBytes int
   for i:=0;i<103;i++ {
    start:=time.Now();r.sendState(c);m:=<-c.out
-   if _,err:=(protojson.MarshalOptions{UseProtoNames:true}).Marshal(m);err!=nil{t.Fatal(err)}
+   payload,err:=(protojson.MarshalOptions{UseProtoNames:true}).Marshal(m);if err!=nil{t.Fatal(err)}
    us:=float64(time.Since(start).Nanoseconds())/1000
-   if i>=3 {samples=append(samples,us)}
+   if i>=3 {samples=append(samples,us);jsonBytes+=len(payload);binaryBytes+=proto.Size(m)}
   }
   sum:=0.0;for _,us:=range samples{sum+=us};sort.Float64s(samples)
-  results[profile]=map[string]any{"n":len(samples),"mean_us":sum/float64(len(samples)),"p95_us":samples[94],"samples_us":samples}
+  results[profile]=map[string]any{"n":len(samples),"mean_us":sum/float64(len(samples)),"p95_us":samples[94],"samples_us":samples,"protojson_kib":float64(jsonBytes)/100/1024,"protobuf_kib":float64(binaryBytes)/100/1024}
  }
  data,_:=json.Marshal(results);t.Log(string(data))
 }

@@ -3,6 +3,8 @@ package poc
 
 import (
  "context"
+ "encoding/json"
+ "reflect"
  "os"
  "path/filepath"
  "testing"
@@ -169,4 +171,20 @@ func TestClockPausedSaveLoadCanonicalPhase(t *testing.T) {
    if !r.state.Paused || r.state.Tick!=84 || r.state.PhaseNS!=wantPhase || r.simNS()!=before {t.Fatalf("paused load moved physical clock: before=%d after=%d phase=%d",before,r.simNS(),r.state.PhaseNS)}
   })
  }
+}
+
+func TestAuditedBaselineSaveLoadsWithoutChangingBodies(t *testing.T){
+ source:=os.Getenv("ANG_BASELINE_SAVE")
+ if source==""{t.Skip("opt-in real previous-catalog save")}
+ r,err:=New(t.TempDir(),"token");if err!=nil{t.Fatal(err)}
+ raw,err:=os.ReadFile(source);if err!=nil{t.Fatal(err)}
+ var file saveFile;if err=json.Unmarshal(raw,&file);err!=nil{t.Fatal(err)}
+ if !r.configCompatibleSave(file.ContentHash,true){t.Fatal("baseline is not the explicitly audited catalog")}
+ var expected state;if err=json.Unmarshal(file.State,&expected);err!=nil{t.Fatal(err)}
+ slot:=r.world.Config.SaveSlots[0]
+ if err=os.WriteFile(filepath.Join(r.data,slot+".json"),raw,0600);err!=nil{t.Fatal(err)}
+ got,_,err:=r.readSave(slot);if err!=nil{t.Fatal(err)}
+ if !reflect.DeepEqual(expected.Life,got.Life)||expected.Tick!=got.Tick||expected.PhaseNS!=got.PhaseNS {t.Fatal("previous save changed physical state on load")}
+ if r.configCompatibleSave("0000000000000000000000000000000000000000000000000000000000000000",true)||r.configCompatibleSave(file.ContentHash,false){t.Fatal("compatibility bypassed catalog/wound guard")}
+ t.Logf("real baseline %s tick %d phase %d restored",file.ContentHash,got.Tick,got.PhaseNS)
 }

@@ -3,6 +3,44 @@ package behavior
 
 import "fmt"
 
+// Situation names refer to existing host intents, never identity or speed.
+type LifeGaitPolicy struct {
+ RunFactor float64 `json:"run_factor"`
+ Situations map[string]bool `json:"situations"`
+ Actors map[string]map[string]bool `json:"actors,omitempty"`
+ OpeningWindows map[string]LifeGaitOpening `json:"opening_windows,omitempty"`
+}
+type LifeGaitOpening struct {OpenSecond int64 `json:"open_second"`; WindowSeconds int64 `json:"window_seconds"`}
+func (p LifeGaitPolicy) delayedOpening(id string, now, until int64) bool {
+ window,ok:=p.OpeningWindows[id];if !ok{return false}
+ open:=now/86400*86400+window.OpenSecond
+ if now<open && open-now>86400-window.WindowSeconds {open-=86400}
+ return until>=open && now<=open+window.WindowSeconds
+}
+func (p LifeGaitPolicy) running(id string, safety *LifeSafetyOverride, delayedWork bool, target string) bool {
+ if p.RunFactor <= 1 { return false }
+ situation:=""
+ if safety != nil { situation=safety.Activity } else if delayedWork && target=="work" {situation="late_opening"}
+ if actors,restricted:=p.Actors[situation];restricted&&!actors[id]{return false}
+ return p.Situations[situation]
+}
+func (m LifeModel) NamedRunning(a *LifeActor) bool {
+ return a != nil && a.ID != "" && !a.Sneaking && a.WoundPaceMMS == 0 && !a.Arrived && m.Gait.running(a.ID,a.Safety,a.IncidentDelayedWork,a.Brain.Target.Activity)
+}
+func (m LifeModel) PopulationRunning(a PopulationActor) bool {
+ return a.WoundPaceMMS == 0 && !a.Arrived && m.Gait.running(a.ID,a.Safety,false,"")
+}
+func (m LifeModel) GaitPace(pace int64, running bool) int64 {
+ if running { return max(int64(1),int64(float64(pace)/m.Gait.RunFactor+0.999999)) }
+ return pace
+}
+func (m LifeModel) NamedMoveTicks(a *LifeActor) int64 {
+ pace:=m.GaitPace(m.MoveTicks,m.NamedRunning(a))
+ if a!=nil && a.WoundPaceMMS>0 { pace=max(pace,(int64(m.Locations[a.Level].CellMM)+a.WoundPaceMMS-1)/a.WoundPaceMMS) }
+ if a!=nil && a.Sneaking { pace=int64(float64(pace)/m.HeroBody.sneakFactor()+0.999999) }
+ return pace
+}
+
 // A locally perceived danger may interrupt an agenda, never move a body itself.
 // The host owns the observation and expiry. The kernel owns path/collision/time.
 type LifeSafetyOverride struct {
@@ -72,6 +110,7 @@ func (s *LifeState) ApplySafety(m LifeModel, id string, response LifeSafetyOverr
 			return fmt.Errorf("unreachable safety destination")
 		}
 		a.Safety = response.clone()
+		if a.Brain.Target.Activity == "work" && m.Gait.delayedOpening(id,s.Seconds,response.Until) { a.IncidentDelayedWork = true }
 		a.Brain.interruptService()
 		a.Path = nil
 		a.PendingPath = nil

@@ -9,6 +9,7 @@ import (
 )
 
 type trainMotionCatalog struct {
+ NameKey string `json:"name_key,omitempty"`
 	AdditionalFleet  []trainMotionStock       `json:"additional_fleet,omitempty"`
 	PrefabResource   string                   `json:"prefab_resource"`
 	ClockDomain      string                   `json:"clock_domain"`
@@ -25,6 +26,7 @@ type trainMotionCatalog struct {
 	Bindings         []trainBindingDefinition `json:"bindings"`
 }
 type trainMotionStock struct {
+ NameKey string `json:"name_key,omitempty"`
 	PrefabResource   string  `json:"prefab_resource"`
 	TrainID          string  `json:"train_id"`
 	StockID          string  `json:"stock_id"`
@@ -42,6 +44,8 @@ type trainModuleDefinition struct {
 	BogieOffsetsM []float64 `json:"bogie_offsets_m"`
 }
 type trainBindingDefinition struct {
+ NameKey string `json:"name_key,omitempty"`
+ ApproachSeconds float64 `json:"approach_seconds,omitempty"`
  FloorElevationM float64 `json:"floor_elevation_m,omitempty"`
 	PassageID    string  `json:"passage_id,omitempty"`
 	LevelID      string  `json:"level_id"`
@@ -62,6 +66,10 @@ type trainMotionSnapshot struct {
 	Trains       []trainMotionState `json:"trains"`
 }
 type trainMotionState struct {
+ NameKey string `json:"name_key,omitempty"`
+ Passages []trainPassageHint `json:"passages"`
+ NextLocationKey string `json:"next_location_key"`
+ NextLocationETASeconds float64 `json:"next_location_eta_seconds"`
 	PrefabResource     string             `json:"prefab_resource"`
 	TrainID            string             `json:"train_id"`
 	StockID            string             `json:"stock_id"`
@@ -80,6 +88,14 @@ type trainMotionState struct {
 	PassengerActorIDs  []string           `json:"passenger_actor_ids"`
 	CargoContainerIDs  []string           `json:"cargo_container_ids"`
 	Modules            []trainModuleState `json:"modules"`
+}
+type trainPassageHint struct {
+ LevelID string `json:"level_id"`
+ NameKey string `json:"name_key"`
+ Visible bool `json:"visible"`
+ ETASeconds float64 `json:"eta_seconds"`
+ ArrivalClockSeconds float64 `json:"arrival_clock_seconds"`
+ Approaching bool `json:"approaching"`
 }
 type trainModuleState struct {
 	ID        string               `json:"id"`
@@ -189,6 +205,22 @@ func (c *trainMotionCatalog) snapshot(seconds float64) trainMotionState {
 		}
 		out.Modules = append(out.Modules, module)
 	}
+	// Arrival means the first physical module entering an authored visible
+	// slice, not a stop or a timetable. Wrap includes the actual off-scene dwell.
+	bestETA := math.Inf(1)
+	out.NameKey = c.NameKey
+	for _, b := range c.Bindings {
+		if b.NameKey == "" { continue }
+		target := trainWrap(b.StartM-c.Modules[0].LengthM/2,length)
+		distance := trainWrap(target-out.DistanceM,length)
+		eta := distance/c.SpeedMPS
+		if out.Phase == "dwell" { eta = out.NextEventSeconds-seconds+target/c.SpeedMPS
+		} else if target < out.DistanceM { eta += c.DwellSeconds }
+		visible := false
+		for _, module := range out.Modules {for _, binding := range module.Bindings {if binding.LevelID==b.LevelID && binding.Visible {visible=true}}}
+		out.Passages=append(out.Passages,trainPassageHint{LevelID:b.LevelID,NameKey:b.NameKey,Visible:visible,ETASeconds:eta,ArrivalClockSeconds:seconds+eta,Approaching:!visible&&eta>0&&eta<=b.ApproachSeconds})
+		if !visible && eta < bestETA {bestETA=eta;out.NextLocationKey=b.NameKey;out.NextLocationETASeconds=eta}
+	}
 	return out
 }
 
@@ -200,6 +232,7 @@ func (c *trainMotionCatalog) snapshots(seconds float64) []trainMotionState {
 	for _, stock := range c.AdditionalFleet {
 		member := *c
 		member.TrainID = stock.TrainID
+		member.NameKey = stock.NameKey
 		member.StockID = stock.StockID
 		member.PrefabResource = stock.PrefabResource
 		member.InitialDistanceM = stock.InitialDistanceM

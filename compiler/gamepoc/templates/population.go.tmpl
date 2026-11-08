@@ -20,9 +20,16 @@ func lifeScenarioPopulation(scenario string) (int, bool) {
 }
 func (r *Runtime) lifeAgentMoveTicks(id string) int64 {
 	if strings.HasPrefix(id, "population.") && r.world.Life.Person(id) == nil {
+		for _,a:=range r.state.Life.Population.Actors {if a.ID==id{return r.world.Life.GaitPace(r.world.Life.Population.MoveTicks,r.world.Life.PopulationRunning(a))}}
 		return r.world.Life.Population.MoveTicks
 	}
-	return r.world.Life.MoveTicks
+	return r.world.Life.NamedMoveTicks(r.state.Life.Actor(id))
+}
+func (r *Runtime) lifeAgentRunning(id string) bool {
+ if id==playerActorID {return false}
+ if a:=r.state.Life.Actor(id);a!=nil{return r.world.Life.NamedRunning(a)}
+ for _,a:=range r.state.Life.Population.Actors {if a.ID==id{return r.world.Life.PopulationRunning(a)}}
+ return false
 }
 func (r *Runtime) appendPopulationResidents(v *Runtime, level string) {
 	for _, a := range r.state.Life.Population.Actors {

@@ -209,7 +209,7 @@ func (r *Runtime) sendLifeState(c *connection) {
 	}
 	activities := r.lifeActivityBodies(hero.Level)
 	for _, agent := range v.state.Demo.Residents {
-		a := &pb.PocAgentState{Id: agent.ID, Name: r.localText(c.locale, "actor."+agent.ID+".name", agent.Name), X: int32(agent.Position.X), Y: int32(agent.Position.Y), Task: r.localText(c.locale, agent.Task, agent.Task), Role: r.localActivity(c.locale, agent.Role), MotionStartNs: agent.MoveStartNS, MovementStepNs: r.lifeMotionDurationNS(r.lifeAgentMoveTicks(agent.ID))}
+		a := &pb.PocAgentState{Id: agent.ID, Name: r.localText(c.locale, "actor."+agent.ID+".name", agent.Name), X: int32(agent.Position.X), Y: int32(agent.Position.Y), Task: r.localText(c.locale, agent.Task, agent.Task), Role: r.localActivity(c.locale, agent.Role), MotionStartNs: agent.MoveStartNS, Running: r.lifeAgentRunning(agent.ID), MovementStepNs: r.lifeMotionDurationNS(r.lifeAgentMoveTicks(agent.ID))}
 		for _, at := range agent.Path {
 			a.Path = append(a.Path, &pb.PocPoint{X: int32(at.X), Y: int32(at.Y)})
 		}
@@ -892,22 +892,10 @@ func (r *Runtime) setLifeActivity(a *pb.PocAgentState, b lifeActivityBody) {
 }
 
 // Movement v2 (documents 86/87): the continuous body of the controlled hero.
-// Input is applied from its arrival time; the body is integrated to "now" (a
-// sub-tick motion time) before every input and every publication.
+// Bodies integrate on world boundaries. Publication and command arrival must
+// never add a second, observation-dependent physical step.
 func (r *Runtime) lifeBodyNowMilli() int64 {
-	step := r.tickNS()
-	phase := r.state.PhaseNS
-	if phase > step {
-		phase = step
-	}
-	if phase < 0 {
-		phase = 0
-	}
-	per := int64(1)
-	if r.world.Life.Brain.Enabled {
-		per = r.state.Life.SecondsPerTick
-	}
-	return r.lifeMotionTick()*1000 + phase*per*1000/step
+	return r.lifeMotionTick()*1000
 }
 func (r *Runtime) heroBodyNow() {
 	if !r.state.Life.Enabled || !r.state.Active || r.state.Paused {
@@ -931,9 +919,10 @@ func (r *Runtime) heroBodyPB(h *behavior.LifeActor) *pb.PocHeroBody {
 	if m.Brain.Enabled {
 		per = r.state.Life.SecondsPerTick
 	}
-	walk := float64(cell) * float64(per) * 1e9 / float64(m.MoveTicks*r.tickNS());if h.Sneaking{factor:=m.HeroBody.SneakFactor;if factor==0{factor=.55};walk*=factor}
-	out := &pb.PocHeroBody{XMm: b.X, YMm: b.Y, Layer: int32(b.Layer), SampleNs: r.simNS(), Mode: b.Mode, SteerX: b.DX, SteerY: b.DY, TargetXMm: b.TX, TargetYMm: b.TY, Run: b.Run, WalkMmPerS: walk, RunFactor: m.HeroBody.RunFactor, RadiusMm: m.HeroBody.RadiusMM, FollowStopMm: m.HeroBody.FollowStopMM, InputSeq: b.Seq, Moving: b.Moving, CellMm: int32(cell), FaceX: b.FX, FaceY: b.FY, Sneaking:h.Sneaking, WalkableGlyphs: r.walkableGlyphs()}
-	for _, w := range b.Route {
+	walk := float64(cell) * float64(per) * 1e9 / float64(m.MoveTicks*r.tickNS());if h.WoundPaceMMS>0{walk=min(walk,float64(h.WoundPaceMMS)*float64(per)*1e9/float64(r.tickNS()))};if h.Sneaking{factor:=m.HeroBody.SneakFactor;if factor==0{factor=.55};walk*=factor}
+	stamp := r.lifeMotionStartNS(b.Clock/1000, r.state.Life, r.state.Tick) + b.Clock%1000*r.tickNS()/(1000*per)
+	out := &pb.PocHeroBody{XMm: b.X, YMm: b.Y, Layer: int32(b.Layer), SampleNs: stamp, Mode: b.Mode, SteerX: b.DX, SteerY: b.DY, TargetXMm: b.TX, TargetYMm: b.TY, Run: b.Run, WalkMmPerS: walk, RunFactor: m.HeroBody.RunFactor, RadiusMm: m.HeroBody.RadiusMM, FollowStopMm: m.HeroBody.FollowStopMM, InputSeq: b.Seq, Moving: b.Moving, CellMm: int32(cell), FaceX: b.FX, FaceY: b.FY, Sneaking:h.Sneaking, WalkableGlyphs: r.walkableGlyphs()}
+	for _, w := range r.state.Life.HeroBodyViewRoute(r.state.Life.GateModel(m)) {
 		out.Route = append(out.Route, &pb.PocBodyPoint{XMm: w.X, YMm: w.Y, Layer: int32(w.Layer)})
 	}
 	return out
@@ -984,6 +973,7 @@ func (r *Runtime) heroSteer(c *connection, m *pb.PocHeroSteer) {
 		result.HeroBody = r.heroBodyPB(hero)
 	}
 	r.send(c, &pb.ServerMessage{Msg: &pb.ServerMessage_MoveResult{MoveResult: result}})
+	if result.Ok { r.sendState(c) }
 }
 func (r *Runtime) walkableGlyphs() string {
 	keys := make([]string, 0, len(r.world.Life.Walkable))

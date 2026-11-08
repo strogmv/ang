@@ -696,6 +696,27 @@ func (s *LifeState) HeroBodyAdvance(m LifeModel, until int64) {
 	s.bodyIntent(m, g, a)
 }
 
+// HeroBodyViewRoute supplies a collision-checked lookahead for directional
+// input too. It samples a copy with the same kernel, without changing the
+// actual body, reservations, clock or command. Clients only follow these points.
+func (s *LifeState) HeroBodyViewRoute(m LifeModel) []LifeBodyPoint {
+ a:=s.Actor(s.ControlledActorID)
+ if a==nil||a.Body==nil{return nil}
+ b:=a.Body
+ if b.Mode=="route"{return b.Route}
+ g,ok:=m.bodyGeom(a.Level);if !ok{return nil}
+ ux,uy,d,ok:=g.intention(b,m.HeroBody.FollowStopMM);if !ok{return nil}
+ left:=math.Min(d,m.HeroBody.LookaheadMM)
+ trial:=*b;others:=s.bodyOthers(a);var points []LifeBodyPoint
+ for left>.5 {
+  span:=math.Min(left,lifeBodySubMM);x,y:=trial.X,trial.Y
+  g.move(&trial,ux*span,uy*span,m.HeroBody.RadiusMM,others)
+  if math.Hypot(trial.X-x,trial.Y-y)<.5{break}
+  points=append(points,LifeBodyPoint{X:trial.X,Y:trial.Y,Layer:trial.Layer});left-=span
+ }
+ return points
+}
+
 // bodyIntent: reservation of the next corridor cell, or a pending contact.
 func (s *LifeState) bodyIntent(m LifeModel, g lifeBodyGeom, a *LifeActor) {
 	b := a.Body

@@ -185,3 +185,20 @@ func TestTrainMotionExplicitFloorDatumKeepsNativeTransform(t *testing.T){
  old:=trainProject(p,b);b.FloorElevationM=18;current:=trainProject(p,b)
  if current.X!=old.X||current.Z!=old.Z||current.YawDegrees!=old.YawDegrees||math.Abs(current.Y-old.Y-18)>1e-9||math.Abs(current.Y-11.47)>1e-9{t.Fatalf("datum changed native plan/clock: %+v -> %+v",old,current)}
 }
+
+func TestTrainPassageHintsFollowPhysicalClockAndDwell(t *testing.T){
+ r:=lifeRuntimeFixture(t);c:=r.world.TrainMotion
+ if c==nil||c.NameKey==""{t.Skip("no train hint catalog")}
+ for _,second:=range []float64{0,1,25,70,90,107,110,119,120,125,239}{
+  for _,train:=range c.snapshots(second){
+   if train.NameKey==""||len(train.Passages)!=len(c.Bindings)||train.EntryAllowed||train.DoorsOpen{t.Fatal("incomplete or boardable exterior hint",train)}
+   for _,hint:=range train.Passages{
+    if hint.ETASeconds<0||math.Abs(hint.ArrivalClockSeconds-second-hint.ETASeconds)>1e-6{t.Fatal("ETA clock contract",hint)}
+    member:=*c;for _,stock:=range c.AdditionalFleet{if stock.TrainID==train.TrainID{member.InitialDistanceM=stock.InitialDistanceM}}
+    arriving:=member.snapshot(hint.ArrivalClockSeconds+0.00001)
+    visible:=false;for _,pass:=range arriving.Passages{if pass.LevelID==hint.LevelID{visible=pass.Visible}}
+    if !visible{t.Fatalf("predicted arrival does not enter physical slice at %.3f: %+v",second,hint)}
+   }
+  }
+ }
+}

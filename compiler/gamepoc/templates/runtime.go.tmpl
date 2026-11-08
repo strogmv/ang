@@ -39,6 +39,7 @@ type actor struct {
 	Vectors           []string
 }
 type configuration struct {
+	SaveCompatibleHashes []string `json:"save_compatible_hashes,omitempty"`
 	DebugPerception    bool       `json:"debug_perception"`
 	LevelID            string     `json:"level_id"`
 	CaptureDemo        demoPolicy `json:"capture_demo"`
@@ -235,6 +236,8 @@ type Runtime struct {
 	npcAccountIDs          map[string]string
 	aiWorkUS, aiPeakWorkUS float64
 	tickHz, stepUS, lagMS  float64
+	publishingTick bool
+	publishedTick  int64
 	lastAdvance, sampleAt  time.Time
 	sampleTicks            int64
 }
@@ -393,10 +396,8 @@ func (r *Runtime) Run(ctx context.Context) {
 	wake := time.NewTicker(time.Second / time.Duration(r.world.Config.SchedulerHz))
 	defer wake.Stop()
 	last := time.Now()
-	published := last
 	r.lastAdvance = last
 	r.sampleAt = last
-	step := time.Second / time.Duration(r.world.Config.TickHz)
 	for {
 		select {
 		case <-ctx.Done():
@@ -424,14 +425,7 @@ func (r *Runtime) Run(ctx context.Context) {
 			r.advance(time.Now())
 			r.diskComplete(result)
 		case <-wake.C:
-			now := time.Now()
-			r.advance(now)
-			if now.Sub(published) >= step {
-				published = now
-				if r.client != nil {
-					r.sendState(r.client)
-				}
-			}
+			r.advance(time.Now())
 		}
 	}
 }
@@ -449,8 +443,11 @@ func (r *Runtime) advance(now time.Time) {
 		return
 	}
 	r.lastAdvance = now
-	if elapsed > 2*time.Second {
+	if elapsed > 2*time.Second && !r.state.Paused {
 		r.state.Paused = true
+		// No world step follows an automatic pause. Publish the transition
+		// itself so the connected client can show it (or explicitly resume).
+		if r.client != nil { r.sendState(r.client) }
 	}
 	step := time.Second / time.Duration(r.world.Config.TickHz)
 	if r.state.Active && !r.state.Paused {
@@ -461,6 +458,20 @@ func (r *Runtime) advance(now time.Time) {
 			r.step()
 			r.stepUS = float64(time.Since(before).Nanoseconds()) / 1000
 			r.sampleTicks++
+			// A world sample is valid at this tick boundary. Keep the saved
+			// fractional clock for commands and continuous train snapshots.
+			// At speed 1 every step is published; a faster calendar keeps the
+			// wall-clock publication rate at TickHz (Speed ticks per frame).
+			since := r.state.Tick - r.publishedTick
+			if r.client != nil && (since < 0 || since >= int64(max(1, r.state.Speed))) {
+				phase := r.state.PhaseNS
+				r.state.PhaseNS = 0
+				r.publishingTick = true
+				r.sendState(r.client)
+				r.publishingTick = false
+				r.state.PhaseNS = phase
+				r.publishedTick = r.state.Tick
+			}
 		}
 	}
 	// A fractional tick is normal progress, not scheduler lag.
@@ -582,7 +593,7 @@ func (r *Runtime) close(c *connection) {
 }
 func (r *Runtime) send(c *connection, m *pb.ServerMessage) {
 <<ANG if .GodotTargets ANG>>
- if s:=m.GetGameState();s!=nil{s.ServerPublishedUnixMs=time.Now().UnixMilli()}
+ if s:=m.GetGameState();s!=nil{s.ServerPublishedUnixMs=time.Now().UnixMilli();s.PublishedAfterTick=r.publishingTick}
 <<ANG end ANG>>
 	if c == nil || c.closed {
 		return
@@ -984,7 +995,7 @@ func (r *Runtime) readSave(slot string) (state, int64, error) {
 	var fields map[string]json.RawMessage
  if err:=json.Unmarshal(envelope.State,&fields);err!=nil{return s,0,err}
  _,hasWounds:=fields["wounds"]
- if envelope.ContentHash!=r.world.ContentHash {
+ if envelope.ContentHash!=r.world.ContentHash && !r.configCompatibleSave(envelope.ContentHash,hasWounds) {
   // Exact V1 e770494a: additive image catalogue/observation binding, preserving heard reports verbatim.
   // Exact pre-rumour baseline 341a2b53: additive testimony starts empty; physical rules are unchanged.
   // Only the exact pre-wounds catalog may cross the migration boundary.
@@ -1134,4 +1145,12 @@ func (r *Runtime) String() string {
 func migrateSavedOrigins(s *state) {
 	s.Inventory.MigrateProvenance()
 	s.Crafting.MigrateOrigins()
+}
+
+// Only explicitly audited additive catalogs may enter; all structural save,
+// checksum, body, inventory and wound validation still applies below.
+func (r *Runtime) configCompatibleSave(hash string, hasWounds bool) bool {
+ if !hasWounds{return false}
+ for _,allowed:=range r.world.Config.SaveCompatibleHashes {if hash==allowed{return true}}
+ return false
 }

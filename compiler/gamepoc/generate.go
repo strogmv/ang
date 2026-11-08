@@ -74,6 +74,7 @@ type Config struct {
 	MaxCatchupSteps       int               `json:"max_catchup_steps"`
 	SaveSlots             []string          `json:"save_slots"`
 	SaveVersion           int               `json:"save_version"`
+	SaveCompatibleHashes  []string          `json:"save_compatible_hashes,omitempty"`
 	MaxSaveBytes          int64             `json:"max_save_bytes"`
 	Labels                map[string]string `json:"labels"`
 }
@@ -272,6 +273,15 @@ type Compiled struct {
 }
 
 func (c Config) validate() error {
+	seenHashes := map[string]bool{}
+	for _, hash := range c.SaveCompatibleHashes {
+		raw, err := hex.DecodeString(hash)
+		if err != nil || len(raw) != sha256.Size || strings.ToLower(hash) != hash || seenHashes[hash] {
+			return fmt.Errorf("invalid save-compatible catalog hash")
+		}
+		seenHashes[hash] = true
+	}
+
 	if err := c.Rendering.validate(); err != nil {
 		return err
 	}

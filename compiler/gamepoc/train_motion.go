@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"strings"
 
 	"cuelang.org/go/cue"
 )
@@ -12,6 +13,7 @@ import (
 // TrainMotionCatalog is independent of the legacy C7 passenger timetable.
 // Distances are metres on one closed, ordered path; bindings only project it.
 type TrainMotionCatalog struct {
+	NameKey          string             `json:"name_key,omitempty"`
 	AdditionalFleet  []TrainMotionStock `json:"additional_fleet,omitempty"`
 	PrefabResource   string             `json:"prefab_resource"`
 	ClockDomain      string             `json:"clock_domain"`
@@ -32,6 +34,7 @@ type TrainMotionCatalog struct {
 // persistent identity, resource and initial phase differ. Legacy single stock
 // catalogues omit this list and retain their original behavior.
 type TrainMotionStock struct {
+	NameKey          string  `json:"name_key,omitempty"`
 	PrefabResource   string  `json:"prefab_resource"`
 	TrainID          string  `json:"train_id"`
 	StockID          string  `json:"stock_id"`
@@ -50,6 +53,8 @@ type TrainModule struct {
 	BogieOffsetsM []float64 `json:"bogie_offsets_m"`
 }
 type TrainBinding struct {
+	NameKey         string  `json:"name_key,omitempty"`
+	ApproachSeconds float64 `json:"approach_seconds,omitempty"`
 	FloorElevationM float64 `json:"floor_elevation_m,omitempty"`
 	PassageID       string  `json:"passage_id,omitempty"`
 	LevelID         string  `json:"level_id"`
@@ -81,9 +86,39 @@ func readTrainMotion(world cue.Value, life json.RawMessage) (*TrainMotionCatalog
 	if err = c.validate(life); err != nil {
 		return nil, fmt.Errorf("world.train_motion: %w", err)
 	}
+	keys := append([]string{c.NameKey}, trainHintKeys(c)...)
+	for _, key := range keys {
+		if key == "" {
+			continue
+		}
+		var localization LocalizationCatalog
+		if err := world.LookupPath(cue.ParsePath("localization")).Decode(&localization); err != nil {
+			return nil, fmt.Errorf("train hint localization: %w", err)
+		}
+		found := false
+		for _, message := range localization.Messages {
+			if message.Key == key && message.Texts["ru"] != "" && message.Texts["en"] != "" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, fmt.Errorf("train hint localization key %s requires RU/EN", key)
+		}
+	}
 	return &c, nil
 }
 func (c TrainMotionCatalog) validate(life json.RawMessage) error {
+	for _, key := range append([]string{c.NameKey}, trainHintKeys(c)...) {
+		if key != "" && (!strings.HasPrefix(key, "ui.") || len(key) > 128) {
+			return fmt.Errorf("train hints require a ui.* localization key")
+		}
+	}
+	for _, b := range c.Bindings {
+		if math.IsNaN(b.ApproachSeconds) || math.IsInf(b.ApproachSeconds, 0) || b.ApproachSeconds < 0 || b.ApproachSeconds > 30 || (b.ApproachSeconds > 0 && b.NameKey == "") {
+			return fmt.Errorf("invalid train approach cue")
+		}
+	}
 	if len(c.PrefabResource) > 256 || !locationSDKSurfaceResourceKey.MatchString(c.PrefabResource) {
 		return fmt.Errorf("unsafe extensionless train prefab Resources path")
 	}
@@ -203,6 +238,17 @@ func (c TrainMotionCatalog) validate(life json.RawMessage) error {
 		return fmt.Errorf("at least three distinct level bindings required")
 	}
 	return nil
+}
+
+func trainHintKeys(c TrainMotionCatalog) []string {
+	var keys []string
+	for _, stock := range c.AdditionalFleet {
+		keys = append(keys, stock.NameKey)
+	}
+	for _, binding := range c.Bindings {
+		keys = append(keys, binding.NameKey)
+	}
+	return keys
 }
 
 // Painted bindings name their own rail aperture; a berth is never an exterior

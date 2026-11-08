@@ -7,6 +7,25 @@ import (
 	"testing"
 )
 
+func TestLifeGaitEmergencyCadenceAndIncidentReturn(t *testing.T) {
+ policy:=LifeGaitPolicy{OpeningWindows:map[string]LifeGaitOpening{"trader":{OpenSecond:7*3600,WindowSeconds:600}}}
+ if !policy.delayedOpening("trader",7*3600-20,7*3600+25)||policy.delayedOpening("trader",12*3600,12*3600+45)||policy.delayedOpening("civilian",7*3600,7*3600+45){t.Fatal("opening window must come from the CUE shop schedule and identity")}
+ for _,situation:=range []string{"shelter","investigate"} {t.Run(situation,func(t *testing.T){
+  m:=lifeFixture();m.Actors[1].Steps=m.Actors[1].Steps[:1]
+  m.Gait=LifeGaitPolicy{RunFactor:1.8,Situations:map[string]bool{situation:true,"late_opening":true}}
+  s:=m.Start();s.ControlledActorID="one"
+  if err:=s.ApplySafety(m,"two",LifeSafetyOverride{Level:"a",Goal:Cell{4,2},Until:20,Activity:situation,LabelKey:"test.safety",Reason:"observed incident"});err!=nil{t.Fatal(err)}
+  actor:=s.Actor("two");if !m.NamedRunning(actor)||m.NamedMoveTicks(actor)!=2{t.Fatal("CUE gait not applied")}
+  last:=actor.Position;var moved []int64
+  for tick:=int64(1);tick<15;tick++ {s.Advance(m,tick);if actor.Position!=last{moved=append(moved,tick);last=actor.Position}}
+  if len(moved)<2||moved[1]-moved[0]!=2{t.Fatalf("running cell cadence %v",moved)}
+  actor.Arrived=false;actor.Safety=nil;actor.IncidentDelayedWork=true;actor.Brain.Target.Activity="work"
+  if !m.NamedRunning(actor){t.Fatal("incident-delayed work return should hurry")}
+  actor.IncidentDelayedWork=false;if m.NamedRunning(actor){t.Fatal("ordinary work trip changed")}
+  actor.Safety=&LifeSafetyOverride{Activity:situation};actor.Sneaking=true;if m.NamedRunning(actor){t.Fatal("sneaking must prevent running")}
+ })}
+}
+
 func TestLifeSafetyWalksWithoutTeleportAndResumes(t *testing.T) {
 	m := lifeFixture()
 	m.Actors[1].Steps = m.Actors[1].Steps[:1]

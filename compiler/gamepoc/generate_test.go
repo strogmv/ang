@@ -1,6 +1,9 @@
 package gamepoc
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestRejectUnsafeOrAmbiguousPolicy(t *testing.T) {
 	valid := Config{WorldDir: "../content/world", UnityDir: "../client-unity", LevelID: "level.test", Title: "Game", TickHz: 10, SchedulerHz: 100, GameSecondsPerTick: 6, MoveEveryTicks: 2, InputAckBudgetMS: 30, MinClientFPS: 40, PresentationLeadMS: 15, PresentationHorizonMS: 150, QueueCapacity: 128, MaxCatchupSteps: 4, SaveVersion: 1, MaxSaveBytes: 1048576, SaveSlots: []string{"slot1"}, Labels: map[string]string{}}
@@ -9,6 +12,13 @@ func TestRejectUnsafeOrAmbiguousPolicy(t *testing.T) {
 	}
 	if err := valid.validate(); err != nil {
 		t.Fatal(err)
+	}
+	for _, hashes := range [][]string{{"bad"}, {"../escape"}, {""}, {strings.Repeat("a", 64), strings.Repeat("a", 64)}} {
+		c := valid
+		c.SaveCompatibleHashes = hashes
+		if c.validate() == nil {
+			t.Fatal("invalid compatibility hashes accepted", hashes)
+		}
 	}
 	for _, slots := range [][]string{{"../escape"}, {"slot1", "slot1"}, {"."}, {""}} {
 		c := valid

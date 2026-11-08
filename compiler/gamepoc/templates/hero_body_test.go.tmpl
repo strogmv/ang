@@ -35,13 +35,15 @@ func heroBodySteer(t *testing.T, r *Runtime, c *connection, mode string, x, y fl
 	t.Helper()
 	heroBodySeq++
 	r.heroSteer(c, &pb.PocHeroSteer{Epoch: r.state.Epoch, InputSeq: heroBodySeq, Mode: mode, X: x, Y: y})
-	if len(c.out) != 1 {
-		t.Fatalf("steering must be answered by exactly one move result, got %d messages", len(c.out))
+	if len(c.out) != 2 {
+		t.Fatalf("steering must publish one move result and one immediate state, got %d messages", len(c.out))
 	}
 	res := (<-c.out).GetMoveResult()
 	if res == nil || !res.Ok || res.HeroBody == nil || res.HeroBody.InputSeq != heroBodySeq {
 		t.Fatalf("steer %s rejected or without body: %v", mode, res)
 	}
+	state := (<-c.out).GetGameState()
+	if state == nil || state.HeroBody == nil || state.HeroBody.InputSeq != heroBodySeq { t.Fatal("steering did not publish accepted intent immediately") }
 }
 
 func heroBodyGo(t *testing.T, r *Runtime, c *connection, target behavior.Cell, deck int32) {

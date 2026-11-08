@@ -24,6 +24,9 @@ func TestTrainMotionRejectsInvalidRoutes(t *testing.T) {
 		t.Fatal(err)
 	}
 	cases := map[string]func(*TrainMotionCatalog){
+		"raw hint":                 func(c *TrainMotionCatalog) { c.NameKey = "Passenger train" },
+		"bad cue":                  func(c *TrainMotionCatalog) { c.Bindings[0].ApproachSeconds = 31 },
+		"unnamed cue":              func(c *TrainMotionCatalog) { c.Bindings[0].ApproachSeconds = 8 },
 		"missing third binding":    func(c *TrainMotionCatalog) { c.Bindings = c.Bindings[:2] },
 		"unknown level":            func(c *TrainMotionCatalog) { c.Bindings[0].LevelID = "missing" },
 		"duplicate level":          func(c *TrainMotionCatalog) { c.Bindings[1].LevelID = "a" },

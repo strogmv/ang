@@ -512,7 +512,7 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
 		}
 		target := p.profileStage(a.Profile,a.Stage)
         if (l.Brain.Enabled||safety)&&brainTarget.Level!=""{target.Level=brainTarget.Level;target.Activity=brainTarget.Activity;if a.Level!=target.Level||a.Goal!=brainTarget.At||a.Activity!=target.Activity{a.Arrived=false}}
-		pace:=p.MoveTicks;if a.WoundPaceMMS>0{pace=max(pace,(int64(l.Locations[a.Level].CellMM)+a.WoundPaceMMS-1)/a.WoundPaceMMS)}
+		pace:=l.GaitPace(p.MoveTicks,l.PopulationRunning(*a));if a.WoundPaceMMS>0{pace=max(pace,(int64(l.Locations[a.Level].CellMM)+a.WoundPaceMMS-1)/a.WoundPaceMMS)}
 		if l.Brain.Enabled && a.Materialized && len(a.Path) > 0 && a.MoveStartTick+pace < tick-frame+1 { a.MoveStartTick = tick-frame+1-pace }
 		for a.Materialized && len(a.Path) > 0 && tick >= a.MoveStartTick+pace {
 			next := a.Path[0]
