@@ -222,3 +222,50 @@ placement: instances: desk: pose_override: {
 		t.Fatal("rejected override replaced valid output")
 	}
 }
+
+func TestGodotEmitsBlenderBeforeArtExists(t *testing.T) {
+	input := filepath.Join("..", "..", "examples", "godot", "cue", "market")
+	out := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	if err := runGodot([]string{"-layout", "example.market_hub", "-blender", out, input}, &stdout, &stderr); err != nil {
+		t.Fatalf("%v\n%s", err, stderr.String())
+	}
+	for _, name := range []string{"authoring.json", "convention.json", "start.py", "export.py", "runtime.py"} {
+		data, err := os.ReadFile(filepath.Join(out, name))
+		if err != nil || len(data) == 0 {
+			t.Fatalf("missing %s: %v", name, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(out, "location.tscn")); !os.IsNotExist(err) {
+		t.Fatal("authoring-only emission attempted to render missing art")
+	}
+}
+
+func TestGodotBlenderToolsDoNotRequireExistingLayout(t *testing.T) {
+	out := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	if err := runGodot([]string{"-blender-tools", out}, &stdout, &stderr); err != nil {
+		t.Fatalf("%v\n%s", err, stderr.String())
+	}
+	for _, file := range []string{"convention.json", "runtime.py", "import.py", "export.py", "assets.py", "start.py"} {
+		if _, err := os.Stat(filepath.Join(out, file)); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestGodotAuthoringEmissionCannotBypassSceneArtGuard(t *testing.T) {
+	dir, contract, out := t.TempDir(), t.TempDir(), t.TempDir()
+	writeSDKTestCUE(t, dir, locationSDKTestInput())
+	if err := os.WriteFile(filepath.Join(dir, "pipeline.cue"), []byte("package fixture\npipeline:{tolerance_m:0.02,instances:{}}\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	err := runGodot([]string{"-layout", "clinic", "-blender", contract, "-out", out, dir}, &stdout, &stderr)
+	if err == nil || !strings.Contains(err.Error(), "art validation required") {
+		t.Fatalf("-blender bypassed validation while writing a scene: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "location.tscn")); !os.IsNotExist(err) {
+		t.Fatal("unvalidated scene was written")
+	}
+}

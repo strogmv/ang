@@ -90,7 +90,10 @@ func sdkServicePoses(c Compiled, s SDKServiceSlot) (Point, MedicalPose, MedicalP
 	if port == nil || len(port.Opening) == 0 || len(port.Approach) == 0 {
 		return fail()
 	}
-	cell := port.Approach[len(port.Approach)-1]
+	cell, ok := locationsdk.PublicServiceApproach(*port)
+	if !ok {
+		return fail()
+	}
 	if cell.Y < 0 || cell.Y >= len(level.Terrain) || cell.X < 0 || cell.X >= len(level.Terrain[cell.Y]) || level.Terrain[cell.Y][cell.X] != '.' {
 		return fail()
 	}

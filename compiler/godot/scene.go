@@ -21,12 +21,13 @@ var sceneTemplate string
 
 type Options struct {
 	// Models belongs to the client: stable model_ref -> res:// PackedScene.
-	Finishing   *Finishing
-	FloorOnly   bool
-	WorldText   bool
-	Attachments map[string][]Attachment
-	Models      map[string]string
-	Camera      *placement.Camera
+	Finishing           *Finishing
+	FloorOnly           bool
+	WorldText           bool
+	InstanceAttachments map[string][]Attachment
+	Attachments         map[string][]Attachment
+	Models              map[string]string
+	Camera              *placement.Camera
 }
 
 type resource struct{ ID, Path string }
@@ -52,6 +53,11 @@ type scene struct {
 func Render(level locationsdk.CompiledLevel, manifest placement.Manifest, options Options) ([]byte, error) {
 	if manifest.Schema != placement.Schema || manifest.WorldFrame != placement.WorldFrame || manifest.LayoutID != level.ID || manifest.StructuralHash != level.StructuralHash {
 		return nil, fmt.Errorf("godot: manifest does not match compiled level")
+	}
+	var architectureErr error
+	options.Finishing, architectureErr = ResolveArchitectureForLevel(options.Finishing, level)
+	if architectureErr != nil {
+		return nil, architectureErr
 	}
 	s := scene{KeyEnergy: .8, FloorOnly: options.FloorOnly, WorldText: options.WorldText, LayoutID: level.ID, Frame: placement.WorldFrame, Elevation: 35, Azimuth: 37}
 	if level.Camera != nil {
@@ -109,19 +115,58 @@ func Render(level locationsdk.CompiledLevel, manifest placement.Manifest, option
 	for j, id := range ids {
 		i := manifest.Instances[id]
 		s.Nodes = append(s.Nodes, node{fmt.Sprintf("Placement_%03d", j), id, i.ModelRef, resourceIDs[i.ModelRef], transform(i.WorldTransform.BasisColumns(), i.WorldTransform.Position)})
-		for _, a := range options.Attachments[i.ModelRef] {
+		attachments := append([]Attachment{}, options.Attachments[i.ModelRef]...)
+		for _, specific := range options.InstanceAttachments[id] {
+			replaced := false
+			for n, existing := range attachments {
+				if existing.Name == specific.Name {
+					attachments[n] = specific
+					replaced = true
+					break
+				}
+			}
+			if !replaced {
+				attachments = append(attachments, specific)
+			}
+		}
+		for _, a := range attachments {
 			s.Attachments = append(s.Attachments, attachmentNode{a.Name, fmt.Sprintf("Placements/Placement_%03d", j), vector(a.Position), a.SourcePath})
 		}
+
 	}
-	surfaces := map[string]bool{}
+	// Semantic floor/draw identities do not need an independent model, but
+	// their source-local locator frame remains the canonical zero plan frame.
+	sourceIDs := map[string]bool{}
+	for _, floor := range level.Preview.Floor {
+		sourceIDs[floor.SourceID] = true
+	}
 	if level.Navigation != nil {
-		for _, a := range level.Navigation.Surfaces {
-			surfaces[a.ID] = true
-		}
-		for _, a := range level.Navigation.Obstacles {
-			surfaces[a.ID] = true
+		sourceIDs[level.Navigation.BaseSurface] = true
+	}
+	if options.Finishing != nil && options.Finishing.Architecture != nil {
+		for _, draw := range options.Finishing.Architecture.Draws {
+			sourceIDs[draw.ID] = true
 		}
 	}
+	extraIDs := make([]string, 0, len(options.InstanceAttachments))
+	for id := range options.InstanceAttachments {
+		if _, ok := manifest.Instances[id]; !ok {
+			extraIDs = append(extraIDs, id)
+		}
+	}
+	sort.Strings(extraIDs)
+	for j, id := range extraIDs {
+		if !sourceIDs[id] {
+			return nil, fmt.Errorf("godot: instance attachment owner %q is absent from compiled CUE", id)
+		}
+		name := fmt.Sprintf("AttachmentRoot_%03d", j)
+		pose := placement.PlanTransform(placement.Vec3{}, 0)
+		s.Nodes = append(s.Nodes, node{Name: name, InstanceID: id, Transform: transform(pose.BasisColumns(), pose.Position)})
+		for _, a := range options.InstanceAttachments[id] {
+			s.Attachments = append(s.Attachments, attachmentNode{a.Name, "Placements/" + name, vector(a.Position), a.SourcePath})
+		}
+	}
+	surfaces := proceduralSurfaces(level, options.Finishing)
 	header, bindings, lights, roles, replaced, err := options.Finishing.render(manifest, surfaces)
 	if err != nil {
 		return nil, err
@@ -141,43 +186,11 @@ func Render(level locationsdk.CompiledLevel, manifest placement.Manifest, option
 			s.KeyEnergy = 0
 		}
 	}
-	addBox := func(id string, r locationsdk.Rect, bottom, top int, material string) {
-		if top <= bottom || replaced[id] {
-			return
-		}
-		p := placement.FromPlan(placement.Vec3{(float64(r.X) + float64(r.W)/2) * unit, float64(bottom+top) / 2000, (float64(r.Y) + float64(r.H)/2) * unit})
-		if options.FloorOnly {
-			p[1] = float64(top) / 1000
-		}
-		ref := roles[material]
-		if ref == "" {
-			ref = "SubResource(" + strconv.Quote(material) + ")"
-		}
-		s.Boxes = append(s.Boxes, box{fmt.Sprintf("Structure_%03d", len(s.Boxes)), id, vector(p), vector(placement.Vec3{float64(r.W) * unit, float64(top-bottom) / 1000, float64(r.H) * unit}), ref})
+	boxes, err := proceduralBoxes(level, manifest, options.Finishing, roles, replaced, options.FloorOnly)
+	if err != nil {
+		return nil, err
 	}
-	if n := level.Navigation; n != nil {
-		for _, surface := range n.Surfaces {
-			if manifest.Instances[surface.ID].ModelRef != "" {
-				continue
-			}
-			for _, r := range surface.Slab {
-				addBox(surface.ID, r, surface.ElevationMM-surface.SlabMM, surface.ElevationMM, "floor")
-			}
-		}
-		for _, o := range n.Obstacles {
-			if manifest.Instances[o.ID].ModelRef == "" {
-				role := "wall"
-				if o.Style == "panel" && roles["steel"] != "" {
-					role = "steel"
-				}
-				addBox(o.ID, o.Rect, o.BottomMM, o.TopMM, role)
-			}
-		}
-	} else {
-		for _, r := range level.Preview.Floor {
-			addBox("base", locationsdk.Rect{X: r.At.X, Y: r.At.Y, W: 1, H: 1}, level.Elevation*level.UnitMM-250, level.Elevation*level.UnitMM, "floor")
-		}
-	}
+	s.Boxes = boxes
 	t, err := template.New("location").Funcs(template.FuncMap{"quote": strconv.Quote}).Parse(sceneTemplate)
 	if err != nil {
 		return nil, err

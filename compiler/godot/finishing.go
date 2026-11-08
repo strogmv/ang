@@ -14,6 +14,8 @@ import (
 // Finishing changes presentation only. Stable surface IDs retain all compiled
 // collision, navigation and perception semantics, even when art replaces a draw.
 type Finishing struct {
+	Architecture     *Architecture       `json:"architecture,omitempty"`
+	ObjectRoles      map[string]string   `json:"object_roles,omitempty"`
 	Environment      *EnvironmentProfile `json:"environment"`
 	Materials        map[string]Material `json:"materials"`
 	SurfaceRoles     map[string]string   `json:"surface_roles"`
@@ -55,14 +57,17 @@ func (e *EnvironmentProfile) render() (string, error) {
 }
 
 type Material struct {
-	DoubleSided    bool       `json:"double_sided"`
-	Resource       string     `json:"resource"`
-	Color          [4]float64 `json:"color"`
-	Roughness      float64    `json:"roughness"`
-	Metallic       float64    `json:"metallic"`
-	Emission       [3]float64 `json:"emission"`
-	EmissionEnergy float64    `json:"emission_energy"`
-	Provenance     string     `json:"provenance"`
+	SurfaceCaste   string            `json:"surface_caste,omitempty"`
+	Concrete       *ConcreteMaterial `json:"concrete,omitempty"`
+	SurfaceKind    string            `json:"surface_kind,omitempty"`
+	DoubleSided    bool              `json:"double_sided"`
+	Resource       string            `json:"resource"`
+	Color          [4]float64        `json:"color"`
+	Roughness      float64           `json:"roughness"`
+	Metallic       float64           `json:"metallic"`
+	Emission       [3]float64        `json:"emission"`
+	EmissionEnergy float64           `json:"emission_energy"`
+	Provenance     string            `json:"provenance"`
 }
 type Replacement struct {
 	SurfaceID  string `json:"surface_id"`
@@ -95,6 +100,12 @@ func (f *Finishing) render(manifest placement.Manifest, surfaces map[string]bool
 	if f == nil {
 		return
 	}
+	var policyErr error
+	f, policyErr = ResolveArchitecture(f)
+	if policyErr != nil {
+		err = policyErr
+		return
+	}
 	fail := func(s string) { err = fmt.Errorf("godot finishing: %s", s) }
 	keys := make([]string, 0, len(f.Materials))
 	for k := range f.Materials {
@@ -103,6 +114,7 @@ func (f *Finishing) render(manifest placement.Manifest, surfaces map[string]bool
 	sort.Strings(keys)
 	refs := map[string]string{}
 	var ext, sub strings.Builder
+	concreteShaderWritten := false
 	for i, k := range keys {
 		m := f.Materials[k]
 		id := fmt.Sprintf("finish_%03d", i)
@@ -110,7 +122,28 @@ func (f *Finishing) render(manifest placement.Manifest, surfaces map[string]bool
 			fail("material needs identity and provenance")
 			return
 		}
-		if m.Resource != "" {
+		if m.Concrete != nil {
+			if m.Resource != "" || m.SurfaceKind != "concrete" || !validWallCaste(m.SurfaceCaste) {
+				fail("concrete variant needs surface_kind concrete, surface_caste and no resource override: " + k)
+				return
+			}
+			if !concreteShaderWritten {
+				fmt.Fprintf(&sub, "[sub_resource type=\"Shader\" id=\"concrete_shader\"]\ncode = %s\n", strconv.Quote(concreteShader))
+				concreteShaderWritten = true
+			}
+			var x, y string
+			profile := *m.Concrete
+			if profile.Tier == "" {
+				profile.Tier = m.SurfaceCaste
+			}
+			x, y, err = profile.render(id)
+			if err != nil {
+				return
+			}
+			ext.WriteString(x)
+			sub.WriteString(y)
+			refs[k] = "SubResource(" + strconv.Quote(id) + ")"
+		} else if m.Resource != "" {
 			if !canonicalResource(m.Resource, ".tres") {
 				fail("material needs canonical res:// .tres: " + k)
 				return
@@ -145,6 +178,19 @@ func (f *Finishing) render(manifest placement.Manifest, surfaces map[string]bool
 			}
 		}
 	}
+	for id, key := range f.ObjectRoles {
+		if !surfaces[id] {
+			if _, ok := manifest.Instances[id]; !ok {
+				fail("object_roles references unknown SDK identity: " + id)
+				return
+			}
+		}
+		if refs[key] == "" {
+			fail("object_roles references unknown material: " + key)
+			return
+		}
+		roles["object:"+id] = refs[key]
+	}
 	for role, k := range f.SurfaceRoles {
 		if role != "floor" && role != "wall" && role != "steel" {
 			fail("unknown surface role: " + role)
@@ -156,14 +202,26 @@ func (f *Finishing) render(manifest placement.Manifest, surfaces map[string]bool
 		}
 		roles[role] = refs[k]
 	}
-	names := make([]string, 0, len(f.MaterialBindings))
-	for name := range f.MaterialBindings {
+	materialBindings := map[string]string{}
+	for name, role := range f.MaterialBindings {
+		materialBindings[name] = role
+	}
+	for role := range f.Materials {
+		sentinel := "ANG_ROLE__" + role
+		if previous, ok := materialBindings[sentinel]; ok && previous != role {
+			fail("conflicting role sentinel binding: " + sentinel)
+			return
+		}
+		materialBindings[sentinel] = role
+	}
+	names := make([]string, 0, len(materialBindings))
+	for name := range materialBindings {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 	var b strings.Builder
 	for _, name := range names {
-		ref := refs[f.MaterialBindings[name]]
+		ref := refs[materialBindings[name]]
 		if name == "" || ref == "" {
 			fail("invalid named material binding: " + name)
 			return

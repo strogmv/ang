@@ -20,6 +20,7 @@ type AttachmentCatalog struct {
 	SourceFrame string                  `json:"source_frame"`
 	Sources     map[string]string       `json:"sources"`
 	Models      map[string][]Attachment `json:"models"`
+	Instances   map[string][]Attachment `json:"instances,omitempty"`
 }
 type attachmentNode struct{ Name, Parent, Position, SourcePath string }
 
@@ -27,7 +28,14 @@ func (c AttachmentCatalog) Validate() error {
 	if c.Schema != "ang.model-attachments.v1" || c.SourceFrame != "model-local" {
 		return fmt.Errorf("godot: invalid attachment schema/frame")
 	}
+	groups := map[string][]Attachment{}
 	for model, nodes := range c.Models {
+		groups["model "+model] = nodes
+	}
+	for id, nodes := range c.Instances {
+		groups["instance "+id] = nodes
+	}
+	for model, nodes := range groups {
 		seen := map[string]bool{}
 		for _, n := range nodes {
 			if n.Name == "" || strings.ContainsAny(n.Name, "/\n\r\x00") || seen[n.Name] || n.SourcePath == "" {

@@ -21,16 +21,21 @@ import (
 type GodotScene struct {
 	LevelID string `json:"level_id"`
 	Scene   string `json:"scene"`
+	// LayoutID is a render-only SDK shell over the existing Life grid.
+	// Its metric floor must exactly match; it never replaces server navigation.
+	LayoutID        string   `json:"layout_id,omitempty"`
+	FloorElevationM *float64 `json:"floor_elevation_m,omitempty"`
 }
 type godotLocation struct {
-	Scene       string                  `json:"scene"`
-	Kind        string                  `json:"kind"`
-	LayoutID    string                  `json:"layout_id"`
-	UnitMM      int                     `json:"unit_mm"`
-	ElevationMM int                     `json:"elevation_mm"`
-	Terrain     []string                `json:"terrain"`
-	Navigation  *locationsdk.Navigation `json:"navigation,omitempty"`
-	Neighbours  []string                `json:"neighbours"`
+	Scene                string                  `json:"scene"`
+	PresentationLayoutID string                  `json:"presentation_layout_id,omitempty"`
+	Kind                 string                  `json:"kind"`
+	LayoutID             string                  `json:"layout_id"`
+	UnitMM               int                     `json:"unit_mm"`
+	ElevationMM          int                     `json:"elevation_mm"`
+	Terrain              []string                `json:"terrain"`
+	Navigation           *locationsdk.Navigation `json:"navigation,omitempty"`
+	Neighbours           []string                `json:"neighbours"`
 }
 
 var godotLevelID = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
@@ -42,6 +47,7 @@ func writeGodotLocations(project string, c Compiled) error {
 	var life struct {
 		Locations map[string]struct {
 			Terrain []string `json:"terrain"`
+			CellMM  int      `json:"cell_mm"`
 		} `json:"locations"`
 		Edges []struct{ From, To string } `json:"edges"`
 	}
@@ -64,15 +70,15 @@ func writeGodotLocations(project string, c Compiled) error {
 			return fmt.Errorf("Godot target escapes enclosing project: %q", target)
 		}
 	}
-	finishes := map[string]string{}
+	finishes := map[string]GodotScene{}
 	for _, f := range c.GodotScenes {
-		if !godotLevelID.MatchString(f.LevelID) || !godotScenePath(f.Scene) || finishes[f.LevelID] != "" {
+		if !godotLevelID.MatchString(f.LevelID) || !godotScenePath(f.Scene) || finishes[f.LevelID].Scene != "" {
 			return fmt.Errorf("invalid/duplicate Godot finishing: %q", f.LevelID)
 		}
 		if _, ok := life.Locations[f.LevelID]; !ok {
 			return fmt.Errorf("unknown Godot level %s", f.LevelID)
 		}
-		finishes[f.LevelID] = f.Scene
+		finishes[f.LevelID] = f
 	}
 	index := map[string]godotLocation{}
 	for id, l := range life.Locations {
@@ -80,7 +86,10 @@ func writeGodotLocations(project string, c Compiled) error {
 			return fmt.Errorf("unsafe Godot level ID %q", id)
 		}
 		row := godotLocation{Scene: "res://generated/locations/" + id + "/location.tscn", Kind: "bare_floor", LayoutID: id, UnitMM: 1000, Terrain: l.Terrain, Neighbours: []string{}}
-		level := locationsdk.CompiledLevel{ID: id, UnitMM: 1000, Terrain: l.Terrain}
+		if l.CellMM > 0 {
+			row.UnitMM = l.CellMM
+		}
+		level := locationsdk.CompiledLevel{ID: id, UnitMM: row.UnitMM, Terrain: l.Terrain}
 		for _, painted := range c.Art.Painted {
 			if painted.LevelID == id && painted.FloorElevationM != nil {
 				row.ElevationMM = int(*painted.FloorElevationM * 1000)
@@ -122,11 +131,39 @@ func writeGodotLocations(project string, c Compiled) error {
 		sort.Strings(row.Neighbours)
 		// Runtime metadata is not player knowledge. The client only exposes server
 		// markers. Neighbour IDs schedule resource IO, never markers or map entries.
-		if f := finishes[id]; f != "" {
-			row.Scene = f
+		if f := finishes[id]; f.Scene != "" {
+			row.Scene = f.Scene
+			if f.FloorElevationM != nil {
+				if *f.FloorElevationM < -1000 || *f.FloorElevationM > 1000 || *f.FloorElevationM != *f.FloorElevationM {
+					return fmt.Errorf("Godot level %s: invalid explicit floor_elevation_m", id)
+				}
+				row.ElevationMM = int(*f.FloorElevationM * 1000)
+			}
+			if f.LayoutID != "" {
+				if row.Kind == "sdk" {
+					return fmt.Errorf("Godot level %s already has modular navigation; omit render-only layout_id", id)
+				}
+				found := false
+				if c.LocationSDK != nil {
+					for _, sdk := range c.LocationSDK.Levels {
+						if sdk.ID == f.LayoutID {
+							if err := validateGodotPresentationFloor(sdk, row, c.Walkable); err != nil {
+								return fmt.Errorf("Godot level %s: %w", id, err)
+							}
+							found = true
+							row.Kind = "authored_sdk"
+							row.PresentationLayoutID = sdk.ID
+							level = locationsdk.CompiledLevel{ID: sdk.ID, UnitMM: sdk.UnitMM, Width: sdk.Width, Depth: sdk.Depth, Elevation: sdk.Elevation, Grounded: sdk.Grounded, Terrain: sdk.Terrain, Instances: sdk.Instances, Navigation: sdk.Navigation, Camera: sdk.Camera, StructuralHash: sdk.StructuralHash, Preview: locationsdk.PreviewData{Floor: sdk.Floor}}
+						}
+					}
+				}
+				if !found {
+					return fmt.Errorf("Godot level %s: missing render-only SDK layout %q", id, f.LayoutID)
+				}
+			}
 		}
 		var manifest placement.Manifest
-		if row.Kind == "sdk" {
+		if row.Kind == "sdk" || row.Kind == "authored_sdk" {
 			spec := placement.Authoring{ModuleModels: map[string]string{}}
 			for _, i := range level.Instances {
 				spec.ModuleModels[i.ModuleID] = ""
@@ -195,4 +232,31 @@ func writeGodotLocations(project string, c Compiled) error {
 }
 func godotScenePath(s string) bool {
 	return !strings.ContainsAny(s, "\n\r\x00\\") && len(s) > 6 && s[:6] == "res://" && filepath.Ext(s) == ".tscn" && filepath.Clean(s[6:]) == s[6:] && s[6] != '/' && !regexp.MustCompile(`(^|/)\.\.(/|$)`).MatchString(s[6:])
+}
+
+// A render-only SDK may subdivide a legacy grid while retaining exactly the
+// same metric squares. No approximate rasterization or floor expansion is accepted.
+func validateGodotPresentationFloor(sdk locationsdk.RuntimeLevel, row godotLocation, walkable map[string]bool) error {
+	if sdk.UnitMM <= 0 || row.UnitMM < sdk.UnitMM || row.UnitMM%sdk.UnitMM != 0 {
+		return fmt.Errorf("render-only SDK unit must divide the server's %d mm cell exactly", row.UnitMM)
+	}
+	ratio := row.UnitMM / sdk.UnitMM
+	if len(row.Terrain) == 0 || len(row.Terrain[0]) == 0 || sdk.Width != len(row.Terrain[0])*ratio || sdk.Depth != len(row.Terrain)*ratio || len(sdk.Terrain) != sdk.Depth {
+		return fmt.Errorf("render-only SDK dimensions differ from the existing server floor")
+	}
+	if sdk.Elevation*sdk.UnitMM != row.ElevationMM {
+		return fmt.Errorf("render-only SDK elevation %d mm differs from the server floor %d mm", sdk.Elevation*sdk.UnitMM, row.ElevationMM)
+	}
+	for y, line := range sdk.Terrain {
+		if len(line) != sdk.Width || len(row.Terrain[y/ratio]) != sdk.Width/ratio {
+			return fmt.Errorf("ragged render-only or server floor")
+		}
+		for x, glyph := range line {
+			expected := walkable[string(row.Terrain[y/ratio][x/ratio])]
+			if (glyph == '.') != expected {
+				return fmt.Errorf("render-only SDK cell (%d,%d) differs from server cell (%d,%d); fix the CUE floor, do not move exits or markers", x, y, x/ratio, y/ratio)
+			}
+		}
+	}
+	return nil
 }

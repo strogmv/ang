@@ -39,3 +39,32 @@ func TestSourceArtAttachmentsPreserveLocalFrame(t *testing.T) {
 		t.Fatal("nonfinite anchor accepted")
 	}
 }
+
+func TestSemanticInstanceAttachmentsHaveCanonicalNativeRoots(t *testing.T) {
+	nodes := []Attachment{{Name: "exit.public", Position: placement.Vec3{1.25, 3, 2.75}, SourcePath: "source/exit.public"}}
+	catalog := AttachmentCatalog{Schema: "ang.model-attachments.v1", SourceFrame: "model-local", Instances: map[string][]Attachment{"floor.area": nodes}}
+	if err := catalog.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	level := locationsdk.CompiledLevel{ID: "room", UnitMM: 500, Width: 8, Depth: 8, Preview: locationsdk.PreviewData{Floor: []locationsdk.PreviewFloor{{SourceID: "floor.area"}}}}
+	manifest, err := placement.Build(level, placement.Authoring{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := Render(level, manifest, Options{InstanceAttachments: catalog.Instances})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`name="AttachmentRoot_000"`, `metadata/instance_id = "floor.area"`, `name="exit.public" type="Node3D" parent="Placements/AttachmentRoot_000"`, `position = Vector3(1.250000000000, 3.000000000000, 2.750000000000)`} {
+		if !strings.Contains(string(raw), want) {
+			t.Fatalf("missing semantic local frame %s", want)
+		}
+	}
+	catalog.Instances["floor.area"] = append(nodes, nodes[0])
+	if catalog.Validate() == nil {
+		t.Fatal("duplicate semantic locator accepted")
+	}
+	if _, err = Render(level, manifest, Options{InstanceAttachments: map[string][]Attachment{"unknown": nodes}}); err == nil {
+		t.Fatal("unknown semantic attachment owner accepted")
+	}
+}

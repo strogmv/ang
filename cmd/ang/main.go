@@ -48,6 +48,11 @@ func main() {
 	applyBuildProcessLimitsIfNeeded(cmd)
 
 	switch cmd {
+	case "godot-kit-catalog":
+		if err := runGodotKitCatalog(os.Args[2:], os.Stdout, os.Stderr); err != nil {
+			fmt.Fprintln(os.Stderr, "godot-kit-catalog:", err)
+			os.Exit(1)
+		}
 	case "godot":
 		if err := runGodot(os.Args[2:], os.Stdout, os.Stderr); err != nil {
 			fmt.Fprintln(os.Stderr, "godot:", err)

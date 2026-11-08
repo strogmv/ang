@@ -302,8 +302,20 @@ func TestHeroBodyWalksToAnExitAndTravels(t *testing.T) {
 			heroBodyCheck(t, r)
 		}
 	}
-	if !left || hero.Body != nil {
-		t.Fatalf("hero never left by %s (at %v, body %v)", edge.ID, hero.Position, hero.Body != nil)
+	if !left {
+		t.Fatalf("hero never left by %s (at %v)", edge.ID, hero.Position)
+	}
+	if hero.Trip != nil {
+		if hero.Body != nil { t.Fatal("in-transit hero retained a physical body") }
+	} else {
+		if hero.Level != edge.To || hero.Position != edge.Entry { t.Fatalf("wrong arrival for %s: %s %v",edge.ID,hero.Level,hero.Position) }
+		expectBody := r.world.Life.BodyCapable(hero.Level)
+		if (hero.Body != nil) != expectBody { t.Fatalf("arrival body disagrees with destination geometry: %s capable=%v body=%v",hero.Level,expectBody,hero.Body!=nil) }
+		if hero.Body != nil {
+			unit := float64(r.world.Life.Locations[hero.Level].CellMM)
+			if math.Abs(hero.Body.X-(float64(edge.Entry.X)+.5)*unit)>.001 || math.Abs(hero.Body.Y-(float64(edge.Entry.Y)+.5)*unit)>.001 { t.Fatal("arrival body is not at the authoritative landing centre",hero.Body) }
+			heroBodyCheck(t,r)
+		}
 	}
 }
 

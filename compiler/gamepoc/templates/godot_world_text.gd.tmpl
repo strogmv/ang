@@ -2,7 +2,7 @@
 extends Node3D
 signal locale_changed(locale: String)
 @export var initialize_on_ready := true
-@export var level_id := "example.market_hub"
+@export var level_id := ""
 var runtime: Dictionary = {}
 var faces: Dictionary = {}
 var slots: Array = []
@@ -28,6 +28,9 @@ func _ready() -> void:
 		initialize()
 
 func initialize() -> void:
+	if level_id.is_empty():
+		level_id = String(get_parent().get_meta("layout_id", ""))
+	assert(not level_id.is_empty(), "ANG world text requires the generated layout_id")
 	if not runtime.is_empty():
 		return
 	if not _verify_assets():
@@ -128,7 +131,7 @@ func rebuild() -> void:
 	attachments.clear()
 	rebuild_count += 1
 	audit = {"locale": locale, "compiled_slots": slots.size(), "drawn_slots": 0, "glyphs": 0,
-		"missing_glyphs": 0, "unresolved_keys": 0, "max_width_deviation_mm": 0.0,
+		"missing_glyphs": 0, "unresolved_keys": 0, "glyph_quads": 0, "max_width_deviation_mm": 0.0,
 		"slots": [], "anchor_fallbacks": [], "strip_fallbacks": [], "batch_drawables": 0, "surface_projection_misses": 0, "projection_issues": [], "surface_edge_clips": 0,
 		"rebuild_count": rebuild_count, "visibility_note": "Only authored node ancestors; no slot state bindings are declared."}
 	for slot in slots:
@@ -150,6 +153,8 @@ func rebuild() -> void:
 	locale_changed.emit(locale)
 
 func _build_slot(slot: Dictionary, text: Dictionary) -> void:
+	var first_glyph: int = audit.glyphs
+	var first_quad: int = audit.glyph_quads
 	var face: Dictionary = faces[slot.style]
 	var cap := float(text.glyph_mm) * 0.001
 	var em := cap / float(face.metrics.metrics.cap_height)
@@ -164,6 +169,14 @@ func _build_slot(slot: Dictionary, text: Dictionary) -> void:
 			center = anchor.global_position
 		else:
 			audit.anchor_fallbacks.append({"slot": slot.id, "node": slot.anchor, "method": "compiled CUE center"})
+	else:
+		# Unhosted CUE slots have a real locator at their compiled world pose.
+		# Blender-authoritative import updates that pose before generation.
+		anchor = Node3D.new()
+		anchor.name = "SlotLocator_" + slot.id
+		anchor.set_meta("cue_slot_locator", slot.id)
+		add_child(anchor)
+		anchor.global_position = center
 	var strip_centers: Array[float] = []
 	var strip_nodes: Array = []
 	if slot.has_strips:
@@ -240,6 +253,9 @@ func _build_slot(slot: Dictionary, text: Dictionary) -> void:
 	audit.drawn_slots += 1
 	audit.slots.append({"id": slot.id, "style": slot.style, "lines": text.lines,
 		"mode": text.mode, "glyph_mm": text.glyph_mm, "rendered_widths_mm": widths,
+		"glyphs": audit.glyphs-first_glyph, "glyph_quads": audit.glyph_quads-first_quad,
+		"locator_resolved": anchor != null, "locator_path": String(anchor.get_path()) if anchor != null else "",
+		"locator_source": "model_attachment" if not slot.get("anchor", "").is_empty() else "compiled_cue",
 		"compiled_widths_mm": text.widths_mm, "rendered_layout_width_mm": layout_width_mm, "compiled_layout_width_mm": text.layout_width_mm, "max_deviation_mm": deviation,
 		"center": [center.x, center.y, center.z], "normal": [n.x,n.y,n.z]})
 
@@ -271,6 +287,7 @@ func _put_glyph(slot: Dictionary, text: Dictionary, g: Dictionary, em: float, pe
 
 func _quad(slot: Dictionary, text: Dictionary, q: Rect2, uv: Rect2, center: Vector3,
 	u: Vector3, up: Vector3, n: Vector3, host: Node3D, project_surface: bool) -> void:
+	audit.glyph_quads += 1
 	if not batches.has(slot.style):
 		batches[slot.style] = []
 	var transform := Transform3D(Basis(u*q.size.x, up*q.size.y, n),

@@ -1,0 +1,100 @@
+{
+  "schema": "ang.blender-authoring-convention.v1",
+  "world_frame": "ang.world.east-up-north.v1",
+  "units": "metre",
+  "blender_axes": [
+    "east",
+    "south",
+    "up"
+  ],
+  "blender_to_world": [
+    [
+      1,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      1,
+      0
+    ],
+    [
+      0,
+      -1,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      1
+    ]
+  ],
+  "model_reflection": [
+    [
+      1,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      1,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      -1,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      1
+    ]
+  ],
+  "properties": {
+    "identity": "ang_id",
+    "material_role": "ang_material_role",
+    "lod": "ang_lod",
+    "locator": "ang_locator",
+    "module": "ang_module",
+    "floor": "ang_floor",
+    "layer": "ang_layer",
+    "deck": "ang_deck",
+    "wall": "ang_wall",
+    "zone": "ang_zone",
+    "wall_tier": "ang_tier",
+    "pose_datum": "ang_pose_datum",
+    "derived": "ang_derived",
+    "library": "ang_library",
+    "material_override_reason": "ang_material_reason"
+  },
+  "identity_rule": "One tagged collection OR object per SDK instance, module kit or model ID. Untagged descendants inherit its ID. An EMPTY with ang_locator uses ang_id as its owner reference, not another art root. Names do not select export geometry.",
+  "locator_kinds": [
+    "text",
+    "light",
+    "service",
+    "exit",
+    "rail",
+    "anchor"
+  ],
+  "default_budget": {
+    "profile": "deck-authoring",
+    "triangles": 2000000,
+    "lights": 256,
+    "shadowed_lights": 12,
+    "provenance": "Working authoring thresholds, not measured hardware limits. Game doc 86 supplies Deck framing/controls and the performance target, not numeric geometry or light counts. Exceeding these thresholds warns; geometry is never silently capped."
+  },
+  "camera": {
+    "elevation_degrees": 35,
+    "azimuth_degrees": 37,
+    "frame_m": 12
+  }
+}

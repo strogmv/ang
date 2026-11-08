@@ -5,6 +5,11 @@ import (
  "angelsdemons/server/internal/behavior"
  pb "angelsdemons/server/internal/transport/grpc/pb/game/v1"
  "fmt"
+ "compress/gzip"
+ "crypto/sha256"
+ "encoding/json"
+ "os"
+ "path/filepath"
  "reflect"
  "testing"
 )
@@ -124,4 +129,98 @@ func TestTransportHubModularStoryGeometryAndSemanticConsumers(t *testing.T) {
   if err:=r.lifeCommand(&pb.PocLifeCommand{Action:"enter",Destination:e.ID});err!=nil{t.Fatal(id,err)}
   h=r.state.Life.Actor(playerActorID);if h.Level!=e.To||h.Trip!=nil||r.state.Life.Seconds-before!=e.TravelSeconds{t.Fatal("physical transition failed",id,h)}
  }
+}
+
+// The station has a render-only half-metre SDK over the existing metre Life
+// grid. Assert every square and every semantic approach, never a raster copy.
+func TestStationSDKPresentationPreservesLifeFloorMarkersAndExits(t *testing.T) {
+ r:=lifeRuntimeFixture(t)
+ const station="level.poc_monorail"
+ var layout *sdkLevel
+ for i:=range r.world.LocationSDK.Levels{if r.world.LocationSDK.Levels[i].ID=="example.c7_station"{layout=&r.world.LocationSDK.Levels[i]}}
+ if layout==nil{t.Skip("no station presentation SDK in this content")}
+ loc:=r.world.Life.Locations[station]
+ // Preserve the original effective1m grid and make its unit explicit for the existing body/WASD runtime.
+ if len(loc.Terrain)!=48||len(loc.Terrain[0])!=48||loc.CellMM!=1000||layout.UnitMM!=500||layout.Width!=96||layout.Depth!=96{t.Fatal("station legacy and SDK metric grids changed")}
+ sourceCount,sdkCount:=0,0
+ for y,row:=range loc.Terrain{for x,glyph:=range row{
+  expected:=r.world.Life.Walks(station,behavior.Cell{X:x,Y:y})
+  if expected{sourceCount++}
+  for dy:=0;dy<2;dy++{for dx:=0;dx<2;dx++{
+   actual:=layout.Terrain[y*2+dy][x*2+dx]=='.'
+   if actual!=expected{t.Fatalf("SDK moved original station cell (%d,%d) glyph %q at subdivision (%d,%d)",x,y,glyph,dx,dy)}
+   if actual{sdkCount++}
+  }}
+ }}
+ if sourceCount!=303||sdkCount!=1212{t.Fatal("original station walkable cells changed",sourceCount,sdkCount)}
+ for _,mark:=range loc.Markers{if !r.world.Life.Walks(station,mark.At){t.Fatal("marker moved off original floor",mark.Name,mark.At)}}
+ edges:=map[string]behavior.Cell{"station_market":{X:17,Y:24},"station_home":{X:0,Y:16},"station_work":{X:20,Y:11},"station_hub_walk":{X:37,Y:18},"station_hub_rail":{X:20,Y:11}}
+ found:=map[string]bool{}
+ for _,edge:=range r.world.Life.Edges{
+  if edge.From==station{want,ok:=edges[edge.ID];if !ok||edge.Exit!=want||!r.world.Life.Walks(station,edge.Exit){t.Fatal("station departure changed",edge.ID,edge.Exit)};found[edge.ID]=true}
+  if edge.To==station&&!r.world.Life.Walks(station,edge.Entry){t.Fatal("station arrival changed",edge.ID,edge.Entry)}
+ }
+ if len(found)!=len(edges){t.Fatal("station lost existing exits",found)}
+ numbers:=map[int]bool{}
+ for _,d:=range r.world.Wayfinding.Destinations{if d.Level==station{if !r.world.Life.Walks(station,d.At){t.Fatal("station wayfinding marker moved",d.ID,d.At)};numbers[d.MarkerNumber]=true}}
+ for n:=1;n<=6;n++{if !numbers[n]{t.Fatal("station lost existing wayfinding marker",n)}}
+ for _,b:=range r.world.ModularLocations{if b.LevelID==station{t.Fatal("render SDK replaced original Life navigation")}}
+}
+
+
+func TestTransportHubCounterPassportKeepsGuardAndStaffReachable(t *testing.T) {
+ r:=lifeRuntimeFixture(t);const hub="level.c7_transport_hub"
+ var bound bool;for _,b:=range r.world.ModularLocations{if b.LevelID==hub{bound=true}}
+ if !bound{t.Skip("no authored modular transport hub")}
+ origin:=behavior.Cell{X:72,Y:24}
+ guard:=r.world.Life.Person("char.poc_hub_guard")
+ if guard==nil||len(guard.Steps)!=1||guard.Steps[0].At!=origin||guard.Steps[0].Level!=hub||guard.Steps[0].Activity!="post"{t.Fatal("counter correction moved/changed the guard routine")}
+ for y:=24;y<=25;y++{for x:=74;x<=77;x++{if r.world.Life.Walks(hub,behavior.Cell{X:x,Y:y}){t.Fatalf("counter source mesh has a false walkable cell (%d,%d)",x,y)}}}
+ approach:=func(at behavior.Cell){t.Helper();if !r.world.Life.Walks(hub,at){t.Fatal("blocked retained approach",at)};if at!=origin && len(r.world.Life.Space(hub,nil).Path(origin,at,behavior.Cell{},0))==0{t.Fatal("counter isolated retained approach",at)}}
+ for _,y:=range []int{22,23}{for x:=74;x<=78;x++{approach(behavior.Cell{X:x,Y:y})}}
+ for _,y:=range []int{26,27}{for x:=74;x<=77;x++{approach(behavior.Cell{X:x,Y:y})}}
+ // Existing inspection/service and outgoing edge approaches are still reached
+ // from the unchanged guard post using the production geometry/path kernel.
+ for _,o:=range r.world.Life.Inspection.Objects{if o.Level==hub{approach(o.At)}}
+ for _,edge:=range r.world.Life.Edges{if edge.From==hub{approach(edge.Exit)}}
+ for i:=0;i<12;i++{r.state.Tick++;if err:=r.advanceLifeFrameBy(120);err!=nil{t.Fatal(err)}}
+ actor:=r.state.Life.Actor("char.poc_hub_guard")
+ if actor==nil||actor.Level!=hub||actor.Position!=origin||actor.Activity!="post"{t.Fatalf("ordinary duty changed after the counter correction: %+v",actor)}
+}
+
+// Run this same opt-in trace on freshly generated baseline and candidate
+// snapshots. It records the whole saved state, not a hand-selected NPC subset.
+// No source world, actor position, itinerary or input is changed by the probe.
+func TestHubCounterOrdinaryDayTrace(t *testing.T) {
+ output:=os.Getenv("ANG_HUB_DAY_TRACE");if output==""{t.Skip("set ANG_HUB_DAY_TRACE to a private output directory")}
+ if err:=os.MkdirAll(output,0755);err!=nil{t.Fatal(err)}
+ file,err:=os.Create(filepath.Join(output,"states.jsonl.gz"));if err!=nil{t.Fatal(err)}
+ defer file.Close();compressed:=gzip.NewWriter(file);defer compressed.Close()
+ r:=worldAuditRuntime(t,0);r.state.Epoch="hub-counter-day"
+ type sample struct{Second int64 `json:"second"`;Tick int64 `json:"tick"`;SHA string `json:"state_sha256"`}
+ samples:=make([]sample,0,721)
+ for i:=0;i<=720;i++{
+  if i>0{r.state.Tick++;if err:=r.advanceLifeFrameBy(120);err!=nil{t.Fatal(err)}}
+  raw,err:=json.Marshal(r.snapshotState());if err!=nil{t.Fatal(err)}
+  if _,err=compressed.Write(append(raw,'\n'));err!=nil{t.Fatal(err)}
+  samples=append(samples,sample{Second:r.state.Life.Seconds,Tick:r.state.Tick,SHA:fmt.Sprintf("%x",sha256.Sum256(raw))})
+ }
+ if err:=compressed.Close();err!=nil{t.Fatal(err)};if err:=file.Close();err!=nil{t.Fatal(err)}
+ report:=struct{WorldHash string `json:"world_hash"`;Population int `json:"population"`;StepSeconds int `json:"step_seconds"`;Samples []sample `json:"samples"`}{r.world.ContentHash,0,120,samples}
+ data,err:=json.MarshalIndent(report,"","  ");if err!=nil{t.Fatal(err)}
+ if err:=os.WriteFile(filepath.Join(output,"index.json"),append(data,'\n'),0644);err!=nil{t.Fatal(err)}
+ t.Logf("ordinary 24-hour world, %d samples, full saved-state trace %s; last SHA %s",len(samples),output,samples[len(samples)-1].SHA)
+}
+
+
+func TestStationImportedFloorCellHasAuthoritativeRoute(t *testing.T){
+ raw:=os.Getenv("ANG_STATION_IMPORTED_FLOOR");if raw==""{t.Skip("set ANG_STATION_IMPORTED_FLOOR=x,y for the independent Blender-source copy")}
+ var at behavior.Cell;if _,err:=fmt.Sscanf(raw,"%d,%d",&at.X,&at.Y);err!=nil{t.Fatal(err)}
+ r:=lifeRuntimeFixture(t);const station="level.poc_monorail"
+ if !r.world.Life.Walks(station,at){t.Fatal("imported floor did not reach authoritative Life geometry",at)}
+ edge:=r.world.Life.Edge("market_station");if edge==nil||edge.To!=station{t.Fatal("existing station entry lost")}
+ if edge.Entry!=at&&len(r.world.Life.Space(station,nil).Path(edge.Entry,at,behavior.Cell{},0))==0{t.Fatal("imported floor has no authoritative route from the actual station entry",at)}
+ var layout *sdkLevel;for i:=range r.world.LocationSDK.Levels{if r.world.LocationSDK.Levels[i].ID=="example.c7_station"{layout=&r.world.LocationSDK.Levels[i]}}
+ if layout==nil{t.Fatal("missing imported SDK")}
+ for dy:=0;dy<2;dy++{for dx:=0;dx<2;dx++{x,y:=at.X*2+dx,at.Y*2+dy;if y<0||y>=len(layout.Terrain)||x<0||x>=len(layout.Terrain[y])||layout.Terrain[y][x]!='.'{t.Fatal("Blender-derived SDK and metre Life floor disagree",x,y)}}}
 }
