@@ -911,6 +911,9 @@ func Generate(project string) error {
 	if err := writeGodotTranslations(project, compiled.GodotTargets, compiled.Localization); err != nil {
 		return err
 	}
+	if err := writeGodotWorldText(project, compiled); err != nil {
+		return err
+	}
 	viewJSON, err := clientResource(compiled)
 	if err != nil {
 		return err

@@ -66,7 +66,7 @@ func TestGodotThemeAssetDigest(t *testing.T) {
 
 func TestGodotThemeWritesSkins(t *testing.T) {
 	root := t.TempDir()
-	theme := GodotTheme{Target: "client", ResourceName: "default_theme", DefaultSkin: "example", MinTextPX: 12, Tokens: map[string]float64{"body": 18}, Properties: []GodotThemeProperty{{Name: "default_font_size", Token: "body"}}, Skins: []GodotThemeSkin{{ID: "example", Roles: map[string]string{"ink": "#000000", "paper": "#ffffff"}}}, Contrast: []GodotThemeContrast{{Name: "body", Foreground: "ink", Background: "paper"}}}
+	theme := GodotTheme{Target: "client", ResourceName: "default_theme", DefaultSkin: "example", MinTextPX: 12, Tokens: map[string]float64{"body": 18}, Properties: []GodotThemeProperty{{Name: "default_font_size", Token: "body"}}, Skins: []GodotThemeSkin{{ID: "example", Roles: map[string]string{"ink": "#000000", "paper": "#ffffff"}}}, Contrast: []GodotThemeContrast{{Name: "body", Usage: "Label font over panel", Foreground: "ink", Background: "paper"}}}
 	if err := writeGodotTheme(root, &theme); err != nil {
 		t.Fatal(err)
 	}

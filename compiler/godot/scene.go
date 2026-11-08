@@ -21,16 +21,20 @@ var sceneTemplate string
 
 type Options struct {
 	// Models belongs to the client: stable model_ref -> res:// PackedScene.
-	Models map[string]string
-	Camera *placement.Camera
+	WorldText   bool
+	Attachments map[string][]Attachment
+	Models      map[string]string
+	Camera      *placement.Camera
 }
 
 type resource struct{ ID, Path string }
 type node struct{ Name, InstanceID, ModelRef, ResourceID, Transform string }
 type box struct{ Name, SourceID, Position, Size, Material string }
 type scene struct {
+	WorldText                        bool
 	LayoutID, Frame, CameraTransform string
 	Resources                        []resource
+	Attachments                      []attachmentNode
 	Nodes                            []node
 	Boxes                            []box
 	CameraSize, Elevation, Azimuth   float64
@@ -42,7 +46,7 @@ func Render(level locationsdk.CompiledLevel, manifest placement.Manifest, option
 	if manifest.Schema != placement.Schema || manifest.WorldFrame != placement.WorldFrame || manifest.LayoutID != level.ID || manifest.StructuralHash != level.StructuralHash {
 		return nil, fmt.Errorf("godot: manifest does not match compiled level")
 	}
-	s := scene{LayoutID: level.ID, Frame: placement.WorldFrame, Elevation: 35, Azimuth: 37}
+	s := scene{WorldText: options.WorldText, LayoutID: level.ID, Frame: placement.WorldFrame, Elevation: 35, Azimuth: 37}
 	if level.Camera != nil {
 		s.Elevation = level.Camera.ElevationDegrees
 		s.Azimuth = level.Camera.AzimuthDegrees
@@ -98,6 +102,9 @@ func Render(level locationsdk.CompiledLevel, manifest placement.Manifest, option
 	for j, id := range ids {
 		i := manifest.Instances[id]
 		s.Nodes = append(s.Nodes, node{fmt.Sprintf("Placement_%03d", j), id, i.ModelRef, resourceIDs[i.ModelRef], transform(i.WorldTransform.BasisColumns(), i.WorldTransform.Position)})
+		for _, a := range options.Attachments[i.ModelRef] {
+			s.Attachments = append(s.Attachments, attachmentNode{a.Name, fmt.Sprintf("Placements/Placement_%03d", j), vector(a.Position), a.SourcePath})
+		}
 	}
 	addBox := func(id string, r locationsdk.Rect, bottom, top int, material string) {
 		if top <= bottom {

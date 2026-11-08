@@ -28,6 +28,8 @@ func runGodot(args []string, stdout, stderr io.Writer) error {
 	layoutID := fs.String("layout", "", "layout ID from sdk.layouts")
 	models := fs.String("models", "", "client JSON map: model_ref -> res:// PackedScene")
 	presentation := fs.String("placement", "", "optional separate CUE package containing placement authoring")
+	attachmentFile := fs.String("attachments", "", "optional source-art model-local attachment JSON")
+	worldText := fs.Bool("world-text", false, "attach generated world lettering (game-poc --godot-only)")
 	check := fs.Bool("check", false, "compile and resolve without writing outputs")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -95,7 +97,20 @@ func runGodot(args []string, stdout, stderr io.Writer) error {
 			return fmt.Errorf("model map: %w", err)
 		}
 	}
-	scene, err := godot.Render(level, manifest, godot.Options{Models: modelMap, Camera: authoring.Camera})
+	var attachments godot.AttachmentCatalog
+	if *attachmentFile != "" {
+		raw, e := os.ReadFile(*attachmentFile)
+		if e != nil {
+			return e
+		}
+		if e = json.Unmarshal(raw, &attachments); e != nil {
+			return e
+		}
+		if e = attachments.Validate(); e != nil {
+			return e
+		}
+	}
+	scene, err := godot.Render(level, manifest, godot.Options{Attachments: attachments.Models, WorldText: *worldText, Models: modelMap, Camera: authoring.Camera})
 	if err != nil {
 		return err
 	}

@@ -63,7 +63,16 @@ func main() {
 		if len(os.Args) > 2 {
 			project = os.Args[2]
 		}
-		if err := gamepoc.Generate(project); err != nil {
+		generate := gamepoc.Generate
+		if project == "--godot-only" {
+			if len(os.Args) != 4 {
+				fmt.Fprintln(os.Stderr, "usage: ang game-poc --godot-only <backend>")
+				os.Exit(2)
+			}
+			project = os.Args[3]
+			generate = gamepoc.GenerateGodot
+		}
+		if err := generate(project); err != nil {
 			fmt.Fprintln(os.Stderr, "game-poc:", err)
 			os.Exit(1)
 		}

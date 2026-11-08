@@ -95,11 +95,13 @@ type WorldTextSlotDrawn struct {
 // WorldTextLocaleDrawn: Mode per_strip|flow|rows, GlyphMM = cap height, Lines = resolved text (per_strip: one line,
 // its non-space glyphs go one per strip from FirstStrip in reading order).
 type WorldTextLocaleDrawn struct {
-	Locale     string   `json:"locale"`
-	Mode       string   `json:"mode"`
-	GlyphMM    int      `json:"glyph_mm"`
-	FirstStrip int      `json:"first_strip"`
-	Lines      []string `json:"lines"`
+	LayoutWidthMM float64   `json:"layout_width_mm"`
+	Locale        string    `json:"locale"`
+	Mode          string    `json:"mode"`
+	GlyphMM       int       `json:"glyph_mm"`
+	FirstStrip    int       `json:"first_strip"`
+	Lines         []string  `json:"lines"`
+	WidthsMM      []float64 `json:"widths_mm"`
 }
 
 var worldTextPlaceholder = regexp.MustCompile(`\{([A-Za-z_][A-Za-z0-9_]*)\}`)
@@ -400,7 +402,23 @@ func compileWorldText(project string, c Compiled) (*WorldTextRuntime, error) {
 			if err != nil {
 				return nil, fail(err)
 			}
-			drawn.Texts = append(drawn.Texts, WorldTextLocaleDrawn{Locale: locale, Mode: mode, GlyphMM: glyph, FirstStrip: first, Lines: lines})
+			var widths []float64
+			for _, line := range lines {
+				w, e := f.width(line)
+				if e != nil {
+					return nil, fail(e)
+				}
+				widths = append(widths, w*float64(glyph)/f.cap)
+			}
+			layoutWidth := 0.0
+			for _, w := range widths {
+				layoutWidth = math.Max(layoutWidth, w)
+			}
+			if mode == "per_strip" {
+				rs := []rune(strings.ReplaceAll(lines[0], " ", ""))
+				layoutWidth = float64(len(rs)-1)*float64(s.Strips.PitchMM) + (f.advance[rs[0]]+f.advance[rs[len(rs)-1]])*float64(glyph)/f.cap/2
+			}
+			drawn.Texts = append(drawn.Texts, WorldTextLocaleDrawn{Locale: locale, Mode: mode, GlyphMM: glyph, FirstStrip: first, Lines: lines, WidthsMM: widths, LayoutWidthMM: layoutWidth})
 		}
 		out.Slots = append(out.Slots, drawn)
 	}

@@ -60,11 +60,13 @@ type GodotThemeProperty struct {
 	StringName string   `json:"string_name,omitempty"`
 }
 type GodotThemeContrast struct {
+	Usage      string `json:"usage"`
 	Name       string `json:"name"`
 	Foreground string `json:"foreground"`
 	Background string `json:"background"`
 }
 type godotContrastResult struct {
+	Usage  string  `json:"usage"`
 	Skin   string  `json:"skin"`
 	Pair   string  `json:"pair"`
 	Ratio  float64 `json:"ratio"`
@@ -264,6 +266,9 @@ func writeGodotTheme(project string, t *GodotTheme) error {
 			files[t.ResourceName+".tres"] = raw
 		}
 		for _, pair := range t.Contrast {
+			if strings.TrimSpace(pair.Usage) == "" {
+				return fmt.Errorf("contrast pair %s needs rendered Theme property/usage", pair.Name)
+			}
 			a, err := godotRGB(skin.Roles[pair.Foreground])
 			if err != nil {
 				return err
@@ -273,7 +278,7 @@ func writeGodotTheme(project string, t *GodotTheme) error {
 				return err
 			}
 			ratio := godotContrast(a, b)
-			results = append(results, godotContrastResult{Skin: skin.ID, Pair: pair.Name, Ratio: ratio, WCAGAA: ratio >= 4.5})
+			results = append(results, godotContrastResult{Skin: skin.ID, Pair: pair.Name, Ratio: ratio, WCAGAA: ratio >= 4.5, Usage: pair.Usage})
 		}
 	}
 	if !seen[t.DefaultSkin] {

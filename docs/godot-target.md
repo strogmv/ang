@@ -125,3 +125,37 @@ positions; legacy `pose_override` input must fail without replacing good output.
 The game integration report records its independent full-generation/server status;
 a passing placement check does not establish that the game's other ungenerated
 CUE changes can produce a new server.
+
+## Resolved world lettering
+
+`ang game-poc --godot-only <backend>` reads live CUE and refreshes Godot PO,
+Theme and `generated/world_text/` without writing server or legacy client files.
+Ordinary `game-poc` delivers the same world-text outputs to each `godot_targets`
+entry. The CUE `world_text.metrics_dir` contains the atlas producer's
+`assets-manifest.json`: SHA-256 of every metrics JSON, SDF PNG payload, font
+manifest and OFL licence. Delivery rejects changes before writing assets; the
+native generated consumer rechecks the same hashes. TTF art remains source.
+
+`runtime.json` (`ang.godot.world_text.v1`) has `world_frame`, font tracking/pitch,
+and resolved slots. A slot carries its style/surface/ink/wear, plate, authored
+anchor/strip node references, per-locale lines/mode/cap height/first strip, logical
+line advances and occupied layout width. Its centre/right/up/normal use
+`ang.world.east-up-north.v1`, through placement.Pose/PlanTransform/BasisColumns.
+Runtime attachment nodes can replace the centre; no state rule is inferred from
+a slot's spelling. Missing authored bindings remain missing.
+
+`ang godot -world-text` attaches the generated GDScript renderer.
+`-attachments <JSON>` accepts `ang.model-attachments.v1`, `source_frame:model-local`,
+and `models:{model_ref:[{name,position:[x,y,z],source_path}]}`. These are source-art
+locators in the mesh's own basis, beneath the existing placement transform;
+they contain no world poses or text. The game preserves its former mesh-only
+art import's locators from its hashed asset sources, without running Unity.
+
+Three MultiMeshes batch ordinary glyph quads by style, with linear SDF and float
+data textures; plates share a fourth MultiMesh. One extra ArrayMesh batches strip
+glyphs clipped to their original surface triangles (five drawable batches total). Locale notifications rebuild once.
+Actual attachment motion updates matrices, visibility signals update their
+instances. Strip quads clip to authored pitch/width and actual curved mesh edges.
+An explicit `ang_world_text_deformation` node contract can bind a `cloth_v1`
+material/phase. A shared generated shader include keeps surface and lettering on
+the same deformation and existing material time; it creates no simulation clock.
