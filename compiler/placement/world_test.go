@@ -60,20 +60,20 @@ func determinant(b [3]Vec3) float64 {
 	return b[0][0]*(b[1][1]*b[2][2]-b[1][2]*b[2][1]) - b[1][0]*(b[0][1]*b[2][2]-b[0][2]*b[2][1]) + b[2][0]*(b[0][1]*b[1][2]-b[0][2]*b[1][1])
 }
 
-func TestManifestBindingsReferencesAndOverrides(t *testing.T) {
+func TestManifestBindingsAndReferences(t *testing.T) {
 	l := locationsdk.CompiledLevel{ID: "room", UnitMM: 500, Elevation: 2,
 		Instances:  []locationsdk.CompiledInstance{{ID: "desk", ModuleID: "passport.desk", At: locationsdk.Cell{X: 4, Y: 6}, Width: 2, Depth: 1}},
 		Clearances: []locationsdk.CompiledClearance{{InstanceID: "desk", Kind: "use"}},
 		Ports:      []locationsdk.CompiledPort{{ID: "front", InstanceID: "desk"}},
 		Navigation: &locationsdk.Navigation{BaseSurface: "floor", Surfaces: []locationsdk.NavSurface{{ID: "floor"}, {ID: "roof", ElevationMM: 4000, SlabMM: 200, Slab: []locationsdk.Rect{{X: 4, Y: 6, W: 2, H: 1}}}}}}
 	ref := "desk.stocked"
-	spec := Authoring{LayoutID: "room", Instances: map[string]InstanceSpec{"desk": {ModelRef: &ref, Bindings: Bindings{Gates: []string{"gate.desk"}}, Override: &PoseOverride{PositionPlanM: Vec3{9, 1, 12}, RotationDegrees: 180, Reason: "approved service band"}}}}
+	spec := Authoring{LayoutID: "room", Instances: map[string]InstanceSpec{"desk": {ModelRef: &ref, Bindings: Bindings{Gates: []string{"gate.desk"}}}}}
 	m, err := Build(l, spec)
 	if err != nil {
 		t.Fatal(err)
 	}
 	i := m.Instances["desk"]
-	if i.ModelRef != ref || i.SourceTransform == nil || i.SourceTransform.Position != (Vec3{2, 1, -3}) || i.WorldTransform.Position != (Vec3{9, 1, -12}) {
+	if i.ModelRef != ref || i.WorldTransform.Position != (Vec3{2, 1, -3}) {
 		t.Fatalf("wrong resolved placement: %+v", i)
 	}
 	if !reflect.DeepEqual(i.ClearanceRefs, []string{"#/clearances/0"}) || !reflect.DeepEqual(i.NavRefs, []string{"#/instances/0/blocked", "#/instances/0/footprint", "#/ports/0"}) || len(i.Bindings.Gates) != 1 {
@@ -84,13 +84,9 @@ func TestManifestBindingsReferencesAndOverrides(t *testing.T) {
 	}
 	spec.Instances["typo"] = InstanceSpec{}
 	if _, err = Build(l, spec); err == nil {
-		t.Fatal("unknown override accepted")
+		t.Fatal("unknown instance binding accepted")
 	}
 	delete(spec.Instances, "typo")
-	spec.Instances["desk"].Override.Reason = ""
-	if _, err = Build(l, spec); err == nil {
-		t.Fatal("unexplained override accepted")
-	}
 	spec.Instances = nil
 	spec.Extras = []Extra{{InstanceID: "desk", ModelRef: "train", SourceKind: "epoch", Reason: "epoch"}}
 	if _, err = Build(l, spec); err == nil {

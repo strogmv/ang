@@ -5,7 +5,6 @@ import (
 	"math"
 	"sort"
 	"strconv"
-	"strings"
 
 	"github.com/strogmv/ang/compiler/locationsdk"
 )
@@ -32,15 +31,8 @@ type Camera struct {
 }
 
 type InstanceSpec struct {
-	ModelRef *string       `json:"model_ref,omitempty"`
-	Bindings Bindings      `json:"bindings,omitempty"`
-	Override *PoseOverride `json:"pose_override,omitempty"`
-}
-
-type PoseOverride struct {
-	PositionPlanM   Vec3    `json:"position_plan_m"`
-	RotationDegrees float64 `json:"rotation_degrees"`
-	Reason          string  `json:"reason"`
+	ModelRef *string  `json:"model_ref,omitempty"`
+	Bindings Bindings `json:"bindings,omitempty"`
 }
 
 // Extra is an authored static pose, e.g. a train evaluated at its CUE epoch.
@@ -77,15 +69,13 @@ type StorefrontBinding struct {
 }
 
 type Instance struct {
-	WorldTransform  Transform  `json:"world_transform"`
-	ModelRef        string     `json:"model_ref"`
-	SourceKind      string     `json:"source_kind"`
-	ModuleID        string     `json:"module_id,omitempty"`
-	Bindings        Bindings   `json:"bindings"`
-	NavRefs         []string   `json:"nav_refs"`
-	ClearanceRefs   []string   `json:"clearance_refs"`
-	SourceTransform *Transform `json:"source_transform,omitempty"`
-	OverrideReason  string     `json:"override_reason,omitempty"`
+	WorldTransform Transform `json:"world_transform"`
+	ModelRef       string    `json:"model_ref"`
+	SourceKind     string    `json:"source_kind"`
+	ModuleID       string    `json:"module_id,omitempty"`
+	Bindings       Bindings  `json:"bindings"`
+	NavRefs        []string  `json:"nav_refs"`
+	ClearanceRefs  []string  `json:"clearance_refs"`
 }
 
 type Manifest struct {
@@ -182,15 +172,6 @@ func Build(level locationsdk.CompiledLevel, spec Authoring) (Manifest, error) {
 			return m, fmt.Errorf("placement: unknown instance %q", id)
 		}
 		i.Bindings = s.Bindings
-		if s.Override != nil {
-			if strings.TrimSpace(s.Override.Reason) == "" {
-				return m, fmt.Errorf("placement %s: pose override needs a reason", id)
-			}
-			source := i.WorldTransform
-			i.SourceTransform = &source
-			i.OverrideReason = s.Override.Reason
-			i.WorldTransform = PlanTransform(s.Override.PositionPlanM, s.Override.RotationDegrees)
-		}
 		m.Instances[id] = i
 	}
 	for j, c := range level.Clearances {

@@ -40,7 +40,7 @@ def main():
         raise ValueError("use a separate staging directory")
     out.mkdir(parents=True, exist_ok=True)
     oracle = game / "art-source/transport-hub/godot-spike/real-market"
-    cue = repo / "examples/godot/cue/market"
+    cue = game / "content/world/godot/market"
     protected = [oracle / name for name in (
         "market-placements.json", "market.compiled.json", "gen_market.py", "orientation.json"
     )]
@@ -61,6 +61,8 @@ def main():
     native_expected = {"instances": {}}
     for instance_id, row in rows.items():
         actual = manifest["instances"][instance_id]
+        if "source_transform" in actual or "override_reason" in actual:
+            raise AssertionError(f"visual-only override: {instance_id}")
         pose = actual["world_transform"]
         position_error = max(position_error, *(abs(a-b) for a,b in zip(pose["position"], row["godot_world_m"])))
         a = math.radians(pose["rotation_degrees"][1])
@@ -79,7 +81,7 @@ def main():
     report = {
         "passed": True, "layout_id": manifest["layout_id"], "placements": len(rows),
         "max_position_error_m": position_error, "max_basis_error": basis_error,
-        "model_mismatches": mismatches, "structural_hash": manifest["structural_hash"],
+        "model_mismatches": mismatches, "visual_position_overrides": 0, "structural_hash": manifest["structural_hash"],
         "oracle_sha256": before,
         "generated_sha256": {name: digest(out / name) for name in ("compiled.json", "placements.json", "location.tscn")},
         "scene_load": None,
@@ -97,8 +99,8 @@ def main():
             'config_version=5\n[application]\nconfig/name="ANG generated market verification"\n'
             'run/main_scene="res://location.tscn"\n[rendering]\n'
             'renderer/rendering_method="gl_compatibility"\n')
-        run([args.godot, "--headless", "--path", str(out), "--editor", "--import"], out / "import.log")
-        run([args.godot, "--headless", "--path", str(out), "--script", "res://verify_scene.gd"], out / "scene-load.log")
+        run([args.godot, "--headless", "--path", str(out), "--log-file", str(out / "import-engine.log"), "--editor", "--import"], out / "import.log")
+        run([args.godot, "--headless", "--path", str(out), "--log-file", str(out / "scene-engine.log"), "--script", "res://verify_scene.gd"], out / "scene-load.log")
         report["scene_load"] = json.loads((out / "scene-load-verification.json").read_text())
         if not report["scene_load"]["passed"]:
             raise AssertionError("Godot scene verification failed")

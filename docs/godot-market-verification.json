@@ -2,20 +2,21 @@
   "passed": true,
   "layout_id": "example.market_hub",
   "placements": 215,
-  "max_position_error_m": 7.105427357601002e-15,
+  "max_position_error_m": 0.0,
   "max_basis_error": 0.0,
   "model_mismatches": [],
+  "visual_position_overrides": 0,
   "structural_hash": "702f1376c630bfd0adafefe15f56be897fe89e7b6ce6788468c5a456a737e8cd",
   "oracle_sha256": {
-    "art-source/transport-hub/godot-spike/real-market/market-placements.json": "629b4a006967967294dfa1fb7d343c9882763ad8f0e4c2323880fac75405be3f",
-    "art-source/transport-hub/godot-spike/real-market/market.compiled.json": "926577a0c70d665e592bc61fd21ea34c7937ee801459b11ec3d99f72482dc265",
-    "art-source/transport-hub/godot-spike/real-market/gen_market.py": "f5755ad5ae1367871aa13bc824420edeb32a441857398aa473582ea6a7a0e78b",
-    "art-source/transport-hub/godot-spike/real-market/orientation.json": "39cd9996eff5aab29928ee6bc7abbba5b22d19e0938c780928964b4b52ae2d80"
+    "art-source/transport-hub/godot-spike/real-market/market-placements.json": "8c2a7a838dc833277b5f6fd4f1b0ac8716130e347c7d2aed9f24ecc76e44ac2a",
+    "art-source/transport-hub/godot-spike/real-market/market.compiled.json": "8817541e117fb6fdf81a5114596adb14e867892e4c315fd41817cc0137ef3d18",
+    "art-source/transport-hub/godot-spike/real-market/gen_market.py": "c99cfec2ad3921b464dad6c9ff4bd2beedcb04568dbc85d538dcd2cfc73b35cd",
+    "art-source/transport-hub/godot-spike/real-market/orientation.json": "13832318b679477a2de74916dc8db800ce7e4aa601f80643cb51f461b9524c59"
   },
   "generated_sha256": {
     "compiled.json": "fe9fbe4f3dcccd73489584ecaf8f16abc5a6d7790457c2bb2dbaa0567b59785a",
-    "placements.json": "75281207a0eb6b30efa75c6ff1589e53303db274c2c23c09632c6f1cbed3b550",
-    "location.tscn": "9f88b07e85c65c4a8d70e187e3a01414170508aaeb2c343c38f170a562e18a24"
+    "placements.json": "a85a5f34d1ec234a79b3560172ba433cd27428aa1e8ef1131eda79a6a13b9f06",
+    "location.tscn": "0522f4d54cf89326c293124abf965ba3643f5c5f82bdb5c8ab57506b00bef62a"
   },
   "scene_load": {
     "camera_looks_at_focus": true,

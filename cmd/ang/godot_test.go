@@ -82,8 +82,8 @@ func TestGodotMarketMatchesIndependentOracle(t *testing.T) {
 			}
 		}
 	}
-	if actual.Instances["wall.sanitary"].SourceTransform == nil || actual.Instances["wall.sanitary"].OverrideReason == "" {
-		t.Fatal("service override lost its source pose/reason")
+	if bytes.Contains(data, []byte("override_reason")) || bytes.Contains(data, []byte("source_transform")) {
+		t.Fatal("visual-only pose leaked into manifest")
 	}
 	if len(actual.Instances["island.C1"].Bindings.Storefronts) != 5 || len(actual.Instances["crane.bridge"].Bindings.Lights) != 2 || len(actual.Instances["gate.entry"].Bindings.Gates) != 1 {
 		t.Fatal("authored bindings lost")
@@ -172,5 +172,53 @@ func TestGodotCUEEditAndFailurePreservesOutput(t *testing.T) {
 	}
 	if _, err := os.Stat(checkOut); !os.IsNotExist(err) {
 		t.Fatal("check wrote files")
+	}
+}
+
+// Importing authoring must observe edits in the source package on every run.
+func TestGodotLiveImportsAndRejectsVisualPositionOverrides(t *testing.T) {
+	dir, out := t.TempDir(), t.TempDir()
+	for _, rel := range []string{"cue.mod", "source", "adapter"} {
+		if err := os.MkdirAll(filepath.Join(dir, rel), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write := func(rel, data string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, rel), []byte(data), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("cue.mod/module.cue", "module: \"live.test/game@v0\"\nlanguage: version: \"v0.17.0\"\n")
+	write("adapter/main.cue", "package adapter\nimport source \"live.test/game/source:fixture\"\nsdk: source.sdk\n")
+	input := locationSDKTestInput()
+	writeSDKTestCUE(t, filepath.Join(dir, "source"), input)
+	write("models.json", `{"counter":"res://kit/counter.glb"}`)
+	var stdout, stderr bytes.Buffer
+	args := []string{"-layout", "clinic", "-models", filepath.Join(dir, "models.json"), "-out", out, filepath.Join(dir, "adapter")}
+	if err := runGodot(args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	first, _ := os.ReadFile(filepath.Join(out, "placements.json"))
+	input.Layouts[0].Instances[0].At.X++
+	writeSDKTestCUE(t, filepath.Join(dir, "source"), input)
+	if err := runGodot(args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	second, _ := os.ReadFile(filepath.Join(out, "placements.json"))
+	if bytes.Equal(first, second) {
+		t.Fatal("imported live layout edit was frozen")
+	}
+	write("adapter/placement.cue", `package adapter
+placement: instances: desk: pose_override: {
+ position_plan_m: [99,0,99], rotation_degrees: 0, reason: "visual shortcut"
+}
+`)
+	if err := runGodot(args, &stdout, &stderr); err == nil || !strings.Contains(err.Error(), "pose_override") {
+		t.Fatalf("visual-only position override was not rejected: %v", err)
+	}
+	after, _ := os.ReadFile(filepath.Join(out, "placements.json"))
+	if !bytes.Equal(second, after) {
+		t.Fatal("rejected override replaced valid output")
 	}
 }

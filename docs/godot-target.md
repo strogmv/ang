@@ -1,4 +1,4 @@
-# Godot location target: Phase 0 + 1
+# Godot location target: live CUE input
 
 The entry point is `ang godot`. It compiles the ordinary `sdk` CUE input with
 `locationsdk.Build`, resolves engine-neutral placement intent, and renders
@@ -70,7 +70,8 @@ Optional `placement` CUE contains:
 - `layout_id`, `camera` framing, and `module_models`: module/passport IDs → stable
   model IDs. Without a mapping, a floor instance's module ID is its model ID.
 - `instances`: model variants and light/storefront/gate bindings by instance ID.
-  `pose_override` requires a reason and preserves `source_transform` in the output.
+  Layout instance transforms always come from the compiled SDK. `pose_override`
+  is rejected, even when it includes a reason; author geometry changes in CUE.
 - `extras`: named static metric poses for external CUE assemblies, such as a
   train sampled at its authored simulation epoch.
 
@@ -86,15 +87,17 @@ materials, dressing, runtime bindings, movement and train simulation stay client
 
 ## Oracle verification
 
-`examples/godot/cue/market` is a frozen, engine-neutral export of the market's
-actual CUE authoring. It retains the three previously approved service-band
-overrides and computes the train's static epoch pose in CUE. The regression test
-compiles it and compares all 215 identities, positions, model choices and complete
-bases against an independent compact oracle in
-`compiler/placement/testdata/market-oracle.json`. It also verifies deterministic
-regeneration, reference resolution, source edits and failed-build preservation.
+`examples/godot/cue/market` is ONLY a frozen regression fixture, with independent
+numeric expectations in `compiler/placement/testdata/market-oracle.json`. It is
+never imported by the production path. Its three service expectations now use
+the actual west-wall SDK poses, without presentation position overrides.
 
-For verification against the live game source and its unchanged prototype:
+The game owns its model identities, asset paths, attachment metadata and epoch
+adapter under `content/world/godot/market`. Its `scripts/godot-gen.sh market`
+passes the LIVE `content/world/location_sdk` package directly to `ang godot`.
+The epoch adapter imports the actual train CUE; it carries no copied layout.
+
+For verification against the live game source and its canonical prototype:
 
 ```sh
 python3 scripts/verify_godot_market.py \
@@ -113,10 +116,12 @@ hashes prove the reference generator and placement/orientation data were preserv
 Omit `--godot` for the numerical comparison alone. Use a private/self-contained
 Godot executable when the owner's editor profile must stay untouched.
 
-See [verification evidence](godot-market-verification.json) for measured results.
-All 215 placements match: maximum numerical position error `7.11e-15 m`, no model
-or basis mismatches. Godot 4.7.2 loads all 70 model instances using 58 resources;
-native transform, authored camera focus, west-crane/right and train/lower-right
-checks pass with zero engine errors. The three service overrides are explicit CUE.
-`go build ./...`, `go vet ./...`, `go test ./... -count=1`, and `make lint` pass.
-The generator uses Godot's [TSCN format](https://docs.godotengine.org/en/4.7/engine_details/file_formats/tscn.html).
+The comparison checks all 215 identities, model resources and complete transforms,
+and rejects visual position overrides. The native step imports the generated
+scene and checks the camera orientation and all model transforms. The live-import
+CLI regression changes a transitive CUE dependency and verifies regenerated
+positions; legacy `pose_override` input must fail without replacing good output.
+
+The game integration report records its independent full-generation/server status;
+a passing placement check does not establish that the game's other ungenerated
+CUE changes can produce a new server.
