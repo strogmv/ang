@@ -10,6 +10,17 @@ import (
 func TestLifeGaitEmergencyCadenceAndIncidentReturn(t *testing.T) {
  policy:=LifeGaitPolicy{OpeningWindows:map[string]LifeGaitOpening{"trader":{OpenSecond:7*3600,WindowSeconds:600}}}
  if !policy.delayedOpening("trader",7*3600-20,7*3600+25)||policy.delayedOpening("trader",12*3600,12*3600+45)||policy.delayedOpening("civilian",7*3600,7*3600+45){t.Fatal("opening window must come from the CUE shop schedule and identity")}
+ // Openings at and around midnight: the day boundary wraps both ways.
+ day:=int64(3*86400)
+ midnight:=LifeGaitPolicy{OpeningWindows:map[string]LifeGaitOpening{"night":{OpenSecond:0,WindowSeconds:600},"late":{OpenSecond:86100,WindowSeconds:600}}}
+ for _,c:=range []struct{id string;now,until int64;want bool}{
+  {"night",day-300,day+300,true},  // 23:55 incident lasting past 00:00 opening
+  {"night",day-300,day-60,false},  // ends before the opening
+  {"night",day+300,day+400,true},  // within the first 10 minutes after opening
+  {"night",day+700,day+800,false}, // later than the window
+  {"late",day+180,day+240,true},   // 00:03, yesterday's 23:55 opening + 10 min
+  {"late",day+400,day+460,false},  // 00:06:40, too late for it
+ } {if midnight.delayedOpening(c.id,c.now,c.until)!=c.want{t.Fatalf("midnight opening %+v",c)}}
  for _,situation:=range []string{"shelter","investigate"} {t.Run(situation,func(t *testing.T){
   m:=lifeFixture();m.Actors[1].Steps=m.Actors[1].Steps[:1]
   m.Gait=LifeGaitPolicy{RunFactor:1.8,Situations:map[string]bool{situation:true,"late_opening":true}}
