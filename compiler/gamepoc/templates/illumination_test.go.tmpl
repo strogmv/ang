@@ -444,3 +444,14 @@ func TestIlluminationVendingUsesRealPresencePPMExactlyOnce(t *testing.T) {
 	}
 	t.Fatal("ordinary snapshot omitted actual terminal")
 }
+
+// Calendar-only profiles must not silently become perception lux.
+func TestPresentationDaylightRemainsSeparateFromPhysicalLight(t *testing.T){
+ r:=lifeRuntimeFixture(t);h:=r.state.Life.Actor(playerActorID)
+ delete(r.world.Illumination.Levels,h.Level)
+ r.world.Illumination.Presentation=map[string]illuminationPresentation{h.Level:{SunriseSecond:21600,SunsetSecond:79200,TwilightSeconds:3600,DayBrightness:1,NightBrightness:.64}}
+ for _,sec:=range []int64{0,43200,81000}{r.state.Life.Seconds=sec;v:=&pb.PocLifeView{};r.appendIllumination(v,h);m:=v.Illumination
+ if m.Known||!m.PresentationKnown||m.Lux!=0||m.VisibilityFactor!=0||m.State!="" {t.Fatalf("presentation invented photometry: %+v",m)}
+ if math.Abs(m.Day+m.Dusk+m.Night-1)>1e-9||m.PresentationBrightness<.64||m.PresentationBrightness>1 {t.Fatalf("invalid authored weights: %+v",m)}
+ }
+}

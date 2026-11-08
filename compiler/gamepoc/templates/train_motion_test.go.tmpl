@@ -4,6 +4,7 @@ package poc
 import (
 	pb "angelsdemons/server/internal/transport/grpc/pb/game/v1"
 	"encoding/json"
+"math"
 	"reflect"
 	"testing"
 )
@@ -176,4 +177,11 @@ func TestTrainMotionFastTravelUsesTheSameSavedPhysicalFrames(t *testing.T) {
 			t.Fatal("offscreen skip differs from ordinary physical-frame replay")
 		}
 	}
+}
+
+func TestTrainMotionExplicitFloorDatumKeepsNativeTransform(t *testing.T){
+ p:=trainPose{X:10,Y:-.53,Z:3,YawDegrees:12}
+ b:=trainBindingDefinition{X:-60.2,Y:-6,Z:200,YawDegrees:90}
+ old:=trainProject(p,b);b.FloorElevationM=18;current:=trainProject(p,b)
+ if current.X!=old.X||current.Z!=old.Z||current.YawDegrees!=old.YawDegrees||math.Abs(current.Y-old.Y-18)>1e-9||math.Abs(current.Y-11.47)>1e-9{t.Fatalf("datum changed native plan/clock: %+v -> %+v",old,current)}
 }

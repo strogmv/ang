@@ -27,6 +27,7 @@ type sanitaryUnit struct {
 	MaxWaitSeconds int64         `json:"max_wait_seconds"`
 }
 type sanitaryCatalog struct {
+	Levels map[string][]sanitaryUnit `json:"levels,omitempty"`
 	PrefabResource     string         `json:"prefab_resource"`
 	CommonEntryCell    behavior.Cell  `json:"common_entry_cell"`
 	CommonEntryPose    medicalPose    `json:"common_entry_pose"`
@@ -99,15 +100,16 @@ func (s sanitaryState) clone() sanitaryState {
 	s.Completed = c
 	return s
 }
+func (c *sanitaryCatalog) unitsAt(level string) []sanitaryUnit {
+ if c == nil { return nil }
+ if len(c.Units)>0 && c.Units[0].LevelID==level { return c.Units }
+ return c.Levels[level]
+}
 func (c *sanitaryCatalog) unit(id string) *sanitaryUnit {
-	if c != nil {
-		for i := range c.Units {
-			if c.Units[i].ID == id {
-				return &c.Units[i]
-			}
-		}
-	}
-	return nil
+ if c == nil { return nil }
+ for i:=range c.Units { if c.Units[i].ID==id { return &c.Units[i] } }
+ for _,units:=range c.Levels { for i:=range units { if units[i].ID==id { return &units[i] } } }
+ return nil
 }
 func (r *Runtime) sanitaryReserved(id string) bool { _, ok := r.state.Sanitary.Users[id]; return ok }
 func (r *Runtime) sanitaryOwnsActor(id string) bool {
@@ -492,7 +494,7 @@ func (r *Runtime) sanitaryNPCRequests() {
 		if a.ID == playerActorID || a.Manual || !a.OnFloor() || a.CombatHold || r.serviceReserved(a.ID) || a.Brain.Place.ID != cfg.ManagedAffordance || !r.cartServiceReady(a.ID) {
 			continue
 		}
-		units := append([]sanitaryUnit(nil), cfg.Units...)
+		units := append([]sanitaryUnit(nil), cfg.unitsAt(a.Level)...)
 		sort.SliceStable(units, func(i, j int) bool { return !r.sanitaryBusy(units[i].ID, a.ID) && r.sanitaryBusy(units[j].ID, a.ID) })
 		for _, u := range units {
 			if cfg.ServiceAvailable && u.Kind != "wc" && u.LevelID == a.Level {

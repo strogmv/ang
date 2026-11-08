@@ -12,13 +12,15 @@ roughness = 0.85
 albedo_color = Color(0.50, 0.52, 0.56, 1)
 roughness = 0.7
 
-[sub_resource type="BoxMesh" id="box"]
-size = Vector3(1, 1, 1)
+{{if .FloorOnly}}[sub_resource type="PlaneMesh" id="box"]
+size = Vector2(1, 1){{else}}[sub_resource type="BoxMesh" id="box"]
+size = Vector3(1, 1, 1){{end}}
 
 [sub_resource type="Environment" id="environment"]
 background_mode = 1
 background_color = Color(0.08, 0.09, 0.11, 1)
-ambient_light_source = 3
+; Server presentation controls a colour ambient; this scene has no Sky.
+ambient_light_source = 2
 ambient_light_color = Color(0.7, 0.75, 0.85, 1)
 ambient_light_energy = 0.65
 

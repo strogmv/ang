@@ -21,6 +21,7 @@ var sceneTemplate string
 
 type Options struct {
 	// Models belongs to the client: stable model_ref -> res:// PackedScene.
+	FloorOnly   bool
 	WorldText   bool
 	Attachments map[string][]Attachment
 	Models      map[string]string
@@ -31,6 +32,7 @@ type resource struct{ ID, Path string }
 type node struct{ Name, InstanceID, ModelRef, ResourceID, Transform string }
 type box struct{ Name, SourceID, Position, Size, Material string }
 type scene struct {
+	FloorOnly                        bool
 	WorldText                        bool
 	LayoutID, Frame, CameraTransform string
 	Resources                        []resource
@@ -46,7 +48,7 @@ func Render(level locationsdk.CompiledLevel, manifest placement.Manifest, option
 	if manifest.Schema != placement.Schema || manifest.WorldFrame != placement.WorldFrame || manifest.LayoutID != level.ID || manifest.StructuralHash != level.StructuralHash {
 		return nil, fmt.Errorf("godot: manifest does not match compiled level")
 	}
-	s := scene{WorldText: options.WorldText, LayoutID: level.ID, Frame: placement.WorldFrame, Elevation: 35, Azimuth: 37}
+	s := scene{FloorOnly: options.FloorOnly, WorldText: options.WorldText, LayoutID: level.ID, Frame: placement.WorldFrame, Elevation: 35, Azimuth: 37}
 	if level.Camera != nil {
 		s.Elevation = level.Camera.ElevationDegrees
 		s.Azimuth = level.Camera.AzimuthDegrees
@@ -111,6 +113,9 @@ func Render(level locationsdk.CompiledLevel, manifest placement.Manifest, option
 			return
 		}
 		p := placement.FromPlan(placement.Vec3{(float64(r.X) + float64(r.W)/2) * unit, float64(bottom+top) / 2000, (float64(r.Y) + float64(r.H)/2) * unit})
+		if options.FloorOnly {
+			p[1] = float64(top) / 1000
+		}
 		s.Boxes = append(s.Boxes, box{fmt.Sprintf("Structure_%03d", len(s.Boxes)), id, vector(p), vector(placement.Vec3{float64(r.W) * unit, float64(top-bottom) / 1000, float64(r.H) * unit}), material})
 	}
 	if n := level.Navigation; n != nil {

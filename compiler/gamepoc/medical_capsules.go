@@ -26,17 +26,18 @@ type MedicalUnit struct {
 	InsidePose  MedicalPose `json:"inside_pose"`
 }
 type MedicalCapsuleCatalog struct {
-	PrefabResource  string        `json:"prefab_resource"`
-	DoorSeconds     float64       `json:"door_seconds"`
-	ReceiverAccount string        `json:"receiver_account"`
-	Currency        string        `json:"currency"`
-	ScanSeconds     float64       `json:"scan_seconds"`
-	EntrySeconds    float64       `json:"entry_seconds"`
-	ExitSeconds     float64       `json:"exit_seconds"`
-	LeaseSeconds    int64         `json:"lease_seconds"`
-	QueueLimit      int           `json:"queue_limit"`
-	NPCSelfCare     bool          `json:"npc_self_care"`
-	Units           []MedicalUnit `json:"units"`
+	Levels          map[string][]MedicalUnit `json:"levels,omitempty"`
+	PrefabResource  string                   `json:"prefab_resource"`
+	DoorSeconds     float64                  `json:"door_seconds"`
+	ReceiverAccount string                   `json:"receiver_account"`
+	Currency        string                   `json:"currency"`
+	ScanSeconds     float64                  `json:"scan_seconds"`
+	EntrySeconds    float64                  `json:"entry_seconds"`
+	ExitSeconds     float64                  `json:"exit_seconds"`
+	LeaseSeconds    int64                    `json:"lease_seconds"`
+	QueueLimit      int                      `json:"queue_limit"`
+	NPCSelfCare     bool                     `json:"npc_self_care"`
+	Units           []MedicalUnit            `json:"units"`
 }
 
 func readMedicalCapsules(world cue.Value, c Compiled) (*MedicalCapsuleCatalog, error) {
@@ -54,8 +55,14 @@ func readMedicalCapsules(world cue.Value, c Compiled) (*MedicalCapsuleCatalog, e
 	if err := d.Decode(&out); err != nil {
 		return nil, fmt.Errorf("medical_capsules: %w", err)
 	}
+	if len(out.Levels) != 0 {
+		return nil, fmt.Errorf("medical levels must derive from validated SDK slots")
+	}
 	if err := out.validate(c); err != nil {
 		return nil, fmt.Errorf("medical_capsules: %w", err)
+	}
+	if err := appendSDKMedical(world, c, &out); err != nil {
+		return nil, err
 	}
 	return &out, nil
 }

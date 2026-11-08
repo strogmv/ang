@@ -103,7 +103,19 @@ type illuminationLevel struct {
 	parents              map[string][]string
 	gates                map[string]sdkLightGate
 }
+type illuminationPresentation struct {
+ SunriseSecond int64 `json:"sunrise_second"`
+ SunsetSecond int64 `json:"sunset_second"`
+ TwilightSeconds int64 `json:"twilight_seconds"`
+ DayBrightness float64 `json:"day_brightness"`
+ NightBrightness float64 `json:"night_brightness"`
+}
+func(p illuminationPresentation)weights(seconds int64)illuminationWeights{
+ c:=illuminationCalendar{DawnStart:p.SunriseSecond-p.TwilightSeconds,DayStart:p.SunriseSecond,DayEnd:p.SunsetSecond,NightStart:p.SunsetSecond+p.TwilightSeconds,GuideExponent:1}
+ return c.weights(seconds)
+}
 type illuminationCatalog struct {
+ Presentation map[string]illuminationPresentation `json:"presentation,omitempty"`
 	Enabled bool                         `json:"enabled"`
 	Levels  map[string]illuminationLevel `json:"levels"`
 }
@@ -585,6 +597,14 @@ func (r *Runtime) appendIllumination(view *pb.PocLifeView, h *behavior.LifeActor
 	s := r.illuminationBody(h)
 	m := &pb.PocIllumination{Known: s.Known}
 	view.Illumination = m
+	if !s.Known {
+		if p,ok:=r.world.Illumination.Presentation[h.Level];ok {
+			w:=p.weights(r.state.Life.Seconds)
+			m.PresentationKnown=true
+			m.Guide,m.Day,m.Dusk,m.Night=w.Guide,w.Day,w.Dusk,w.Night
+			m.PresentationBrightness=p.NightBrightness+(p.DayBrightness-p.NightBrightness)*w.Guide
+		}
+	}
 	if !s.Known {
 		return
 	}

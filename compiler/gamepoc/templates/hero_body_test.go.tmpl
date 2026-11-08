@@ -304,3 +304,18 @@ func TestHeroBodyWalksToAnExitAndTravels(t *testing.T) {
 		t.Fatalf("hero never left by %s (at %v, body %v)", edge.ID, hero.Position, hero.Body != nil)
 	}
 }
+
+// The production seed and actual exit approach, including the return landing.
+func TestHeroBodyProductionPublicTravelRoute(t *testing.T){
+ r,err:=New(t.TempDir(),"token");if err!=nil{t.Fatal(err)}
+ c:=&connection{locale:"ru",out:make(chan *pb.ServerMessage,64),stop:make(chan struct{})}
+ r.command(input{client:c,msg:&pb.ClientMessage{Msg:&pb.ClientMessage_NewGame{NewGame:&pb.PocNewGameRequest{Epoch:r.state.Epoch,RequestId:"travel-route",Scenario:"life",Seed:20261107}}}})
+ for len(c.out)>0{<-c.out};r.state.Life.SecondsPerTick=1
+ h:=r.state.Life.Actor(playerActorID);heroBodyGo(t,r,c,h.Position,0)
+ for _,id:=range []string{"market_hub_walk","hub_market_walk","market_station"}{
+  edge:=r.world.Life.Edge(id);if edge==nil{t.Skip("project has no matching route")}
+  if err:=r.lifeCommand(&pb.PocLifeCommand{Action:"enter",Destination:id});err!=nil{t.Fatal(id,err)}
+  for tick:=0;tick<3000&&h.Level==edge.From;tick++{heroBodyTicks(r,1,nil)}
+  if h.Level!=edge.To{t.Fatalf("%s did not arrive: cell=%v body=%+v",id,h.Position,h.Body)}
+ }
+}

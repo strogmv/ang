@@ -31,6 +31,7 @@ type medicalUnit struct {
 	InsidePose  medicalPose   `json:"inside_pose"`
 }
 type medicalCatalog struct {
+	Levels map[string][]medicalUnit `json:"levels,omitempty"`
 	PrefabResource  string        `json:"prefab_resource"`
 	DoorSeconds     float64       `json:"door_seconds"`
 	ReceiverAccount string        `json:"receiver_account"`
@@ -122,15 +123,16 @@ func (s medicalState) clone() medicalState {
 	s.NPCAttempts = attempts
 	return s
 }
+func (c *medicalCatalog) unitsAt(level string) []medicalUnit {
+ if c == nil { return nil }
+ if len(c.Units)>0 && c.Units[0].LevelID==level { return c.Units }
+ return c.Levels[level]
+}
 func (c *medicalCatalog) unit(id string) *medicalUnit {
-	if c != nil {
-		for i := range c.Units {
-			if c.Units[i].ID == id {
-				return &c.Units[i]
-			}
-		}
-	}
-	return nil
+ if c == nil { return nil }
+ for i:=range c.Units { if c.Units[i].ID==id { return &c.Units[i] } }
+ for _,units:=range c.Levels { for i:=range units { if units[i].ID==id { return &units[i] } } }
+ return nil
 }
 func (r *Runtime) medicalReserved(id string) bool { _, ok := r.state.Medical.Patients[id]; return ok }
 func (r *Runtime) medicalOwnsActor(id string) bool {
@@ -660,7 +662,7 @@ func (r *Runtime) medicalNPCRequests() {
 		if key == r.state.Medical.NPCAttempts[id] || !combatWounds.Status(b).CanWalk {
 			continue
 		}
-		units := append([]medicalUnit(nil), cfg.Units...)
+		units := append([]medicalUnit(nil), cfg.unitsAt(a.Level)...)
 		sort.SliceStable(units, func(i, j int) bool { return !r.medicalBusy(units[i].ID, id) && r.medicalBusy(units[j].ID, id) })
 		for _, u := range units {
 			if u.LevelID != a.Level {

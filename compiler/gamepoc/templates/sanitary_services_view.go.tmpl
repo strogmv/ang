@@ -68,7 +68,7 @@ func (r *Runtime) sanitaryPose(p sanitaryUser, u sanitaryUnit) medicalPose {
 func (r *Runtime) appendSanitaryServices(msg *pb.PocGameState, hero *behavior.LifeActor, locale string) {
 	out := struct {
 		PrefabResource     string             `json:"prefab_resource"`
-		CommonEntryPose    medicalPose        `json:"common_entry_pose"`
+		CommonEntryPose    *medicalPose        `json:"common_entry_pose,omitempty"`
 		LevelID            string             `json:"level_id"`
 		HeroHygienePPM     int64              `json:"hero_hygiene_ppm"`
 		Epoch              string             `json:"epoch"`
@@ -81,22 +81,23 @@ func (r *Runtime) appendSanitaryServices(msg *pb.PocGameState, hero *behavior.Li
 	}{Epoch: r.state.Epoch, SampleSimNS: r.simNS(), Units: []sanitaryUnitView{}}
 	cfg := r.world.SanitaryServices
 	if cfg != nil && hero != nil {
-		out.LevelID = cfg.Units[0].LevelID
+		out.LevelID = hero.Level
 		out.HeroHygienePPM = hero.Brain.Needs[2]
 		out.AvailabilitySource = cfg.AvailabilitySource
 		out.PrefabResource = cfg.PrefabResource
-		out.CommonEntryPose = cfg.CommonEntryPose
+		sharedEntrance := len(cfg.Units)>0 && hero.Level==cfg.Units[0].LevelID
+		if sharedEntrance { out.CommonEntryPose = &cfg.CommonEntryPose }
 		own, hasOwn := r.state.Sanitary.Users[playerActorID]
 		if hasOwn {
 			out.HeroUnitID = own.UnitID
 			out.HeroPhase = own.Phase
 			out.HeroPhaseText = r.localText(locale, "sanitary.phase."+own.Phase, "sanitary.phase."+own.Phase)
 		}
-		for _, u := range cfg.Units {
+		for _, u := range cfg.unitsAt(hero.Level) {
 			if hero.Level != u.LevelID || hero.Trip != nil {
 				continue
 			}
-			if !viewSees(msg.PlayerView, int32(cfg.CommonEntryCell.X), int32(cfg.CommonEntryCell.Y)) && !viewSees(msg.PlayerView, int32(u.EntryCell.X), int32(u.EntryCell.Y)) && (!hasOwn || own.UnitID != u.ID) {
+			if !(sharedEntrance && viewSees(msg.PlayerView, int32(cfg.CommonEntryCell.X), int32(cfg.CommonEntryCell.Y))) && !viewSees(msg.PlayerView, int32(u.EntryCell.X), int32(u.EntryCell.Y)) && (!hasOwn || own.UnitID != u.ID) {
 				continue
 			}
 			d := r.state.Sanitary.Doors[u.ID]

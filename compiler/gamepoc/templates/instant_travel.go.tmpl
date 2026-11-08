@@ -21,12 +21,16 @@ func(r *Runtime)completeHeroTravel()error{
  if hero.Trip==nil&&edge.Fare!=nil&&!r.lifeFareAvailable(playerActorID,*edge){hero.AdmissionDeniedEdge=edge.ID;hero.Activity="waiting";hero.Label="transit.fare_denied";r.state.Life.ObserveDecisions();return nil}
  r.state.Life.BeginControlledTravel(r.world.Life,r.admitLifeTravel)
  if err:=r.state.Life.AdvancePopulation(r.world.Life,playerActorID);err!=nil{return err}
+ // Publish the actual trip before the bounded authoritative fast-forward.
+ // No local countdown or artificial wall-clock delay is introduced.
+ if r.client!=nil&&hero.Trip!=nil {r.sendState(r.client)}
  frames:=0
  for ;frames<instantTravelMaxFrames;frames++{
   hero=r.state.Life.Actor(playerActorID);if hero.Level!=origin{break};if hero.AdmissionDeniedEdge!=""{break}
   edge=r.state.Life.ControlledTravelEdge(r.world.Life);if edge==nil{break}
   boundary:=hero.WaitingDeparture;if hero.Trip!=nil{boundary=hero.Trip.Arrival}
   delta:=r.state.Life.SecondsPerTick;if left:=boundary-r.state.Life.Seconds;left>0&&left<delta{delta=left};if boundary<=r.state.Life.Seconds{delta=1}
+  if frames>0&&frames%64==0&&r.client!=nil&&hero.Trip!=nil {r.sendState(r.client)}
   r.state.Tick++;if err:=r.state.Inventory.Advance(r.state.Tick);err!=nil{return err};if err:=r.advanceLifeFrameBy(delta);err!=nil{return err}
  }
  hero=r.state.Life.Actor(playerActorID);if hero.Level!=origin{r.state.Life.SettleControlledArrival();r.syncLifeHero();r.resetInstantTravel()}else if frames==instantTravelMaxFrames{r.instantTravelStalled=key;r.instantTravelEpoch=r.state.Epoch}

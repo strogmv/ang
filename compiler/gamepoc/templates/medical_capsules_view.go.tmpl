@@ -101,7 +101,7 @@ func (r *Runtime) appendMedicalCapsules(msg *pb.PocGameState, hero *behavior.Lif
 	}{Epoch: r.state.Epoch, SampleSimNS: r.simNS(), Units: []medicalUnitView{}}
 	cfg := r.world.MedicalCapsules
 	if cfg != nil {
-		for _, u := range cfg.Units {
+		for _, u := range cfg.unitsAt(hero.Level) {
 			if hero.Level != u.LevelID || hero.Trip != nil {
 				continue
 			}

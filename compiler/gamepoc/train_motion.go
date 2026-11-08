@@ -50,14 +50,15 @@ type TrainModule struct {
 	BogieOffsetsM []float64 `json:"bogie_offsets_m"`
 }
 type TrainBinding struct {
-	PassageID  string  `json:"passage_id,omitempty"`
-	LevelID    string  `json:"level_id"`
-	StartM     float64 `json:"start_m"`
-	EndM       float64 `json:"end_m"`
-	X          float64 `json:"x"`
-	Y          float64 `json:"y"`
-	Z          float64 `json:"z"`
-	YawDegrees float64 `json:"yaw_degrees"`
+	FloorElevationM float64 `json:"floor_elevation_m,omitempty"`
+	PassageID       string  `json:"passage_id,omitempty"`
+	LevelID         string  `json:"level_id"`
+	StartM          float64 `json:"start_m"`
+	EndM            float64 `json:"end_m"`
+	X               float64 `json:"x"`
+	Y               float64 `json:"y"`
+	Z               float64 `json:"z"`
+	YawDegrees      float64 `json:"yaw_degrees"`
 	// All v1 bindings are exterior pass-throughs, not boarding or cargo interfaces.
 	EntryAllowed bool `json:"entry_allowed"`
 }
@@ -188,7 +189,7 @@ func (c TrainMotionCatalog) validate(life json.RawMessage) error {
 			return fmt.Errorf("bindings must follow the ordered route without overlap")
 		}
 		levels[b.LevelID] = true
-		if !finite(b.StartM) || !finite(b.EndM) || b.StartM < 0 || b.EndM <= b.StartM || b.EndM > length || b.EndM-b.StartM < tail || !finite(b.X) || !finite(b.Y) || !finite(b.Z) || !finite(b.YawDegrees) {
+		if !finite(b.StartM) || !finite(b.EndM) || b.StartM < 0 || b.EndM <= b.StartM || b.EndM > length || b.EndM-b.StartM < tail || !finite(b.X) || !finite(b.Y) || !finite(b.FloorElevationM) || !finite(b.Z) || !finite(b.YawDegrees) {
 			return fmt.Errorf("invalid metric binding")
 		}
 		// V1 exterior views cannot contain an unengineered sharp corner.
@@ -231,7 +232,7 @@ func (c TrainMotionCatalog) validatePainted(scenes []PaintedScene) error {
 			if p.MetricRail == nil || p.StopProgress != 0 || p.DwellSeconds != 0 || len(p.BerthDoors) > 0 {
 				return fmt.Errorf("train binding %s must target a metric pass-through, never passenger berth", b.LevelID)
 			}
-			if scene.FloorElevationM == nil || math.Abs(*scene.FloorElevationM+b.Y-p.ElevationM) > .001 {
+			if scene.FloorElevationM == nil || math.Abs(*scene.FloorElevationM+b.Y-p.ElevationM) > .001 || (b.FloorElevationM != 0 && math.Abs(b.FloorElevationM-*scene.FloorElevationM) > .001) {
 				return fmt.Errorf("train binding %s has inconsistent relative floor elevation", b.LevelID)
 			}
 		}

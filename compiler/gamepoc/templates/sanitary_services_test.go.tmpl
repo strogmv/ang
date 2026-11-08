@@ -676,3 +676,44 @@ func TestSanitaryDutyBreakSurvivesServiceSaveAndPhysicalReturn(t *testing.T) {
 		t.Fatalf("incomplete actual duty break: saved=%v used=%v released=%v returned=%v now=%d at=%v post=%+v manual=%v break=%s returning=%v arrived=%v shop=%+v enabled=%v hold=%v goal=%+v last=%d", saved, used, released, returned, r.state.Life.Seconds, a.Position, post, a.Manual, a.Brain.BreakKind, a.Brain.Returning, a.Arrived, r.state.Inventory.Shopfronts["tenant09"], r.world.Life.Brain.Enabled, a.CombatHold, a.Brain.Goal, a.Brain.LastSecond)
 	}
 }
+
+// Independent SDK services are reached from their own public arrivals. They do
+// not inherit the market vestibule, and a request cannot cross a level boundary.
+func TestHubServicesOwnLevelTopology(t *testing.T) {
+ r,_:=sanitaryFixture(t,"wc")
+ const level="level.c7_transport_hub"
+ if _,ok:=r.world.Life.Locations[level];!ok { t.Skip("no transport hub in this project") }
+ wc,med:=r.world.SanitaryServices,r.world.MedicalCapsules
+ if len(wc.Units)!=7 || len(med.Units)!=2 || len(wc.unitsAt(level))!=4 || len(med.unitsAt(level))!=2 { t.Fatal("primary and hub catalogs were mixed") }
+ arrivals:=[]behavior.Cell{}
+ for _,edge:=range r.world.Life.Edges { if edge.To==level { arrivals=append(arrivals,edge.Entry) } }
+ if len(arrivals)<2 { t.Fatal("hub needs its authored public arrivals") }
+ m:=r.state.Life.GateModel(r.world.Life)
+ seen:=map[behavior.Cell]bool{}
+ check:=func(id string,at behavior.Cell,entry,inside medicalPose){
+  t.Helper()
+  if seen[at] || !m.Walks(level,at) || entry.Y!=inside.Y { t.Fatalf("invalid independent service approach: %s",id) };seen[at]=true
+  for _,start:=range arrivals {
+   if start==at || len(m.Space(level,nil).Path(start,at,behavior.Cell{},0))==0 { t.Fatalf("%s unreachable from hub arrival %v",id,start) }
+   if path:=m.Space(level,map[behavior.Cell]bool{at:true}).Path(start,at,behavior.Cell{},0);len(path)>0 { t.Fatalf("%s bypassed blocked own approach: %v",id,path) }
+  }
+ }
+ for _,u:=range wc.unitsAt(level) {
+  if u.LevelID!=level || wc.unit(u.ID)==nil { t.Fatal("wrong WC level/index") };check(u.ID,u.EntryCell,u.EntryPose,u.InsidePose)
+  if err:=r.sanitaryRequest(playerActorID,u.ID);err==nil { t.Fatal("cross-level WC reservation accepted") }
+ }
+ for _,u:=range med.unitsAt(level) {
+  if u.LevelID!=level || med.unit(u.ID)==nil { t.Fatal("wrong medical level/index") };check(u.ID,u.ScanCell,u.ScanPose,u.InsidePose)
+  if err:=r.medicalRequest(playerActorID,u.ID);err==nil { t.Fatal("cross-level medical reservation accepted") }
+ }
+ hero:=r.state.Life.Actor(playerActorID)
+ hero.Level=level;hero.Position=arrivals[0];hero.Goal=hero.Position;hero.Body=nil
+ r.syncLifeHero()
+ u:=wc.unitsAt(level)[0]
+ if err:=r.sanitaryRequest(playerActorID,u.ID);err!=nil {t.Fatal("own-level WC reservation",err)}
+ r.sanitaryRelease(playerActorID)
+ v:=med.unitsAt(level)[0]
+ if err:=r.medicalRequest(playerActorID,v.ID);err!=nil {t.Fatal("own-level medical reservation",err)}
+ r.syncLifeHero()
+ if err:=r.validateLifeSave(r.snapshotState());err!=nil {t.Fatal("hub reservation save",err)}
+}

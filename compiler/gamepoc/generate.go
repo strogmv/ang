@@ -189,6 +189,7 @@ type Menu struct {
 }
 
 type Compiled struct {
+	GodotScenes      []GodotScene           `json:"-"`
 	GodotTargets     []string               `json:"-"`
 	GodotTheme       *GodotTheme            `json:"-"`
 	WebSocket        bool                   `json:"-"`
@@ -342,6 +343,11 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 		return out, nil, err
 	}
 	world := w.LookupPath(cue.ParsePath("world"))
+	if scenes := world.LookupPath(cue.ParsePath("godot_scenes")); scenes.Exists() {
+		if err := scenes.Decode(&out.GodotScenes); err != nil {
+			return out, nil, err
+		}
+	}
 	if err := world.Validate(cue.Concrete(true)); err != nil {
 		return out, nil, fmt.Errorf("world: %s", errors.Details(err, nil))
 	}
@@ -906,6 +912,9 @@ func Generate(project string) error {
 	}
 	if compiled.BarksView == nil {
 		compiled.BarksView = defaultBarksView()
+	}
+	if err := writeGodotLocations(project, compiled); err != nil {
+		return err
 	}
 	if err := writeGodotTheme(project, compiled.GodotTheme); err != nil {
 		return err

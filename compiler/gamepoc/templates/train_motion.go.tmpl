@@ -42,6 +42,7 @@ type trainModuleDefinition struct {
 	BogieOffsetsM []float64 `json:"bogie_offsets_m"`
 }
 type trainBindingDefinition struct {
+ FloorElevationM float64 `json:"floor_elevation_m,omitempty"`
 	PassageID    string  `json:"passage_id,omitempty"`
 	LevelID      string  `json:"level_id"`
 	StartM       float64 `json:"start_m"`
@@ -138,7 +139,7 @@ func (c *trainMotionCatalog) sample(distance, length float64) trainPose {
 func trainProject(p trainPose, b trainBindingDefinition) trainPose {
 	a := b.YawDegrees * math.Pi / 180
 	co, si := math.Cos(a), math.Sin(a)
-	return trainPose{X: b.X + co*p.X + si*p.Z, Y: b.Y + p.Y, Z: b.Z - si*p.X + co*p.Z, YawDegrees: p.YawDegrees + b.YawDegrees}
+	return trainPose{X: b.X + co*p.X + si*p.Z, Y: b.FloorElevationM + b.Y + p.Y, Z: b.Z - si*p.X + co*p.Z, YawDegrees: p.YawDegrees + b.YawDegrees}
 }
 
 // snapshot has no writes: an unloaded world follows exactly the same route as

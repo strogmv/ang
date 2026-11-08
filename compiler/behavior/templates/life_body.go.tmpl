@@ -812,7 +812,7 @@ func (s *LifeState) routeBody(m LifeModel, g lifeBodyGeom, a *LifeActor, target 
 
 // clear: the disk at (x,y) touches no blocked square of the layer.
 func (g lifeBodyGeom) clear(layer int, x, y, r float64, others map[Cell]bool) bool {
-	if _, ok := g.navOf(layer, g.cellOf(x, y)); !ok {
+	if n, ok := g.navOf(layer, g.cellOf(x, y)); !ok || !g.walks(n) {
 		return false
 	}
 	ok := true
@@ -825,6 +825,10 @@ func (g lifeBodyGeom) clear(layer int, x, y, r float64, others map[Cell]bool) bo
 }
 
 // segmentClear: the disk swept from a to b on one layer (static geometry).
+// A stair-end square may support the disk rim through square(), but its centre
+// belongs to the far layer. Never string-pull a same-layer segment through a
+// blocked near-layer cell just because a stair link reaches that plan square.
+// Link crossings keep their explicit near/far waypoints in pull().
 func (g lifeBodyGeom) segmentClear(layer int, ax, ay, bx, by float64, others map[Cell]bool) bool {
 	r := g.m.HeroBody.RadiusMM + 10
 	d := math.Hypot(bx-ax, by-ay)
@@ -832,7 +836,7 @@ func (g lifeBodyGeom) segmentClear(layer int, ax, ay, bx, by float64, others map
 	for i := 0; i <= n; i++ {
 		t := float64(i) / float64(n)
 		x, y := ax+(bx-ax)*t, ay+(by-ay)*t
-		if _, ok := g.navOf(layer, g.cellOf(x, y)); !ok {
+		if n, ok := g.navOf(layer, g.cellOf(x, y)); !ok || !g.walks(n) {
 			return false
 		}
 		if !g.clear(layer, x, y, r, others) && !(i == 0 || i == n) {

@@ -581,6 +581,9 @@ func (r *Runtime) close(c *connection) {
 	}
 }
 func (r *Runtime) send(c *connection, m *pb.ServerMessage) {
+<<ANG if .GodotTargets ANG>>
+ if s:=m.GetGameState();s!=nil{s.ServerPublishedUnixMs=time.Now().UnixMilli()}
+<<ANG end ANG>>
 	if c == nil || c.closed {
 		return
 	}

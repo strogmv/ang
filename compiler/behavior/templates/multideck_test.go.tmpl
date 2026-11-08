@@ -202,3 +202,42 @@ func TestMultideckHeroAndResidentPassOnTheStair(t *testing.T) {
 		t.Fatal("resumed mid-stair save diverged from the uninterrupted run")
 	}
 }
+
+// A stair link supports the disk rim at the landing; it must not make the
+// first riser into floor for string pulling. A shallow diagonal along the foot
+// previously entered the stair while keeping a floor waypoint, then oscillated.
+func TestHeroBodyPullKeepsStairFootOnItsOwnLayer(t *testing.T) {
+ m,v:=multideckFixture()
+ l:=m.Locations["md"];l.CellMM=500;m.Locations["md"]=l
+ m.HeroBody=LifeHeroBodyModel{RadiusMM:220,RunFactor:1.5,FollowStopMM:200,LookaheadMM:1000}
+ if err:=v.Prepare();err!=nil {t.Fatal(err)}
+ m.Decks=map[string]*DeckVolume{"md":v}
+ g,ok:=m.bodyGeom("md");if !ok {t.Fatal("missing body geometry")}
+ ax,ay:=g.center(Cell{3,10});bx,by:=g.center(Cell{8,9})
+ if g.segmentClear(0,ax,ay,bx,by,nil) {t.Fatal("string pulling crossed a riser as floor")}
+ x,y:=g.center(Cell{5,9})
+ if g.clear(0,x,y,m.HeroBody.RadiusMM,nil) {t.Fatal("stair link made a blocked floor centre standable")}
+ walk:=func(from,to Cell, layer int, wantStair bool) {
+  t.Helper()
+  startLayer,plan,ok:=g.locate(from);if !ok {t.Fatal(from)}
+  x,y:=g.center(plan)
+  state:=LifeState{ControlledActorID:"hero",Actors:[]LifeActor{{ID:"hero",Level:"md",Position:from,Manual:true,Body:&LifeBody{X:x,Y:y,Layer:startLayer,Cells:[]Cell{from}}}}}
+  hero:=state.Actor("hero")
+  if !state.routeBody(m,g,hero,to,0,0,false,false) {t.Fatalf("route rejected %v -> %v",from,to)}
+  stair:=false
+  for tick:=int64(1);tick<=300 && hero.Body.Mode=="route";tick++ {
+   state.integrateBody(m,hero,tick*1000)
+   if hero.Body.Layer>=len(v.Surfaces) {stair=true}
+   if !wantStair && hero.Body.Layer!=layer {t.Fatalf("floor route entered stair: %+v",hero.Body)}
+   if err:=state.validateBody(m,*hero);err!=nil {t.Fatal("invalid body during crossing",err)}
+  }
+  if hero.Position!=to || hero.Body.Mode!="" || hero.Body.Layer!=layer || stair!=wantStair {t.Fatalf("route %v -> %v: at %v layer=%d stair=%v body=%+v",from,to,hero.Position,hero.Body.Layer,stair,hero.Body)}
+ }
+ walk(Cell{3,10},Cell{8,9},0,false)
+ walk(Cell{8,9},Cell{3,10},0,false)
+ for lane:=0;lane<3;lane++ {
+  foot,head:=Cell{4+lane,11},Cell{4+lane,14}
+  walk(foot,head,1,true)
+  walk(head,foot,0,true)
+ }
+}

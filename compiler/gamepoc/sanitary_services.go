@@ -26,18 +26,20 @@ type SanitaryUnit struct {
 	MaxWaitSeconds int64       `json:"max_wait_seconds"`
 }
 type SanitaryCatalog struct {
-	PrefabResource     string         `json:"prefab_resource"`
-	CommonEntryCell    Point          `json:"common_entry_cell"`
-	CommonEntryPose    MedicalPose    `json:"common_entry_pose"`
-	ServiceAvailable   bool           `json:"service_available"`
-	AvailabilitySource string         `json:"availability_source"`
-	ManagedAffordance  string         `json:"managed_affordance"`
-	DoorSeconds        float64        `json:"door_seconds"`
-	EntrySeconds       float64        `json:"entry_seconds"`
-	ExitSeconds        float64        `json:"exit_seconds"`
-	QueueLimit         int            `json:"queue_limit"`
-	NPCHygiene         bool           `json:"npc_hygiene"`
-	Units              []SanitaryUnit `json:"units"`
+	// The primary Units/CommonEntry retain their strict shared-entrance topology.
+	Levels             map[string][]SanitaryUnit `json:"levels,omitempty"`
+	PrefabResource     string                    `json:"prefab_resource"`
+	CommonEntryCell    Point                     `json:"common_entry_cell"`
+	CommonEntryPose    MedicalPose               `json:"common_entry_pose"`
+	ServiceAvailable   bool                      `json:"service_available"`
+	AvailabilitySource string                    `json:"availability_source"`
+	ManagedAffordance  string                    `json:"managed_affordance"`
+	DoorSeconds        float64                   `json:"door_seconds"`
+	EntrySeconds       float64                   `json:"entry_seconds"`
+	ExitSeconds        float64                   `json:"exit_seconds"`
+	QueueLimit         int                       `json:"queue_limit"`
+	NPCHygiene         bool                      `json:"npc_hygiene"`
+	Units              []SanitaryUnit            `json:"units"`
 }
 
 func readSanitaryServices(world cue.Value, c Compiled) (*SanitaryCatalog, error) {
@@ -55,8 +57,14 @@ func readSanitaryServices(world cue.Value, c Compiled) (*SanitaryCatalog, error)
 	if err = d.Decode(&out); err != nil {
 		return nil, err
 	}
+	if len(out.Levels) != 0 {
+		return nil, fmt.Errorf("sanitary levels must derive from validated SDK slots")
+	}
 	if err = out.validate(c); err != nil {
 		return nil, fmt.Errorf("sanitary_services: %w", err)
+	}
+	if err := appendSDKSanitary(world, c, &out); err != nil {
+		return nil, err
 	}
 	return &out, nil
 }
