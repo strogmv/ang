@@ -140,9 +140,16 @@ func (r *Runtime) appendSanitaryServices(msg *pb.PocGameState, hero *behavior.Li
 			}
 			if !v.RequestEnabled {
 				key := "sanitary.error.busy"
-				if !cfg.ServiceAvailable {
-					key = "sanitary.error.unavailable"
-				}
+				switch {
+                case !cfg.ServiceAvailable:
+                    key = "sanitary.error.unavailable"
+                case r.state.Paused:
+                    key = "ui.screen.service.paused"
+                case r.serviceReserved(playerActorID):
+                    key = "ui.screen.service.reserved"
+                case !hero.OnFloor() || hero.CombatHold:
+                    key = "ui.screen.service.unavailable_now"
+                }
 				v.RequestReason = r.localText(locale, key, key)
 			}
 			v.PhaseText = r.localText(locale, "sanitary.phase."+v.Phase, "sanitary.phase."+v.Phase)

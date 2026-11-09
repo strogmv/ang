@@ -403,7 +403,7 @@ func (r *Runtime) vendingText(locale, key, definition string, minor int64) strin
 		d := r.world.Inventory.Definitions[definition]
 		text = strings.ReplaceAll(text, "{item}", r.localText(locale, d.Name, d.Name))
 	}
-	return strings.ReplaceAll(text, "{crd}", inv.FormatMoney(minor, r.world.Inventory.Currencies[r.vendingAccountCurrency()].Scale))
+	return strings.ReplaceAll(text, "{crd}", strings.ReplaceAll(inv.FormatMoney(minor, r.world.Inventory.Currencies[r.vendingAccountCurrency()].Scale),".",r.localText(locale,"ui.format.decimal_separator",".")))
 }
 
 // advanceVending: the night refill (unit i serves from from_second + i*seconds_per_unit, once per game day; if the

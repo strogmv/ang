@@ -2,62 +2,132 @@
 package poc
 
 import (
- "fmt"
- inv "angelsdemons/server/internal/inventory"
- pb "angelsdemons/server/internal/transport/grpc/pb/game/v1"
+	inv "angelsdemons/server/internal/inventory"
+	pb "angelsdemons/server/internal/transport/grpc/pb/game/v1"
+	"fmt"
 )
 
-var screenInventoryNames=map[string]string{
-<<ANG range $id,$key := .GodotScreens.ItemNames ANG>><<ANG printf "%q" $id ANG>>:<<ANG printf "%q" $key ANG>>,
-<<ANG end ANG>>}
-
-func(r *Runtime)screenInventoryName(locale,definition string)string{
- d:=r.world.Inventory.Definitions[definition]
- key:=screenInventoryNames[definition];if key==""{key=d.Name}
- return r.localText(locale,key,d.Name)
+func (r *Runtime) screenInventoryName(locale, definition string) string {
+	key := r.world.Inventory.Definitions[definition].Name
+	return r.localText(locale, key, key)
 }
-
-func(r *Runtime)appendScreenInventory(view *pb.PocInventoryView,locale string){
- model:=r.inventoryModelFor(r.state.Life.Enabled)
- ready:=!r.state.Paused&&!r.heroInCombat()&&!(r.missionActor()==playerActorID&&r.state.Demo.Captured)
- for _,storage:=range view.Stores{
-  if st:=r.state.Inventory.Stores[storage.Id];st.Anchor.Kind=="item"{if physical,ok:=r.state.Inventory.Items[st.Anchor.Item];ok{storage.Name=r.screenInventoryName(locale,physical.Definition)}}
-  view.StorageActions=append(view.StorageActions,&pb.PocInventoryOption{Id:storage.Id,Label:r.screenText(locale,"ui.screen.inventory.open")+" · "+storage.Name,Action:"open",StoreId:storage.Id,Enabled:true})
- }
- for _,item:=range view.Items{
-  physical:=r.state.Inventory.Items[item.Id]
-  definition:=model.Definitions[physical.Definition]
-  item.Name=r.screenInventoryName(locale,physical.Definition)
-  if physical.Location.Kind=="store"&&physical.Location.Store!=inv.ActorStore(playerActorID){
-   if storage:=r.state.Inventory.Stores[physical.Location.Store];storage.Anchor.Kind=="item"{
-    if container,ok:=r.state.Inventory.Items[storage.Anchor.Item];ok{item.Location=r.screenInventoryName(locale,container.Definition);if item.Carried{item.Location+=r.screenText(locale,"ui.screen.inventory.carried_suffix")}}
-   }
-  }
-  item.ConditionPpm=physical.Condition
-  item.DetailLines=[]string{
-   r.screenText(locale,"ui.screen.quantity","quantity",fmt.Sprint(item.Quantity)),
-   r.screenText(locale,"ui.screen.item_condition","percent",fmt.Sprint(physical.Condition/10000)),
-   r.screenText(locale,"ui.screen.item_load","mass",fmt.Sprint(definition.Mass),"volume",fmt.Sprint(definition.Volume)),
-  }
-  add:=func(action,key,store string,enabled bool){
-   option:=&pb.PocInventoryOption{Id:item.Id+":"+action,Label:r.screenText(locale,key),Action:action,ItemId:item.Id,StoreId:store,Quantity:1,Revision:item.Revision,Enabled:ready&&enabled}
-   if !option.Enabled{option.Reason=r.screenText(locale,"ui.screen.inventory.unavailable")}
-   item.Actions=append(item.Actions,option)
-  }
-  if item.CanTake{add("take","ui.screen.take","",true)}
-  if item.CanBuy{add("buy","ui.screen.inventory.buy","",true)}
-  if item.CanEquip{add("equip","ui.screen.equip","",physical.Condition>0)}
-  if item.CanUnequip{add("unequip","ui.screen.unequip","",true)}
-  if item.CanDrop{add("drop","ui.screen.drop","",true)}
-  if item.Container&&r.inventoryReach(inv.Location{Kind:"store",Store:inv.ItemStore(item.Id)}){add("open","ui.screen.inventory.open",inv.ItemStore(item.Id),true)}
-  if item.Carried&&r.openStore!=""&&r.inventoryReach(inv.Location{Kind:"store",Store:r.openStore}){
-   // Execute on an inventory copy: nesting, permissions and capacity stay the
-   // same as a real put. No cursor, item or account in the world is changed.
-   trial:=r.state.Inventory.Clone()
-   _,err:=trial.Execute(model,inv.Action{Actor:playerActorID,Kind:"put",Item:item.Id,Store:r.openStore,Quantity:1,ExpectedRevision:item.Revision,Sequence:view.NextSequence,RequestTag:"screen-put-projection"},r.actorAccess(playerActorID))
-   add("put","ui.screen.inventory.put",r.openStore,err==nil)
-   if err!=nil{item.Actions[len(item.Actions)-1].Reason=r.screenText(locale,"ui.screen.inventory.failed")}
-  }
-  if item.Equipped{view.Equipment=append(view.Equipment,item)}
- }
+func (r *Runtime) appendScreenInventory(view *pb.PocInventoryView, locale string) {
+	model := r.inventoryModelFor(r.state.Life.Enabled)
+	ready := !r.state.Paused && !r.heroInCombat() && !(r.missionActor() == playerActorID && r.state.Demo.Captured)
+	for _, storage := range view.Stores {
+		if st := r.state.Inventory.Stores[storage.Id]; st.Anchor.Kind == "item" {
+			if physical, ok := r.state.Inventory.Items[st.Anchor.Item]; ok {
+				storage.Name = r.screenInventoryName(locale, physical.Definition)
+			}
+		}
+		view.StorageActions = append(
+			view.StorageActions,
+			&pb.PocInventoryOption{
+				Id:      storage.Id,
+				Label:   r.screenText(locale, "ui.screen.inventory.open") + " · " + storage.Name,
+				Action:  "open",
+				StoreId: storage.Id,
+				Enabled: true,
+			},
+		)
+	}
+	for _, item := range view.Items {
+		physical := r.state.Inventory.Items[item.Id]
+		definition := model.Definitions[physical.Definition]
+		item.Name = r.screenInventoryName(locale, physical.Definition)
+		if physical.Location.Kind == "store" && physical.Location.Store != inv.ActorStore(playerActorID) {
+			if storage := r.state.Inventory.Stores[physical.Location.Store]; storage.Anchor.Kind == "item" {
+				if container, ok := r.state.Inventory.Items[storage.Anchor.Item]; ok {
+					item.Location = r.screenInventoryName(locale, container.Definition)
+					if item.Carried {
+						item.Location += r.screenText(locale, "ui.screen.inventory.carried_suffix")
+					}
+				}
+			}
+		}
+		item.ConditionPpm = physical.Condition
+		item.DetailLines = []string{
+			r.screenText(locale, "ui.screen.quantity", "quantity", fmt.Sprint(item.Quantity)),
+			r.screenText(
+				locale,
+				"ui.screen.item_condition",
+				"percent",
+				fmt.Sprint(physical.Condition/10000),
+			),
+			r.screenText(
+				locale,
+				"ui.screen.item_load",
+				"mass",
+				fmt.Sprint(definition.Mass),
+				"volume",
+				fmt.Sprint(definition.Volume),
+			),
+		}
+		add := func(action, key, store string, enabled bool) {
+			option := &pb.PocInventoryOption{
+				Id:       item.Id + ":" + action,
+				Label:    r.screenText(locale, key),
+				Action:   action,
+				ItemId:   item.Id,
+				StoreId:  store,
+				Quantity: 1,
+				Revision: item.Revision,
+				Enabled:  ready && enabled,
+			}
+			if !option.Enabled {
+				option.Reason = r.screenText(locale, "ui.screen.inventory.unavailable")
+			}
+			item.Actions = append(item.Actions, option)
+		}
+		if item.CanTake {
+			add("take", "ui.screen.take", "", true)
+		}
+		if item.CanBuy {
+			add("buy", "ui.screen.inventory.buy", "", true)
+		}
+		if item.CanEquip {
+			add("equip", "ui.screen.equip", "", physical.Condition > 0)
+		}
+		if item.CanUnequip {
+			add("unequip", "ui.screen.unequip", "", true)
+		}
+		if item.CanDrop {
+			add("drop", "ui.screen.drop", "", true)
+		}
+		if item.Container && r.inventoryReach(inv.Location{
+			Kind:  "store",
+			Store: inv.ItemStore(item.Id),
+		}) {
+			add("open", "ui.screen.inventory.open", inv.ItemStore(item.Id), true)
+		}
+		if item.Carried && r.openStore != "" && r.inventoryReach(inv.Location{
+			Kind:  "store",
+			Store: r.openStore,
+		}) {
+			// Execute on an inventory copy: nesting, permissions and capacity stay the
+			// same as a real put. No cursor, item or account in the world is changed.
+			trial := r.state.Inventory.Clone()
+			_, err := trial.Execute(
+				model,
+				inv.Action{
+					Actor:            playerActorID,
+					Kind:             "put",
+					Item:             item.Id,
+					Store:            r.openStore,
+					Quantity:         1,
+					ExpectedRevision: item.Revision,
+					Sequence:         view.NextSequence,
+					RequestTag:       "screen-put-projection",
+				},
+				r.actorAccess(playerActorID),
+			)
+			add("put", "ui.screen.inventory.put", r.openStore, err == nil)
+			if err != nil {
+				item.Actions[len(item.Actions)-1].Reason = r.screenText(locale, "ui.screen.inventory.failed")
+			}
+		}
+		if item.Equipped {
+			view.Equipment = append(view.Equipment, item)
+		}
+	}
 }

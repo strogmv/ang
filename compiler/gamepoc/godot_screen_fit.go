@@ -129,10 +129,15 @@ func (f screenFont) advance(r rune) (float64, error) {
 	return float64(u16(f.tables["hmtx"][glyph*4:glyph*4+2])) / float64(f.units), nil
 }
 func screenText(c Compiled, key string, px, width, lines int, root string) error {
+	return screenLocalizedText(c, key, px, width, lines, root, true)
+}
+
+// Item names arrive translated by the server and are never exported to public PO.
+func screenLocalizedText(c Compiled, key string, px, width, lines int, root string, uiOnly bool) error {
 	if px < 12 {
 		return fmt.Errorf("effective text %d px below 12 px", px)
 	}
-	if width < 48 || width > 1120 || lines < 1 {
+	if width < 48 || width > 1280 || lines < 1 {
 		return fmt.Errorf("invalid text box at 1280x800: width %d, lines %d", width, lines)
 	}
 	if key == "" {
@@ -145,7 +150,7 @@ func screenText(c Compiled, key string, px, width, lines int, root string) error
 			break
 		}
 	}
-	if message == nil || !strings.HasPrefix(key, "ui.") {
+	if message == nil || (uiOnly && !strings.HasPrefix(key, "ui.")) {
 		return fmt.Errorf("missing public text key %q", key)
 	}
 	var fonts []screenFont
@@ -172,6 +177,11 @@ func screenText(c Compiled, key string, px, width, lines int, root string) error
 				w := 0.0
 				for _, r := range word {
 					adv, err := f.advance(r)
+					// Dynamic server item names also use Godot's font fallback. Bound an
+					// absent SFNT glyph by 1.25 em; actual shaping is checked natively.
+					if err != nil && !uiOnly {
+						adv, err = 1.25, nil
+					}
 					if err != nil {
 						return fmt.Errorf("%s %s: %w", key, locale, err)
 					}

@@ -2,46 +2,174 @@
 package poc
 
 import (
- "fmt"
- "strings"
- pb "angelsdemons/server/internal/transport/grpc/pb/game/v1"
+	pb "angelsdemons/server/internal/transport/grpc/pb/game/v1"
+	"fmt"
+	"strings"
 )
 
-var screenDisciplineSkins=map[string]string{
-<<ANG range $id,$skin := .GodotScreens.DisciplineSkins ANG>><<ANG printf "%q" $id ANG>>:<<ANG printf "%q" $skin ANG>>,
-<<ANG end ANG>>}
-func(r *Runtime)appendScreenCrafting(view *pb.PocCraftingView,locale string){
- view.Skin="copper"
- for _,d:=range view.Disciplines{d.SummaryLines=[]string{r.screenText(locale,"ui.screen.craft.discipline_stats","name",d.Name,"tier_name",d.TierName,"tier",fmt.Sprint(d.Tier),"points",fmt.Sprint(d.Points),"next",fmt.Sprint(d.Next))}}
- recipe:=func(v *pb.PocCraftingRecipe){
-  v.Skin="copper"
-  rec,ok:=r.world.Crafting.Recipe(v.Id)
-  if ok{
-   if skin:=screenDisciplineSkins[rec.Discipline];skin!=""{v.Skin=skin}
-   if rec.Output!=nil{v.Output=r.screenInventoryName(locale,rec.Output.Item);if rec.Output.N>1{v.Output+=" ×"+fmt.Sprint(rec.Output.N)}}
-  }
-  key:="ui.crafting.craft"
-  switch v.Kind{case "repair":key="ui.crafting.repair";case "maintain":key="ui.crafting.maintain";case "disassemble":key="ui.crafting.disassemble";case "bypass":key="ui.crafting.bypass"}
-  v.ActionLabel=r.screenText(locale,key)
-  v.DetailLines=[]string{r.screenText(locale,"ui.screen.craft.recipe_stats","discipline",v.Discipline,"tier",fmt.Sprint(v.Tier),"minutes",fmt.Sprint(v.Minutes)),v.Legal}
-  if v.Station!=""{v.DetailLines=append(v.DetailLines,v.Station)}else{v.DetailLines=append(v.DetailLines,r.screenText(locale,"ui.crafting.by_hand"))}
-  if v.CanStart{v.DetailLines=append(v.DetailLines,r.screenText(locale,"ui.screen.craft.outcome_stats","quality",fmt.Sprint(v.Quality),"risk",fmt.Sprint(v.RiskPercent)))}
-  if v.Output!=""{v.DetailLines=append(v.DetailLines,v.Output)}
-  for _,line:=range []string{strings.ReplaceAll(v.Price,".",r.localText(locale,"ui.format.decimal_separator",".")),strings.ReplaceAll(v.Rent,".",r.localText(locale,"ui.format.decimal_separator",".")),v.Flaw}{if line!=""{v.DetailLines=append(v.DetailLines,line)}}
-  if v.DueSeconds>0{v.DetailLines=append(v.DetailLines,r.screenText(locale,"ui.crafting.due")+": "+r.craftingClock(locale,v.DueSeconds))}
- }
- for _,v:=range view.Book{recipe(v)}
- for _,thing:=range view.Things{
-  if item,ok:=r.state.Inventory.Items[thing.ItemId];ok{thing.Name=r.screenInventoryName(locale,item.Definition)}
-  thing.DetailLines=[]string{r.screenText(locale,"ui.screen.craft.thing_stats","percent",fmt.Sprint(thing.ConditionPpm/10000),"quality",fmt.Sprint(thing.Quality))}
-  for _,v:=range thing.Actions{recipe(v)}
- }
- for _,option:=range view.Options{
-  if item,ok:=r.state.Inventory.Items[option.ItemId];ok{
-   oldName:=r.craftingItemName(locale,item.Definition);name:=r.screenInventoryName(locale,item.Definition)
-   if oldName!=""&&oldName!=name{option.Title=strings.ReplaceAll(option.Title,oldName,name);option.Sub=strings.ReplaceAll(option.Sub,oldName,name);for i,line:=range option.Lines{option.Lines[i]=strings.ReplaceAll(line,oldName,name)}}
-  }
- }
- for _,job:=range view.Jobs{job.DetailLines=[]string{job.State,r.screenText(locale,"ui.screen.craft.job_progress","percent",fmt.Sprint(job.ProgressPpm/10000),"seconds",fmt.Sprint(job.RemainingSeconds))};if job.Order{job.DetailLines=append([]string{job.Worker},job.DetailLines...)};if job.DueSeconds>0{job.DetailLines=append(job.DetailLines,r.craftingClock(locale,job.DueSeconds))}}
- if view.Counter!=nil{view.Counter.Skin=r.screenActorSkin(view.Counter.Master);for _,v:=range view.Counter.Offers{recipe(v);v.Skin=view.Counter.Skin}}
+var screenDisciplineSkins = map[string]string{
+<<ANG range $id, $skin := .GodotScreens.DisciplineSkins ANG>>
+	<<ANG printf "%q" $id ANG>>: <<ANG printf "%q" $skin ANG>>,
+<<ANG end ANG>>
+}
+func (r *Runtime) appendScreenCrafting(view *pb.PocCraftingView, locale string) {
+	view.Skin = "copper"
+	for _, d := range view.Disciplines {
+		d.SummaryLines = []string{r.screenText(
+			locale,
+			"ui.screen.craft.discipline_stats",
+			"name",
+			d.Name,
+			"tier_name",
+			d.TierName,
+			"tier",
+			fmt.Sprint(d.Tier),
+			"points",
+			fmt.Sprint(d.Points),
+			"next",
+			fmt.Sprint(d.Next),
+		)}
+	}
+	recipe := func(v *pb.PocCraftingRecipe) {
+		v.Skin = "copper"
+		rec, ok := r.world.Crafting.Recipe(v.Id)
+		if ok {
+			if skin := screenDisciplineSkins[rec.Discipline]; skin != "" {
+				v.Skin = skin
+			}
+			if rec.Output != nil {
+				v.Output = r.screenInventoryName(locale, rec.Output.Item)
+				if rec.Output.N > 1 {
+					v.Output += " ×" + fmt.Sprint(rec.Output.N)
+				}
+			}
+		}
+		key := "ui.crafting.craft"
+		switch v.Kind {
+		case "repair":
+			key = "ui.crafting.repair"
+		case "maintain":
+			key = "ui.crafting.maintain"
+		case "disassemble":
+			key = "ui.crafting.disassemble"
+		case "bypass":
+			key = "ui.crafting.bypass"
+		}
+		v.ActionLabel = r.screenText(locale, key)
+		v.DetailLines = []string{
+			r.screenText(
+				locale,
+				"ui.screen.craft.recipe_stats",
+				"discipline",
+				v.Discipline,
+				"tier",
+				fmt.Sprint(v.Tier),
+				"minutes",
+				fmt.Sprint(v.Minutes),
+			),
+			v.Legal,
+		}
+		if v.Station != "" {
+			v.DetailLines = append(v.DetailLines, v.Station)
+		} else {
+			v.DetailLines = append(v.DetailLines, r.screenText(locale, "ui.crafting.by_hand"))
+		}
+		if v.CanStart {
+			v.DetailLines = append(
+				v.DetailLines,
+				r.screenText(
+					locale,
+					"ui.screen.craft.outcome_stats",
+					"quality",
+					fmt.Sprint(v.Quality),
+					"risk",
+					fmt.Sprint(v.RiskPercent),
+				),
+			)
+		}
+		if v.Output != "" {
+			v.DetailLines = append(v.DetailLines, v.Output)
+		}
+		for _, line := range []string{
+			strings.ReplaceAll(
+				v.Price,
+				".",
+				r.localText(locale, "ui.format.decimal_separator", "."),
+			),
+			strings.ReplaceAll(
+				v.Rent,
+				".",
+				r.localText(locale, "ui.format.decimal_separator", "."),
+			),
+			v.Flaw,
+		} {
+			if line != "" {
+				v.DetailLines = append(v.DetailLines, line)
+			}
+		}
+		if v.DueSeconds > 0 {
+			v.DetailLines = append(
+				v.DetailLines,
+				r.screenText(locale, "ui.crafting.due")+": "+r.craftingClock(locale, v.DueSeconds),
+			)
+		}
+	}
+	for _, v := range view.Book {
+		recipe(v)
+	}
+	for _, thing := range view.Things {
+		if item, ok := r.state.Inventory.Items[thing.ItemId]; ok {
+			thing.Name = r.screenInventoryName(locale, item.Definition)
+		}
+		thing.DetailLines = []string{r.screenText(
+			locale,
+			"ui.screen.craft.thing_stats",
+			"percent",
+			fmt.Sprint(thing.ConditionPpm/10000),
+			"quality",
+			fmt.Sprint(thing.Quality),
+		)}
+		for _, v := range thing.Actions {
+			recipe(v)
+		}
+	}
+	for _, option := range view.Options {
+		if item, ok := r.state.Inventory.Items[option.ItemId]; ok {
+			oldName := r.craftingItemName(locale, item.Definition)
+			name := r.screenInventoryName(locale, item.Definition)
+			if oldName != "" && oldName != name {
+				option.Title = strings.ReplaceAll(option.Title, oldName, name)
+				option.Sub = strings.ReplaceAll(option.Sub, oldName, name)
+				for i, line := range option.Lines {
+					option.Lines[i] = strings.ReplaceAll(line, oldName, name)
+				}
+			}
+		}
+	}
+	for _, job := range view.Jobs {
+		job.DetailLines = []string{
+			job.State,
+			r.screenText(
+				locale,
+				"ui.screen.craft.job_progress",
+				"percent",
+				fmt.Sprint(job.ProgressPpm/10000),
+				"seconds",
+				fmt.Sprint(job.RemainingSeconds),
+			),
+		}
+		if job.Order {
+			job.DetailLines = append([]string{job.Worker}, job.DetailLines...)
+		}
+		if job.DueSeconds > 0 {
+			job.DetailLines = append(job.DetailLines, r.craftingClock(locale, job.DueSeconds))
+		}
+	}
+	if view.Counter != nil {
+		view.Counter.Skin = r.screenActorSkin(view.Counter.Master)
+		for _, v := range view.Counter.Offers {
+			recipe(v)
+			v.Skin = view.Counter.Skin
+		}
+	}
 }

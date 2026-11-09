@@ -9,11 +9,15 @@ var state: C.PocGameState
 var spec: Dictionary
 var screen_id := ""
 var selected := {}
+var toggles := {}
+var hud_root: Control
 var rail: Array[Control] = []
 var focus_ids: Array[String] = []
 var content: Control
 var status: Label
 var last_signature := ""
+var last_focus_uid := ""
+var pending_focus_visibility := false
 var open_us := 0
 var latency := {}
 var opening_latency := {}
@@ -26,34 +30,65 @@ var scroll_axis := 0.0
 var scroll_targets: Array[ScrollContainer] = []
 var page_scroll: ScrollContainer
 var backdrop: Control
-var elements=preload("res://generated/screens/elements.gd").new(self)
-var navigation=preload("res://generated/screens/navigation.gd").new(self)
+var chrome = preload("res://generated/screens/chrome.gd").new(self)
+var elements = preload("res://generated/screens/elements.gd").new(self)
+var navigation = preload("res://generated/screens/navigation.gd").new(self)
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	resized.connect(_layout)
+	get_viewport().gui_focus_changed.connect(_focus_changed)
+	RenderingServer.frame_pre_draw.connect(_before_draw)
 	hide()
 
+func _focus_changed(control: Control) -> void:
+	if is_instance_valid(content) and content.is_ancestor_of(control):
+		pending_focus_visibility = true
+
+func _before_draw() -> void:
+	if not visible or not pending_focus_visibility:
+		return
+	var focus := get_viewport().gui_get_focus_owner()
+	if not is_instance_valid(focus) or not is_instance_valid(content) or not content.is_ancestor_of(focus):
+		pending_focus_visibility = false
+		return
+	# Container sorts have settled by pre-draw. Follow a new focus once;
+	# subsequent manual scrolling must remain where the player put it.
+	var parent: Node = focus.get_parent()
+	while parent != null:
+		if parent is ScrollContainer:
+			parent.ensure_control_visible(focus)
+		parent = parent.get_parent()
+	pending_focus_visibility = false
+
 func value(binding: Dictionary, row: C.ProtoMessage = null) -> Variant:
-	if binding.has("ref"): return Catalog.read(binding.ref,state,row,selected)
+	if binding.has("ref"):
+		return Catalog.read(binding.ref, state, row, selected)
 	return binding.get("value")
 
 func present(id: String, snapshot: C.PocGameState, context = null, requested_us := 0) -> void:
 	host = context
 	state = snapshot
-	if host!=null and "settings" in host:selected["__settings"]=host.settings
-	if host!=null and "save_view" in host:selected["__saves"]=host.save_view
-	if screen_id != id: last_refusal = ""
+	if host != null and "settings" in host:
+		selected["__settings"] = host.settings
+	if host != null and "save_view" in host:
+		selected["__saves"] = host.save_view
+	if screen_id != id:
+		last_refusal = ""
 	screen_id = id
 	spec = {}
 	for entry in Catalog.specification().screens:
-		if entry.id == id: spec = entry; break
-	assert(not spec.is_empty(),"unregistered screen "+id)
+		if entry.id == id:
+			spec = entry
+			break
+	assert(not spec.is_empty(), "unregistered screen "+id)
 	open_us = requested_us if requested_us>0 else Time.get_ticks_usec()
 	opening_latency = {}
 	last_signature = ""
-	scroll_axis=0;hold=Vector2.ZERO;held_time=0
+	scroll_axis = 0
+	hold = Vector2.ZERO
+	held_time = 0
 	show()
 	_refresh()
 
@@ -65,171 +100,232 @@ func accept(snapshot: C.PocGameState) -> void:
 		if trigger == null or (trigger is bool and not trigger):
 			_dismiss()
 			return
-	if visible: _refresh()
+	if visible:
+		_refresh()
 
 func _snapshot(v: Variant) -> Variant:
-	if v is C.ProtoMessage: return v.to_dict()
-	if v is Array: return v.map(_snapshot)
+	if v is C.ProtoMessage:
+		return v.to_dict()
+	if v is Array:
+		return v.map(_snapshot)
 	return v
 
 func _signature(nodes: Array, row: C.ProtoMessage = null) -> Array:
-	var result: Array = [TranslationServer.get_locale(),_large()]
+	var result: Array = [TranslationServer.get_locale(), _large()]
 	for n in nodes:
-		for b in n.get("bind",{}).values(): result.append(_snapshot(value(b,row)))
+		for b in n.get("bind", {}).values():
+			result.append(_snapshot(value(b, row)))
 		if n.kind == "list":
-			var rows: Array=elements.rows_for(n,row)
+			var rows: Array = elements.rows_for(n, row)
 			if rows is Array:
-				for item in rows: result.append(_signature(n.get("children",[]),item))
-		else: result.append(_signature(n.get("children",[]),row))
+				for item in rows:
+					result.append(_signature(n.get("children", []), item))
+		else:
+			result.append(_signature(n.get("children", []), row))
 	return result
 
-func _large() -> bool: return host != null and host.large_text
-func _motion() -> bool: return host != null and host.reduced_motion
+func _large() -> bool:
+	return host != null and host.large_text
+func _motion() -> bool:
+	return host != null and host.reduced_motion
 
 func _refresh() -> void:
 	var build_started := Time.get_ticks_usec()
 	_resolve_lists(spec.controls)
 	var signature := JSON.stringify(_signature(spec.controls))
-	if signature == last_signature: return
+	if signature == last_signature:
+		return
 	last_signature = signature
 	var focused := ""
+	var keep_focus_visible := true
 	var owner := get_viewport().gui_get_focus_owner()
-	if is_instance_valid(owner) and is_ancestor_of(owner): focused = str(owner.get_meta("focus_uid",""))
+	if is_instance_valid(owner) and is_ancestor_of(owner):
+		focused = str(owner.get_meta("focus_uid", ""))
+		var bounds: Rect2 = preload("res://generated/screens/checks.gd")._visible_rect(owner)
+		keep_focus_visible = bounds.encloses(owner.get_global_rect()) or focused != last_focus_uid
 	var scrolls := {}
 	if is_instance_valid(content):
-		for node in content.find_children("*","ScrollContainer",true,false):
-			if node.has_meta("scroll_id"): scrolls[node.get_meta("scroll_id")]=Vector2i(node.scroll_horizontal,node.scroll_vertical)
-		remove_child(content); content.queue_free()
+		for node in content.find_children("*", "ScrollContainer", true, false):
+			if node.has_meta("scroll_id"):
+				scrolls[node.get_meta("scroll_id")] = Vector2i(node.scroll_horizontal, node.scroll_vertical)
+		remove_child(content)
+		content.queue_free()
 	scroll_targets.clear()
-	rail.clear(); focus_ids.clear()
+	rail.clear()
+	focus_ids.clear()
 	var skin: String = spec.skin
 	if spec.has("skin_rule"):
 		var candidate = value(spec.skin_rule)
-		if candidate is String and Catalog.specification().themes.has(candidate): skin = candidate
+		if candidate is String and Catalog.specification().themes.has(candidate):
+			skin = candidate
 	theme = Catalog.theme(skin)
-	var page := PanelContainer.new()
-	page.theme_type_variation = "DialoguePanel"
-	if spec.layout in ["overlay","hud"]: page.add_theme_stylebox_override("panel",StyleBoxEmpty.new())
-	if spec.chrome == "tactical" and spec.layout != "hud":
-		var plate := StyleBoxFlat.new()
-		plate.bg_color = Color("18201ff5")
-		plate.border_color = Color("7f8d83")
-		for side in range(4): plate.set_content_margin(side,24); plate.set_border_width(side,1)
-		page.add_theme_stylebox_override("panel",plate)
-		page.add_theme_color_override("font_color",Color("e7e5d3"))
-	page.minimum_size_changed.connect(_layout.call_deferred)
-	content = page
-	if is_instance_valid(backdrop):remove_child(backdrop);backdrop.queue_free()
-	if not spec.get("backdrop","").is_empty():
-		backdrop=Catalog.widget(spec.backdrop);add_child(backdrop);backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	add_child(content)
-	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation",12)
-	page.add_child(column)
-	var heading := HBoxContainer.new()
-	column.add_child(heading)
-	heading.visible=spec.get("heading",true)
-	var title := _label(heading,tr(spec.title_key),26)
-	if spec.layout == "overlay": title.theme_type_variation = "PageTitle"
-	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var close := Button.new()
-	close.name = "ScreenClose"
-	close.theme_type_variation = "QuietButton"
-	close.text = tr(Catalog.specification().text.back)
-	close.custom_minimum_size = Vector2(150,48)
-	close.add_theme_font_size_override("font_size",24 if _large() else 19)
-	close.set_meta("focus_id","__close")
-	close.set_meta("focus_uid","__close#0")
-	close.pressed.connect(_close)
-	heading.add_child(close)
-	close.visible=not spec.get("hide_close",false)
-	if close.visible:rail.append(close); focus_ids.append("__close")
+	if is_instance_valid(backdrop):
+		remove_child(backdrop)
+		backdrop.queue_free()
+		backdrop = null
+	if not spec.get("backdrop", "").is_empty():
+		backdrop = Catalog.widget(spec.backdrop)
+		add_child(backdrop)
+		backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var column: VBoxContainer = chrome.build()
 	for node in spec.controls:
-		if node.get("dock","body")=="top": _node(node,column,null)
+		if node.get("dock", "body") == "top":
+			_node(node, column, null)
 	var scroll := ScrollContainer.new()
-	page_scroll=scroll
-	scroll.set_meta("scroll_id",screen_id+"/page")
+	page_scroll = scroll
+	scroll.set_meta("scroll_id", screen_id+"/page")
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.follow_focus = true
 	column.add_child(scroll)
-	var body: Control = Control.new() if spec.layout=="hud" else VBoxContainer.new()
+	var body: Control = Control.new() if spec.layout == "hud" else VBoxContainer.new()
 	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	body.add_theme_constant_override("separation",14)
-	if spec.layout=="hud": body.custom_minimum_size=Vector2(1120,600)
+	body.add_theme_constant_override("separation", 14)
+	if spec.layout == "hud":
+		body.custom_minimum_size = size
+		hud_root = body
 	scroll.add_child(body)
 	for node in spec.controls:
-		if node.get("dock","body")!="top": _node(node,body,null)
-	status = _label(column,last_refusal,18)
-	status.visible = not last_refusal.is_empty()
+		if node.get("dock", "body") == "body":
+			_node(node, body, null)
+	for node in spec.controls:
+		if node.get("dock", "body") == "bottom":
+			_node(node, column, null)
+	status = null
+	if not spec.get("status_id", "").is_empty():
+		for node in content.find_children("*", "Label", true, false):
+			if node.get_meta("control_id", "") == spec.status_id:
+				status = node
+				if not last_refusal.is_empty():
+					status.text = last_refusal
+				break
+	else:
+		status = _label(column, last_refusal, 18)
+		status.visible = not last_refusal.is_empty()
 	_order_focus()
 	_layout()
+	var fallback_focus := false
 	if not rail.is_empty():
 		var index := -1
 		for i in range(rail.size()):
-			if rail[i].get_meta("focus_uid","") == focused: index = i; break
+			if rail[i].get_meta("focus_uid", "") == focused:
+				index = i
+				break
+		fallback_focus = index < 0
+		if index < 0 and not spec.get("initial_focus", "").is_empty():
+			for i in range(rail.size()):
+				if focus_ids[i] != spec.initial_focus:
+					continue
+				if index < 0:
+					index = i
+				if rail[i].get_meta("selected", false):
+					index = i
+					break
 		if index<0:
 			for i in range(rail.size()):
-				if rail[i].get_meta("selected",false): index=i;break
-		rail[maxi(0,index)].grab_focus()
-	latency = {"screen":screen_id,"build_us":Time.get_ticks_usec()-build_started,"controls":rail.size()}
-	call_deferred("_restore_scrolls",content,scrolls)
-	call_deferred("_painted",open_us,build_started,latency)
+				if rail[i].get_meta("selected", false):
+					index = i
+					break
+		rail[maxi(0, index)].grab_focus()
+	if not fallback_focus and not keep_focus_visible:
+		pending_focus_visibility = false
+	latency = {"screen":screen_id, "build_us":Time.get_ticks_usec()-build_started, "controls":rail.size()}
+	var expected_focus := ""
+	if not rail.is_empty():
+		var focus: Control = get_viewport().gui_get_focus_owner()
+		if focus != null:
+			expected_focus = str(focus.get_meta("focus_uid", ""))
+	call_deferred("_restore_scrolls", content, scrolls, fallback_focus or keep_focus_visible, expected_focus)
+	call_deferred("_painted", open_us, build_started, latency)
 
-func _restore_scrolls(view: Control, positions: Dictionary) -> void:
-	if positions.is_empty(): return
+func _restore_scrolls(view: Control, positions: Dictionary, focus_reset := false, expected_focus := "") -> void:
 	await get_tree().process_frame
-	if not is_instance_valid(view) or view!=content:return
-	for node in view.find_children("*","ScrollContainer",true,false):
-		var id: String=node.get_meta("scroll_id","")
-		if positions.has(id):node.scroll_horizontal=positions[id].x;node.scroll_vertical=positions[id].y
+	if not is_instance_valid(view) or view != content:
+		return
+	var focus: Control = get_viewport().gui_get_focus_owner()
+	var current_uid: String = str(focus.get_meta("focus_uid", "")) if focus != null else ""
+	var changed: bool = not expected_focus.is_empty() and expected_focus != current_uid
+	for node in view.find_children("*", "ScrollContainer", true, false):
+		var id: String = node.get_meta("scroll_id", "")
+		if positions.has(id):
+			if (focus_reset or changed) and focus != null and node.is_ancestor_of(focus):
+				continue
+			node.scroll_horizontal = positions[id].x
+			node.scroll_vertical = positions[id].y
+	if focus_reset or changed:
+		if focus != null and view.is_ancestor_of(focus):
+			var parent: Node = focus.get_parent()
+			while parent != null:
+				if parent is ScrollContainer:
+					parent.ensure_control_visible(focus)
+				parent = parent.get_parent()
+	last_focus_uid = current_uid
 
 func _painted(opening: int, refreshed: int, measurement: Dictionary) -> void:
 	await RenderingServer.frame_post_draw
 	measurement["response_to_draw_us"] = Time.get_ticks_usec()-refreshed
-	if opening==open_us and opening_latency.is_empty():
+	if opening == open_us and opening_latency.is_empty():
 		opening_latency = measurement.duplicate()
 		opening_latency["response_to_draw_us"] = Time.get_ticks_usec()-opening
 
 func _layout() -> void:
-	if is_instance_valid(content):
-		content.position = Vector2(32,54)
-		content.size = Vector2(maxf(320,size.x-64),maxf(200,size.y-86))
+	chrome.layout()
+	if spec.get("layout", "") == "hud" and is_instance_valid(hud_root):
+		hud_root.custom_minimum_size = size
 
 func _select(id: String, row: C.ProtoMessage) -> void:
+	var definition: Dictionary = elements.definition(id, spec.controls)
+	var old: C.ProtoMessage = selected.get(id)
+	if old != null and elements.identity(definition, old) == elements.identity(definition, row):
+		selected[id] = row
+		return
 	selected[id] = row
 	last_signature = ""
-	_refresh()
+	_refresh.call_deferred()
 
 func _resolve_lists(nodes: Array, row: C.ProtoMessage = null) -> void:
 	for n in nodes:
-		if n.kind != "list":
-			_resolve_lists(n.get("children",[]),row)
+		if n.kind != "list" and not (n.kind == "custom" and n.get("action_source", "") == "source"):
+			_resolve_lists(n.get("children", []), row)
 			continue
-		var rows: Array=elements.rows_for(n,row)
-		if not rows is Array or rows.is_empty(): selected.erase(n.id); continue
-		if n.get("mode","select") == "cards":
-			for item in rows: _resolve_lists(n.get("children",[]),item)
+		var rows: Array = elements.rows_for(n, row)
+		if not rows is Array or rows.is_empty():
+			selected.erase(n.id)
+			continue
+		if n.get("mode", "select") == "cards":
+			for item in rows:
+				_resolve_lists(n.get("children", []), item)
 			continue
 		var current: C.ProtoMessage = rows[0]
 		var old = selected.get(n.id)
-		if old != null:
-			var before: String=elements.identity(n,old)
+		if old == null and n.get("bind", {}).has("initial"):
+			var preferred = value(n.bind.initial, row)
 			for item in rows:
-				if elements.identity(n,item)==before:current=item;break
+				if item.to_dict().get(n.get("row_key", "")) == preferred:
+					current = item
+					break
+		if old != null:
+			var before: String = elements.identity(n, old)
+			for item in rows:
+				if elements.identity(n, item) == before:
+					current = item
+					break
 		selected[n.id] = current
-		_resolve_lists(n.get("children",[]),current)
+		_resolve_lists(n.get("children", []), current)
 
 func _order_focus() -> void:
 	var ordered: Array[Control] = []
 	var ids: Array[String] = []
 	for id in spec.focus+["__close"]:
 		for i in range(rail.size()):
-			if focus_ids[i] == id: ordered.append(rail[i]); ids.append(id)
-	rail = ordered; focus_ids = ids
+			if focus_ids[i] == id:
+				ordered.append(rail[i])
+				ids.append(id)
+	rail = ordered
+	focus_ids = ids
 	for i in range(rail.size()):
-		var before := rail[posmod(i-1,rail.size())]
+		var before := rail[posmod(i-1, rail.size())]
 		var after := rail[(i+1)%rail.size()]
 		rail[i].focus_previous = rail[i].get_path_to(before)
 		rail[i].focus_next = rail[i].get_path_to(after)
@@ -237,40 +333,70 @@ func _order_focus() -> void:
 		rail[i].focus_neighbor_bottom = rail[i].focus_next
 
 func _act(action: Dictionary, row: C.ProtoMessage = null) -> void:
-	if action.command.begins_with("host."):
-		var params:={}
-		for key in action.get("params",{}):params[key]=value(action.params[key],row)
-		if host != null: host.screen_host_action(action.command,params,self)
-		elif action.command == "host.close": _close()
+	if action.command == "host.toggle":
+		var id: String = value(action.params.control, row)
+		var key := screen_id + "/" + id
+		toggles[key] = not toggles.get(key, false)
+		last_signature = ""
+		_refresh()
 		return
-	if busy or state == null: return
+	if action.command.begins_with("host."):
+		var params := {}
+		for key in action.get("params", {}):
+			params[key] = value(action.params[key], row)
+		if host != null:
+			host.screen_host_action(action.command, params, self)
+		elif action.command == "host.close":
+			_close()
+		return
+	if busy or state == null:
+		return
 	var request := "screen-%d" % Time.get_ticks_usec()
-	var command := Catalog.command(action.ref,state,row,selected,request)
+	var command := Catalog.command(action.ref, state, row, selected, request)
 	last_refusal = ""
-	if is_instance_valid(status): status.hide()
+	if is_instance_valid(status):
+		status.hide()
 	busy = true
-	if host != null: host.send(command)
-	command_sent.emit(request,command)
+	if host != null:
+		host.send(command)
+	command_sent.emit(request, command)
 
 func refusal(copy: String) -> void:
 	busy = false
 	last_refusal = copy
-	if is_instance_valid(status): status.text = copy; status.show()
+	if is_instance_valid(status):
+		status.text = copy
+		status.show()
 
 func _close() -> void:
 	if spec.close.command.begins_with("host.") and spec.close.command != "host.close":
 		_act(spec.close)
 		return
-	if spec.close.command != "host.close": _act(spec.close)
+	if spec.close.command != "host.close":
+		_act(spec.close)
 	_dismiss()
 
 func _dismiss() -> void:
-	scroll_axis=0;hold=Vector2.ZERO
+	scroll_axis = 0
+	hold = Vector2.ZERO
 	hide()
 	dismissed.emit(screen_id)
 
 
-func _label(parent: Node,copy: String,px: int) -> Label:return elements._label(parent,copy,px)
-func _node(n: Dictionary,parent: Node,row: C.ProtoMessage) -> void:elements._node(n,parent,row)
-func _input(event: InputEvent) -> void:navigation._input(event)
-func _process(delta: float) -> void:navigation._process(delta)
+func _label(parent: Node, copy: String, px: int) -> Label:
+	return elements._label(parent, copy, px)
+func _node(n: Dictionary, parent: Node, row: C.ProtoMessage) -> void:
+	elements._node(n, parent, row)
+func _input(event: InputEvent) -> void:
+	navigation._input(event)
+func _process(delta: float) -> void:
+	navigation._process(delta)
+
+func select_key(id: String, key: String, wanted: Variant) -> void:
+	var definition: Dictionary = elements.definition(id, spec.controls)
+	if definition.is_empty():
+		return
+	for row in elements.rows_for(definition, null):
+		if row.to_dict().get(key) == wanted:
+			_select(id, row)
+			return

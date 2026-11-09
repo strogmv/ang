@@ -18,20 +18,80 @@ import (
 
 // GodotScreens is presentation authoring. Paths refer to the normalized wire
 // contract, never a second copy of a gameplay model or an executable expression.
+type ScreenChrome struct {
+	BottomOrnamentRects [][]float64 `json:"bottom_ornament_rects,omitempty"`
+	OrnamentRects       [][]float64 `json:"ornament_rects,omitempty"`
+	HeadingGapPX        int         `json:"heading_gap_px"`
+	BodyRole            string      `json:"body_role"`
+	FrameMargins        []float64   `json:"frame_margins"`
+	Padding             []float64   `json:"padding"`
+	OrnamentSize        []float64   `json:"ornament_size"`
+	InnerBorder         float64     `json:"inner_border_px"`
+	HeadingOutside      bool        `json:"heading_outside"`
+	HeadingY            float64     `json:"heading_y"`
+	HeadingHeight       float64     `json:"heading_height"`
+	TitleRole           string      `json:"title_role"`
+	TitlePX             int         `json:"title_px"`
+	Gap                 int         `json:"gap_px"`
+}
+type ScreenCombatCategory struct {
+	ID     string   `json:"id"`
+	Key    string   `json:"text_key"`
+	Groups []string `json:"groups"`
+}
+type ScreenHotkey struct {
+	Key       string `json:"key"`
+	Control   string `json:"control"`
+	Index     int    `json:"index,omitempty"`
+	Direction int    `json:"direction,omitempty"`
+}
+type ScreenFilter struct {
+	Value ScreenValue `json:"value"`
+	In    ScreenValue `json:"in"`
+}
+type ScreenRegionStyle struct {
+	Background string `json:"background"`
+	Border     string `json:"border"`
+}
+type ScreenTarget struct {
+	Position string                 `json:"position"`
+	ID       string                 `json:"id"`
+	Source   ScreenValue            `json:"source"`
+	Bind     map[string]ScreenValue `json:"bind"`
+	Screen   string                 `json:"screen,omitempty"`
+	List     string                 `json:"list,omitempty"`
+	RowKey   string                 `json:"row_key,omitempty"`
+	RadiusPX int                    `json:"radius_px"`
+	Priority int                    `json:"priority"`
+	Person   bool                   `json:"person,omitempty"`
+}
+type ScreenWorldInput struct {
+	Peaceful     ScreenShortcut `json:"peaceful"`
+	Hostile      ScreenShortcut `json:"hostile"`
+	Fallback     string         `json:"fallback"`
+	EngageScreen string         `json:"engage_screen"`
+	EngageList   string         `json:"engage_list"`
+	EngageKey    string         `json:"engage_key"`
+}
 type GodotScreens struct {
-	Routes           map[string]string `json:"routes,omitempty"`
-	Text             map[string]string `json:"text,omitempty"`
-	Background       string            `json:"background,omitempty"`
-	Response         string            `json:"response,omitempty"`
-	Assets           map[string]string `json:"assets,omitempty"`
-	Themes           map[string]string `json:"themes,omitempty"`
-	ReviewAction     *ScreenAction     `json:"review_action,omitempty"`
-	DisciplineSkins  map[string]string `json:"discipline_skins,omitempty"`
-	ItemNames        map[string]string `json:"item_names,omitempty"`
-	Launcher         *ScreenLauncher   `json:"launcher,omitempty"`
-	PortraitFallback string            `json:"portrait_fallback,omitempty"`
-	Widgets          map[string]string `json:"widgets"`
-	Screens          []GodotScreen     `json:"screens"`
+	Targets           []ScreenTarget               `json:"targets,omitempty"`
+	WorldInput        *ScreenWorldInput            `json:"world_input,omitempty"`
+	RegionStyles      map[string]ScreenRegionStyle `json:"region_styles,omitempty"`
+	CombatShortLabels map[string]string            `json:"combat_short_labels,omitempty"`
+	CombatCategories  []ScreenCombatCategory       `json:"combat_categories,omitempty"`
+	ChromeProfiles    map[string]ScreenChrome      `json:"chrome_profiles,omitempty"`
+	Routes            map[string]string            `json:"routes,omitempty"`
+	Text              map[string]string            `json:"text,omitempty"`
+	Background        string                       `json:"background,omitempty"`
+	Response          string                       `json:"response,omitempty"`
+	Assets            map[string]string            `json:"assets,omitempty"`
+	Themes            map[string]string            `json:"themes,omitempty"`
+	ReviewAction      *ScreenAction                `json:"review_action,omitempty"`
+	DisciplineSkins   map[string]string            `json:"discipline_skins,omitempty"`
+	Launcher          *ScreenLauncher              `json:"launcher,omitempty"`
+	PortraitFallback  string                       `json:"portrait_fallback,omitempty"`
+	Widgets           map[string]string            `json:"widgets"`
+	Screens           []GodotScreen                `json:"screens"`
 }
 type ScreenLauncher struct {
 	Screen string `json:"screen"`
@@ -42,50 +102,71 @@ type ScreenShortcut struct {
 	Pad string `json:"pad,omitempty"`
 }
 type GodotScreen struct {
-	Heading     *bool           `json:"heading,omitempty"`
-	HideClose   bool            `json:"hide_close,omitempty"`
-	Backdrop    string          `json:"backdrop,omitempty"`
-	OpeningMode string          `json:"opening_mode,omitempty"`
-	PauseWorld  bool            `json:"pause_world,omitempty"`
-	Shortcut    *ScreenShortcut `json:"shortcut,omitempty"`
-	ID          string          `json:"id"`
-	Chrome      string          `json:"chrome"`
-	Skin        string          `json:"skin"`
-	SkinRule    *ScreenValue    `json:"skin_rule,omitempty"`
-	Title       string          `json:"title_key"`
-	Layout      string          `json:"layout"`
-	Opening     *ScreenValue    `json:"opening,omitempty"`
-	Close       ScreenAction    `json:"close"`
-	Focus       []string        `json:"focus"`
-	Controls    []ScreenControl `json:"controls"`
+	HideWorldStatus bool            `json:"hide_world_status,omitempty"`
+	ClearRect       []float64       `json:"clear_rect,omitempty"`
+	Hotkeys         []ScreenHotkey  `json:"hotkeys,omitempty"`
+	StatusID        string          `json:"status_id,omitempty"`
+	ChromeProfile   string          `json:"chrome_profile,omitempty"`
+	KickerKey       string          `json:"kicker_key,omitempty"`
+	InitialFocus    string          `json:"initial_focus,omitempty"`
+	Heading         *bool           `json:"heading,omitempty"`
+	HideClose       bool            `json:"hide_close,omitempty"`
+	Backdrop        string          `json:"backdrop,omitempty"`
+	OpeningMode     string          `json:"opening_mode,omitempty"`
+	PauseWorld      bool            `json:"pause_world,omitempty"`
+	Shortcut        *ScreenShortcut `json:"shortcut,omitempty"`
+	ID              string          `json:"id"`
+	Chrome          string          `json:"chrome"`
+	Skin            string          `json:"skin"`
+	SkinRule        *ScreenValue    `json:"skin_rule,omitempty"`
+	Title           string          `json:"title_key"`
+	Layout          string          `json:"layout"`
+	Opening         *ScreenValue    `json:"opening,omitempty"`
+	Close           ScreenAction    `json:"close"`
+	Focus           []string        `json:"focus"`
+	Controls        []ScreenControl `json:"controls"`
 }
 type ScreenControl struct {
-	RowKeys      []string               `json:"row_keys,omitempty"`
-	Where        *ScreenValue           `json:"where,omitempty"`
-	Style        string                 `json:"style,omitempty"`
-	Formatter    string                 `json:"formatter,omitempty"`
-	FormatKey    string                 `json:"format_key,omitempty"`
-	HeightPX     int                    `json:"height_px,omitempty"`
-	Weight       float64                `json:"weight,omitempty"`
-	Passive      bool                   `json:"passive,omitempty"`
-	ActionSource string                 `json:"action_source,omitempty"`
-	Focusable    bool                   `json:"focusable,omitempty"`
-	Rect         []float64              `json:"rect,omitempty"`
-	RowKey       string                 `json:"row_key,omitempty"`
-	Dock         string                 `json:"dock,omitempty"`
-	EmptyKey     string                 `json:"empty_key,omitempty"`
-	Mode         string                 `json:"mode,omitempty"`
-	Join         string                 `json:"join,omitempty"`
-	ID           string                 `json:"id"`
-	Kind         string                 `json:"kind"`
-	Key          string                 `json:"text_key,omitempty"`
-	Widget       string                 `json:"widget,omitempty"`
-	FontPX       int                    `json:"font_px"`
-	WidthPX      int                    `json:"width_px"`
-	Lines        int                    `json:"lines"`
-	Bind         map[string]ScreenValue `json:"bind,omitempty"`
-	Action       *ScreenAction          `json:"action,omitempty"`
-	Children     []ScreenControl        `json:"children,omitempty"`
+	LineSpacingPX *int                   `json:"line_spacing_px,omitempty"`
+	InsetPX       []int                  `json:"inset_px,omitempty"`
+	Order         []string               `json:"order,omitempty"`
+	PaddingPX     int                    `json:"padding_px,omitempty"`
+	Columns       int                    `json:"columns,omitempty"`
+	VisibleRows   int                    `json:"visible_rows,omitempty"`
+	MinHeight     int                    `json:"min_height_px,omitempty"`
+	Collapsed     bool                   `json:"collapsed,omitempty"`
+	Filters       []ScreenFilter         `json:"filters,omitempty"`
+	RowTitle      bool                   `json:"row_title,omitempty"`
+	GapPX         int                    `json:"gap_px,omitempty"`
+	Ordinal       int                    `json:"ordinal,omitempty"`
+	Align         string                 `json:"align,omitempty"`
+	ListWidthPX   int                    `json:"list_width_px,omitempty"`
+	RowKeys       []string               `json:"row_keys,omitempty"`
+	Where         *ScreenValue           `json:"where,omitempty"`
+	Style         string                 `json:"style,omitempty"`
+	Formatter     string                 `json:"formatter,omitempty"`
+	FormatKey     string                 `json:"format_key,omitempty"`
+	HeightPX      int                    `json:"height_px,omitempty"`
+	Weight        float64                `json:"weight,omitempty"`
+	Passive       bool                   `json:"passive,omitempty"`
+	ActionSource  string                 `json:"action_source,omitempty"`
+	Focusable     bool                   `json:"focusable,omitempty"`
+	Rect          []float64              `json:"rect,omitempty"`
+	RowKey        string                 `json:"row_key,omitempty"`
+	Dock          string                 `json:"dock,omitempty"`
+	EmptyKey      string                 `json:"empty_key,omitempty"`
+	Mode          string                 `json:"mode,omitempty"`
+	Join          string                 `json:"join,omitempty"`
+	ID            string                 `json:"id"`
+	Kind          string                 `json:"kind"`
+	Key           string                 `json:"text_key,omitempty"`
+	Widget        string                 `json:"widget,omitempty"`
+	FontPX        int                    `json:"font_px"`
+	WidthPX       int                    `json:"width_px"`
+	Lines         int                    `json:"lines"`
+	Bind          map[string]ScreenValue `json:"bind,omitempty"`
+	Action        *ScreenAction          `json:"action,omitempty"`
+	Children      []ScreenControl        `json:"children,omitempty"`
 }
 type ScreenValue struct {
 	Path  string `json:"path,omitempty"`
@@ -98,11 +179,13 @@ type ScreenAction struct {
 	Ref     string                 `json:"ref,omitempty"`
 }
 type screenCompiler struct {
+	screens  *GodotScreens
 	settings *GodotSettings
 	def      *normalizer.GRPCDef
 	messages map[string]normalizer.GRPCMessage
 	selected map[string]string
 	bindings strings.Builder
+	readers  []string
 	actions  strings.Builder
 	serial   int
 	id       string
@@ -188,16 +271,23 @@ func (g *screenCompiler) bind(v *ScreenValue, row, field string) (screenPath, er
 	}
 	g.serial++
 	v.Ref = fmt.Sprintf("b%d", g.serial)
-	fmt.Fprintf(&g.bindings, "\t\t%q:\n", v.Ref)
+	g.readers = append(g.readers, v.Ref)
+	fmt.Fprintf(&g.bindings, `
+@warning_ignore("unused_parameter")
+static func _read_%s(
+	state: C.PocGameState, row: C.ProtoMessage,
+	selected: Dictionary, request_id: String
+) -> Variant:
+`, v.Ref)
 	if len(p.guards) > 0 {
-		fmt.Fprintf(&g.bindings, "\t\t\tif %s: return null\n", strings.Join(p.guards, " or "))
+		fmt.Fprintf(&g.bindings, "\tif %s:\n\t\treturn null\n", strings.Join(p.guards, " or "))
 	}
-	fmt.Fprintf(&g.bindings, "\t\t\treturn %s\n", p.expression)
+	fmt.Fprintf(&g.bindings, "\treturn %s\n", p.expression)
 	return p, nil
 }
 
 // Host commands are presentation/lifecycle operations, deliberately closed.
-var screenHostCommands = map[string]bool{"host.close": true, "host.open": true, "host.back": true, "host.main": true, "host.quit": true, "host.setting": true}
+var screenHostCommands = map[string]bool{"host.close": true, "host.open": true, "host.back": true, "host.main": true, "host.quit": true, "host.setting": true, "host.toggle": true}
 
 func (g *screenCompiler) action(a *ScreenAction, row, field string) error {
 	if a.Command == "" {
@@ -206,8 +296,61 @@ func (g *screenCompiler) action(a *ScreenAction, row, field string) error {
 	g.serial++
 	a.Ref = fmt.Sprintf("a%d", g.serial)
 	if screenHostCommands[a.Command] {
+		allowed := map[string]string{}
+		switch a.Command {
+		case "host.open":
+			allowed["screen"] = "screen"
+		case "host.setting":
+			allowed["id"] = "setting"
+		case "host.toggle":
+			allowed["control"] = "control"
+		}
 		for _, key := range sortedScreenKeys(a.Params) {
+			if _, ok := allowed[key]; !ok {
+				return fmt.Errorf("screen %s field %s.params.%s: unknown host parameter", g.id, field, key)
+			}
+		}
+		for key := range allowed {
+			if _, ok := a.Params[key]; !ok {
+				return fmt.Errorf("screen %s field %s.params.%s: required", g.id, field, key)
+			}
+		}
+		for _, key := range sortedScreenKeys(a.Params) {
+			kind, ok := allowed[key]
+			if !ok {
+				return fmt.Errorf("screen %s field %s.params.%s: unknown host parameter", g.id, field, key)
+			}
 			v := a.Params[key]
+			id, literal := v.Value.(string)
+			if v.Path != "" || !literal {
+				return fmt.Errorf("screen %s field %s.params.%s: expected declared %s", g.id, field, key, kind)
+			}
+			found := false
+			switch kind {
+			case "screen":
+				for _, screen := range g.screens.Screens {
+					if screen.ID == id {
+						found = true
+					}
+				}
+			case "setting":
+				if g.settings != nil {
+					for _, setting := range g.settings.Entries {
+						if setting.ID == id {
+							found = true
+						}
+					}
+				}
+			case "control":
+				for _, screen := range g.screens.Screens {
+					if screen.ID == g.id && findScreenControl(screen.Controls, id) != nil {
+						found = true
+					}
+				}
+			}
+			if !found {
+				return fmt.Errorf("screen %s field %s.params.%s: unknown %s", g.id, field, key, kind)
+			}
 			if _, err := g.bind(&v, row, field+".params."+key); err != nil {
 				return err
 			}
@@ -281,23 +424,57 @@ func (g *screenCompiler) controls(nodes []ScreenControl, row string, ids, intera
 		}
 		ids[n.ID] = true
 		if n.Kind == "region" {
-			if len(n.Rect) != 4 || n.Rect[0] < 0 || n.Rect[1] < 0 || n.Rect[2] <= 0 || n.Rect[3] <= 0 || n.Rect[0]+n.Rect[2] > 1120 || n.Rect[1]+n.Rect[3] > 600 {
+			if n.Style != "" {
+				if _, ok := c.GodotScreens.RegionStyles[n.Style]; !ok {
+					return fmt.Errorf("screen %s field %s.style: unknown tactical panel style", g.id, field)
+				}
+			}
+			if len(n.Rect) != 4 || n.Rect[0] < 0 || n.Rect[1] < 0 || n.Rect[2] <= 0 || n.Rect[3] <= 0 || n.Rect[0]+n.Rect[2] > 1280 || n.Rect[1]+n.Rect[3] > 800 {
 				return fmt.Errorf("screen %s field %s.rect: region outside 1280x800 safe area", g.id, field)
 			}
 		}
-		if n.Dock != "" && n.Dock != "body" && n.Dock != "top" {
+		if n.LineSpacingPX != nil && (*n.LineSpacingPX < 0 || *n.LineSpacingPX > 48) {
+			return fmt.Errorf("screen %s field %s.line_spacing_px: expected 0..48", g.id, field)
+		}
+		if len(n.InsetPX) != 0 {
+			if len(n.InsetPX) != 4 {
+				return fmt.Errorf("screen %s field %s.inset_px: expected four margins", g.id, field)
+			}
+			for _, margin := range n.InsetPX {
+				if margin < 0 {
+					return fmt.Errorf("screen %s field %s.inset_px: negative margin", g.id, field)
+				}
+			}
+		}
+		if n.VisibleRows < 0 || n.VisibleRows > 9 || (n.VisibleRows > 0 && (n.Kind != "list" || n.Columns < 1 || (n.Mode != "choices" && n.Mode != "commands"))) {
+			return fmt.Errorf("screen %s field %s.visible_rows: expected 0..9 and a grid list", g.id, field)
+		}
+		if n.Columns < 0 || n.Columns > 9 {
+			return fmt.Errorf("screen %s field %s.columns: expected 0..9", g.id, field)
+		}
+		if n.Dock != "" && n.Dock != "body" && n.Dock != "top" && n.Dock != "bottom" {
 			return fmt.Errorf("screen %s field %s.dock: unknown dock", g.id, field)
 		}
 		switch n.Kind {
-		case "image", "region", "stack", "row", "detail", "label", "list", "button", "custom":
+		case "divider", "spacer", "image", "region", "stack", "row", "detail", "label", "list", "button", "custom":
 		default:
 			return fmt.Errorf("screen %s field %s.kind: unknown kind %q", g.id, field, n.Kind)
 		}
 		if (n.Kind == "list" && n.Mode != "cards") || n.Kind == "button" || (n.Kind == "custom" && !n.Passive) || n.Focusable {
 			interactive[n.ID] = true
 		}
-		if n.Kind == "button" && n.Action == nil {
+		if (n.Kind == "button" || (n.Kind == "list" && n.Mode == "commands")) && n.Action == nil {
 			return fmt.Errorf("screen %s field %s.action: action has no command", g.id, field)
+		}
+		if n.Kind == "list" && (n.Mode == "choices" || n.Mode == "commands") {
+			if len(n.Children) == 0 {
+				return fmt.Errorf("screen %s field %s.children: choices need a label", g.id, field)
+			}
+			for _, child := range n.Children {
+				if child.Kind != "label" {
+					return fmt.Errorf("screen %s field %s.children: choices/commands show labels only", g.id, field)
+				}
+			}
 		}
 		if n.Kind == "custom" {
 			path := c.GodotScreens.Widgets[n.Widget]
@@ -310,14 +487,14 @@ func (g *screenCompiler) controls(nodes []ScreenControl, row string, ids, intera
 				return fmt.Errorf("screen %s field %s.widget: unregistered image", g.id, field)
 			}
 		}
-		if n.Formatter != "" && n.Formatter != "datetime" {
+		if n.Formatter != "" && n.Formatter != "datetime" && n.Formatter != "format" {
 			return fmt.Errorf("screen %s field %s.formatter: unknown formatter", g.id, field)
 		}
 
 		textWidth, textLines := n.WidthPX, n.Lines
 		if n.Kind == "button" {
 			textWidth -= 32
-			if n.Mode != "response" {
+			if n.Mode != "response" && n.Mode != "tile" {
 				textLines = 1
 			}
 		}
@@ -330,8 +507,8 @@ func (g *screenCompiler) controls(nodes []ScreenControl, row string, ids, intera
 		if err := screenText(c, n.EmptyKey, 18, n.WidthPX, 8, root); err != nil {
 			return fmt.Errorf("screen %s field %s.empty_key: %w", g.id, field, err)
 		}
-		if n.Kind == "list" {
-			if n.Mode != "" && n.Mode != "select" && n.Mode != "cards" && n.Mode != "choices" {
+		if n.Kind == "list" || (n.Kind == "custom" && n.ActionSource == "source") {
+			if n.Mode != "" && n.Mode != "select" && n.Mode != "cards" && n.Mode != "choices" && n.Mode != "commands" {
 				return fmt.Errorf("screen %s field %s.mode: unknown list mode", g.id, field)
 			}
 			v, ok := n.Bind["source"]
@@ -361,15 +538,41 @@ func (g *screenCompiler) controls(nodes []ScreenControl, row string, ids, intera
 			}
 			g.selected[n.ID] = p.typ
 		}
+		for index := range n.Filters {
+			filter := &n.Filters[index]
+			filterRow := row
+			if n.Kind == "list" {
+				filterRow = g.selected[n.ID]
+			}
+			field := fmt.Sprintf("%s.filters.%d", field, index)
+			value, err := g.bind(&filter.Value, filterRow, field+".value")
+			if err != nil {
+				return err
+			}
+			values, err := g.bind(&filter.In, filterRow, field+".in")
+			if err != nil {
+				return err
+			}
+			if value.repeated || !values.repeated || value.typ != values.typ {
+				return fmt.Errorf("screen %s field %s.in: expected collection of %s", g.id, field, value.typ)
+			}
+		}
 		for _, k := range sortedScreenKeys(n.Bind) {
 			v := n.Bind[k]
-			if _, err := g.bind(&v, row, field+".bind."+k); err != nil {
+			bindRow := row
+			if n.Kind == "list" && n.Mode == "commands" && (k == "enabled" || k == "reason") {
+				bindRow = g.selected[n.ID]
+			}
+			if _, err := g.bind(&v, bindRow, field+".bind."+k); err != nil {
 				return err
 			}
 			n.Bind[k] = v
 		}
 		if n.Action != nil {
 			actionRow := row
+			if n.Kind == "list" {
+				actionRow = g.selected[n.ID]
+			}
 			if n.Kind == "custom" && n.ActionSource != "" {
 				p, err := g.path(n.Bind[n.ActionSource].Path, row)
 				if err != nil || !p.repeated {
@@ -403,7 +606,7 @@ func compileGodotScreens(project string, c Compiled, def *normalizer.GRPCDef) ([
 		}
 		return nil, fmt.Errorf("screen %s field skin: no godot_theme skins declared", id)
 	}
-	g := &screenCompiler{settings: c.GodotSettings, def: def, messages: map[string]normalizer.GRPCMessage{}, selected: map[string]string{}}
+	g := &screenCompiler{screens: c.GodotScreens, settings: c.GodotSettings, def: def, messages: map[string]normalizer.GRPCMessage{}, selected: map[string]string{}}
 	for _, m := range def.Messages {
 		g.messages[m.Name] = m
 	}
@@ -433,9 +636,20 @@ func compileGodotScreens(project string, c Compiled, def *normalizer.GRPCDef) ([
 			return nil, fmt.Errorf("screen crafting field discipline_skins.%s: unknown skin %s", discipline, skin)
 		}
 	}
-	for id, key := range c.GodotScreens.ItemNames {
-		if err := screenText(c, key, 24, 620, 8, root); err != nil {
-			return nil, fmt.Errorf("screen inventory field item_names.%s: %w", id, err)
+	for action, key := range c.GodotScreens.CombatShortLabels {
+		if err := screenText(c, key, 14, 196, 2, root); err != nil {
+			return nil, fmt.Errorf("screen combat field combat_short_labels.%s: %w", action, err)
+		}
+	}
+	for _, category := range c.GodotScreens.CombatCategories {
+		if err := screenText(c, category.Key, 12, 138, 2, root); err != nil {
+			return nil, fmt.Errorf("screen combat field combat_categories.%s.text_key: %w", category.ID, err)
+		}
+	}
+	for _, id := range sortedScreenKeys(c.Inventory.Definitions) {
+		definition := c.Inventory.Definitions[id]
+		if err := screenLocalizedText(c, definition.Name, 24, 620, 8, root, false); err != nil {
+			return nil, fmt.Errorf("screen inventory item %s field name: %w", id, err)
 		}
 	}
 	for i := range c.GodotScreens.Screens {
@@ -463,7 +677,25 @@ func compileGodotScreens(project string, c Compiled, def *normalizer.GRPCDef) ([
 		if s.Layout != "page" && s.Layout != "split" && s.Layout != "overlay" && s.Layout != "hud" {
 			return nil, fmt.Errorf("screen %s field layout: unknown layout %q", s.ID, s.Layout)
 		}
-		if err := screenText(c, s.Title, 26, 1000, 2, root); err != nil {
+		if s.ChromeProfile != "" {
+			profile, ok := c.GodotScreens.ChromeProfiles[s.ChromeProfile]
+			if !ok {
+				return nil, fmt.Errorf("screen %s field chrome_profile: unknown chrome geometry", s.ID)
+			}
+			if err := validateScreenChrome(profile); err != nil {
+				return nil, fmt.Errorf("screen %s field chrome_profile.%s: %w", s.ID, s.ChromeProfile, err)
+			}
+		}
+		if err := screenText(c, s.KickerKey, 14, 1000, 2, root); err != nil {
+			return nil, fmt.Errorf("screen %s field kicker_key: %w", s.ID, err)
+		}
+		titlePX, titleWidth, titleLines := 26, 1000, 2
+		if profile, ok := c.GodotScreens.ChromeProfiles[s.ChromeProfile]; ok && profile.HeadingOutside {
+			titlePX = profile.TitlePX
+			titleWidth = int(1280-profile.FrameMargins[0]-profile.FrameMargins[2]) - 170
+			titleLines = 1
+		}
+		if err := screenText(c, s.Title, titlePX, titleWidth, titleLines, root); err != nil {
 			return nil, fmt.Errorf("screen %s field title_key: %w", s.ID, err)
 		}
 		if s.Opening != nil {
@@ -489,6 +721,50 @@ func compileGodotScreens(project string, c Compiled, def *normalizer.GRPCDef) ([
 				return nil, fmt.Errorf("screen %s field focus: unknown/duplicate control %q", s.ID, id)
 			}
 			reachable[id] = true
+		}
+		if len(s.ClearRect) > 0 {
+			if len(s.ClearRect) != 4 || s.ClearRect[0] < 0 || s.ClearRect[1] < 0 ||
+				s.ClearRect[2] <= 0 || s.ClearRect[3] <= 0 ||
+				s.ClearRect[0]+s.ClearRect[2] > 1280 || s.ClearRect[1]+s.ClearRect[3] > 800 {
+				return nil, fmt.Errorf("screen %s field clear_rect: outside viewport", s.ID)
+			}
+			var check func([]ScreenControl) error
+			check = func(nodes []ScreenControl) error {
+				for _, node := range nodes {
+					if node.Kind == "region" && !node.Collapsed && screenRectsOverlap(s.ClearRect, node.Rect) {
+						return fmt.Errorf("screen %s field controls.%s.rect: overlaps clear_rect", s.ID, node.ID)
+					}
+					if err := check(node.Children); err != nil {
+						return err
+					}
+				}
+				return nil
+			}
+			if err := check(s.Controls); err != nil {
+				return nil, err
+			}
+		}
+		if s.InitialFocus != "" && !interactive[s.InitialFocus] {
+			return nil, fmt.Errorf("screen %s field initial_focus: unknown control", s.ID)
+		}
+		if s.StatusID != "" && !ids[s.StatusID] {
+			return nil, fmt.Errorf("screen %s field status_id: unknown control", s.ID)
+		}
+		keys := map[string]bool{}
+		for index, key := range s.Hotkeys {
+			field := fmt.Sprintf("hotkeys.%d", index)
+			valid := len(key.Key) == 1 && strings.Contains("123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ", key.Key)
+			valid = valid || key.Key == "Space" || key.Key == "Left" || key.Key == "Right" || key.Key == "Tab"
+			if !valid || keys[key.Key] {
+				return nil, fmt.Errorf("screen %s field %s.key: unknown/duplicate key", s.ID, field)
+			}
+			keys[key.Key] = true
+			if !interactive[key.Control] {
+				return nil, fmt.Errorf("screen %s field %s.control: unknown control", s.ID, field)
+			}
+			if key.Index < 0 || key.Direction < -1 || key.Direction > 1 {
+				return nil, fmt.Errorf("screen %s field %s: invalid index/direction", s.ID, field)
+			}
 		}
 		for _, id := range sortedScreenKeys(interactive) {
 			if !reachable[id] {
@@ -519,6 +795,9 @@ func compileGodotScreens(project string, c Compiled, def *normalizer.GRPCDef) ([
 		if err := screenText(c, l.Key, 19, 300, 2, root); err != nil {
 			return nil, fmt.Errorf("screen %s field launcher.text_key: %w", l.Screen, err)
 		}
+	}
+	if err := g.targets(c.GodotScreens); err != nil {
+		return nil, err
 	}
 	spec, err := json.Marshal(c.GodotScreens)
 	if err != nil {
@@ -556,7 +835,22 @@ func compileGodotScreens(project string, c Compiled, def *normalizer.GRPCDef) ([
 		fmt.Fprintf(&out, "\t\t%q: return preload(%q).%s()\n", id, path, method)
 	}
 	fmt.Fprintln(&out, "\t\t_: push_error(\"unregistered screen widget: \"+id)\n\treturn Control.new()")
-	fmt.Fprintf(&out, "static func read(id: String, state: C.PocGameState, row: C.ProtoMessage, selected: Dictionary, request_id := \"\") -> Variant:\n\tmatch id:\n%s\treturn null\n", g.bindings.String())
+	// Hover reads many bindings on every state. Dispatch must not scan all of
+	// the unrelated screens before reaching a target's typed property getter.
+	fmt.Fprintln(&out, "static var _readers: Dictionary = {")
+	for _, id := range g.readers {
+		fmt.Fprintf(&out, "\t%q: _read_%s,\n", id, id)
+	}
+	fmt.Fprintln(&out, `}
+static func read(
+	id: String, state: C.PocGameState, row: C.ProtoMessage,
+	selected: Dictionary, request_id := ""
+) -> Variant:
+	var reader: Callable = _readers.get(id, Callable())
+	if not reader.is_valid():
+		return null
+	return reader.call(state, row, selected, request_id)`)
+	fmt.Fprint(&out, g.bindings.String())
 	fmt.Fprintf(&out, "static func command(id: String, state: C.PocGameState, row: C.ProtoMessage, selected: Dictionary, request_id: String) -> C.ClientMessage:\n\tvar message := C.ClientMessage.new()\n\tmatch id:\n%s\t\t_: pass\n\treturn message\n", g.actions.String())
 	return out.Bytes(), nil
 }
@@ -572,7 +866,7 @@ func writeGodotScreens(project string, c Compiled, def *normalizer.GRPCDef) erro
 		return err
 	}
 	outputs := map[string][]byte{"catalog.gd": raw}
-	for _, name := range []string{"runtime", "elements", "navigation", "review", "capture"} {
+	for _, name := range []string{"runtime", "routing", "world", "chrome", "elements", "navigation", "checks", "review", "capture"} {
 		data, err := sources.ReadFile("templates/godot_screen_" + name + ".gd.tmpl")
 		if err != nil {
 			return err
@@ -637,4 +931,54 @@ func writeGodotScreens(project string, c Compiled, def *normalizer.GRPCDef) erro
 		}
 	}
 	return nil
+}
+
+func validateScreenChrome(p ScreenChrome) error {
+	if p.HeadingGapPX < 0 || p.HeadingGapPX > 64 {
+		return fmt.Errorf("heading_gap_px outside 0..64")
+	}
+	for field, rectangles := range map[string][][]float64{
+		"ornament_rects":        p.OrnamentRects,
+		"bottom_ornament_rects": p.BottomOrnamentRects,
+	} {
+		for _, rect := range rectangles {
+			if len(rect) != 4 || rect[0] < 0 || rect[1] < 0 || rect[2] <= 0 || rect[3] <= 0 {
+				return fmt.Errorf("%s: invalid rectangle", field)
+			}
+			if len(p.OrnamentSize) != 2 || rect[0]+rect[2] > p.OrnamentSize[0] || rect[1]+rect[3] > p.OrnamentSize[1] {
+				return fmt.Errorf("%s: outside corner bounds", field)
+			}
+		}
+	}
+	for _, field := range []struct {
+		name   string
+		values []float64
+		count  int
+	}{
+		{"frame_margins", p.FrameMargins, 4},
+		{"padding", p.Padding, 4},
+		{"ornament_size", p.OrnamentSize, 2},
+	} {
+		if len(field.values) != field.count {
+			return fmt.Errorf("%s: expected %d coordinates", field.name, field.count)
+		}
+		for _, value := range field.values {
+			if value < 0 {
+				return fmt.Errorf("%s: negative coordinate", field.name)
+			}
+		}
+	}
+	if p.FrameMargins[0]+p.FrameMargins[2] >= 1280 ||
+		p.FrameMargins[1]+p.FrameMargins[3] >= 800 {
+		return fmt.Errorf("frame_margins: no content area at 1280x800")
+	}
+	if p.TitlePX < 12 {
+		return fmt.Errorf("title_px: effective text below 12 px")
+	}
+	return nil
+}
+
+func screenRectsOverlap(a, b []float64) bool {
+	return len(a) == 4 && len(b) == 4 && a[0] < b[0]+b[2] && a[0]+a[2] > b[0] &&
+		a[1] < b[1]+b[3] && a[1]+a[3] > b[1]
 }

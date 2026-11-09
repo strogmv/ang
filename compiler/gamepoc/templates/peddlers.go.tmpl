@@ -260,7 +260,7 @@ func (r *Runtime) peddlerText(locale, key, definition string, minor int64) strin
 		d := r.world.Inventory.Definitions[definition]
 		text = strings.ReplaceAll(text, "{item}", r.localText(locale, d.Name, d.Name))
 	}
-	return strings.ReplaceAll(text, "{crd}", inv.FormatMoney(minor, r.world.Inventory.Currencies["CRD"].Scale))
+	return strings.ReplaceAll(text, "{crd}", strings.ReplaceAll(inv.FormatMoney(minor, r.world.Inventory.Currencies["CRD"].Scale),".",r.localText(locale,"ui.format.decimal_separator",".")))
 }
 
 // peddlerSell: one unit of a tray piece to a buyer (the hero, or a master restocking) at the law's price, in one atomic

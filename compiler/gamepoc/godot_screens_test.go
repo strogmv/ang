@@ -2,13 +2,18 @@ package gamepoc
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/strogmv/ang/angir/normalizer"
+	"github.com/strogmv/ang/compiler/emitter"
 )
 
 func screenFixture(t *testing.T) (string, Compiled, *normalizer.GRPCDef) {
@@ -78,6 +83,95 @@ func TestGodotScreensTypedDeterministic(t *testing.T) {
 		}
 	}
 }
+
+func TestGodotScreensDirectReaderDispatch(t *testing.T) {
+	root, c, d := screenFixture(t)
+	for index := 0; index < 300; index++ {
+		c.GodotScreens.Screens[0].Controls = append(c.GodotScreens.Screens[0].Controls, ScreenControl{
+			ID: fmt.Sprintf("label_%d", index), Kind: "label", FontPX: 19, WidthPX: 900, Lines: 1,
+			Bind: map[string]ScreenValue{"text": {Path: "state.epoch"}},
+		})
+	}
+	catalog, err := compileGodotScreens(root, c, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := c.GodotScreens.Screens[0].Controls[300].Bind["text"].Ref
+	if !strings.Contains(string(catalog), fmt.Sprintf("%q: _read_%s", last, last)) ||
+		!strings.Contains(string(catalog), "_readers.get(id, Callable())") {
+		t.Fatal("late bindings must dispatch directly to a typed reader")
+	}
+	bin := os.Getenv("ANG_GODOT_BIN")
+	if bin == "" {
+		t.Log("set ANG_GODOT_BIN for actual typed-reader execution")
+		return
+	}
+	d.Package = "game.v1"
+	d.Services = []normalizer.GRPCService{{Name: "API", Methods: []normalizer.GRPCMethod{
+		{Name: "Call", Request: "ClientMessage", Response: "PocGameState", Stream: "none"},
+	}}}
+	for i := range d.Messages {
+		for j := range d.Messages[i].Fields {
+			d.Messages[i].Fields[j].Number = j + 1
+		}
+		for j := range d.Messages[i].Oneofs {
+			d.Messages[i].Oneofs[j].Name = "msg"
+			for k := range d.Messages[i].Oneofs[j].Members {
+				d.Messages[i].Oneofs[j].Members[k].Number = len(d.Messages[i].Fields) + k + 1
+			}
+		}
+	}
+	contract, err := emitter.RenderGDScriptContract(d, "screen-readers.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := map[string][]byte{
+		"generated/screens/catalog.gd": catalog,
+		"generated/game_contract.gd":   contract,
+		"project.godot": []byte("config_version=5\n[application]\nconfig/name=\"Typed readers fixture\"\n" +
+			"config/use_custom_user_dir=true\nconfig/custom_user_dir_name=\"phase6-reader-fixture\"\n"),
+		"test.gd": []byte(fmt.Sprintf(`extends SceneTree
+const C = preload("res://generated/game_contract.gd")
+const Catalog = preload("res://generated/screens/catalog.gd")
+func _initialize():
+	var state = C.PocGameState.new()
+	state.epoch = "current epoch"
+	state.inventory = C.Inventory.new()
+	var item = C.Item.new()
+	item.id = "current item"
+	state.inventory.items.append(item)
+	var controls = Catalog.specification().screens[0].controls
+	var source = controls[0].bind.source.ref
+	assert(Catalog.read(source, state, null, {}) == state.inventory.items)
+	assert(Catalog.read(%q, state, null, {}) == state.epoch)
+	assert(Catalog.read(source, null, null, {}) == null)
+	assert(Catalog.read("unknown", state, null, {}) == null)
+	var command = Catalog.command(controls[0].children[0].action.ref, state, item, {}, "request")
+	assert(command.inventory_command.item_id == item.id)
+	assert(command.inventory_command.epoch == state.epoch)
+	quit()
+`, last)),
+	}
+	for _, path := range c.GodotScreens.Themes {
+		files[strings.TrimPrefix(path, "res://")] = []byte("[gd_resource type=\"Theme\" format=3]\n[resource]\n")
+	}
+	for name, data := range files {
+		path := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, data, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	output, err := exec.CommandContext(ctx, bin, "--headless", "--path", root,
+		"--audio-driver", "Dummy", "--script", "res://test.gd").CombinedOutput()
+	if err != nil || strings.Contains(string(output), "ERROR:") {
+		t.Fatalf("typed reader execution failed: %v\n%s", err, output)
+	}
+}
 func TestGodotScreensNegative(t *testing.T) {
 	cases := []struct {
 		name, field string
@@ -109,5 +203,78 @@ func TestGodotScreensNegative(t *testing.T) {
 				t.Fatalf("wanted screen id and field %s; got %v", tc.field, err)
 			}
 		})
+	}
+}
+
+func TestGodotBookComposition(t *testing.T) {
+	root, c, d := screenFixture(t)
+	c.GodotScreens.ChromeProfiles = map[string]ScreenChrome{
+		"book": {FrameMargins: []float64{50, 142, 50, 80}, Padding: []float64{62, 48, 62, 48},
+			OrnamentSize: []float64{62, 64}, TitlePX: 43, HeadingOutside: true},
+	}
+	c.GodotScreens.Screens[0].ChromeProfile = "book"
+	c.GodotScreens.Screens[0].Controls = append(c.GodotScreens.Screens[0].Controls,
+		ScreenControl{ID: "divider", Kind: "divider", FontPX: 19, WidthPX: 900, Lines: 8})
+	if _, err := compileGodotScreens(root, c, d); err != nil {
+		t.Fatal(err)
+	}
+	c.GodotScreens.Screens[0].ChromeProfile = "missing"
+	if _, err := compileGodotScreens(root, c, d); err == nil ||
+		!strings.Contains(err.Error(), "screen bag field chrome_profile") {
+		t.Fatalf("unvalidated chrome: %v", err)
+	}
+	c.GodotScreens.Screens[0].ChromeProfile = "book"
+	p := c.GodotScreens.ChromeProfiles["book"]
+	p.TitlePX = 11
+	c.GodotScreens.ChromeProfiles["book"] = p
+	if _, err := compileGodotScreens(root, c, d); err == nil || !strings.Contains(err.Error(), "title_px") {
+		t.Fatalf("small heading: %v", err)
+	}
+}
+func TestGodotCustomSelectionUsesContractRows(t *testing.T) {
+	root, c, d := screenFixture(t)
+	c.GodotScreens.Widgets = map[string]string{"atlas": "res://atlas.gd"}
+	list := &c.GodotScreens.Screens[0].Controls[0]
+	list.Kind = "custom"
+	list.Widget = "atlas"
+	list.ActionSource = "source"
+	list.Children = nil
+	c.GodotScreens.Screens[0].Focus = []string{"items", "take"}
+	c.GodotScreens.Screens[0].Controls = append(c.GodotScreens.Screens[0].Controls,
+		ScreenControl{ID: "take", Kind: "button", FontPX: 19, WidthPX: 620,
+			Action: &ScreenAction{Command: "inventory_command", Params: map[string]ScreenValue{
+				"item_id": {Path: "selected.items.id"}}}})
+	out, err := compileGodotScreens(root, c, d)
+	if err != nil || !bytes.Contains(out, []byte("selected.get(\"items\")")) {
+		t.Fatalf("custom selection is not typed: %v", err)
+	}
+}
+
+func TestGodotScreenGridVisibleRows(t *testing.T) {
+	root, c, d := screenFixture(t)
+	c.GodotScreens.Screens[0].Controls[0].Columns = 2
+	c.GodotScreens.Screens[0].Controls[0].Mode = "choices"
+	c.GodotScreens.Screens[0].Controls[0].Children = []ScreenControl{{ID: "name", Kind: "label", FontPX: 19, WidthPX: 400, Lines: 2, Bind: map[string]ScreenValue{"text": {Path: "row.name"}}}}
+	c.GodotScreens.Screens[0].Focus = []string{"items"}
+	c.GodotScreens.Screens[0].Controls[0].VisibleRows = 2
+	output, err := compileGodotScreens(root, c, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(output), `\"visible_rows\":2`) {
+		t.Fatal("visible rows lost from catalog")
+	}
+	for _, rows := range []int{-1, 10} {
+		c.GodotScreens.Screens[0].Controls[0].VisibleRows = rows
+		_, err = compileGodotScreens(root, c, d)
+		if err == nil || !strings.Contains(err.Error(), "screen bag field controls.items.visible_rows") {
+			t.Fatalf("invalid visible rows accepted: %v", err)
+		}
+	}
+	c.GodotScreens.Screens[0].Controls[0].VisibleRows = 2
+	c.GodotScreens.Screens[0].Controls[0].Columns = 0
+	_, err = compileGodotScreens(root, c, d)
+	if err == nil || !strings.Contains(err.Error(), "controls.items.visible_rows") {
+		t.Fatalf("non-grid accepted: %v", err)
 	}
 }

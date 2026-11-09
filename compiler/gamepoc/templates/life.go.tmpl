@@ -312,6 +312,7 @@ func (r *Runtime) sendLifeState(c *connection) {
 	r.appendLifeMaintenance(view, hero, msg.PlayerView)
 	r.appendLifeInspection(msg, v, hero, c.locale)
 	r.appendStorefrontInspection(msg, c.locale)
+<<ANG if .GodotScreens ANG>> r.appendScreenTargets(msg) <<ANG end ANG>>
 	r.appendDevelopment(msg)
 	r.appendCrafting(msg, c.locale)
 	if !r.world.Config.DebugPerception {

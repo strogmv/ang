@@ -207,6 +207,7 @@ type receipt struct {
 }
 
 type Runtime struct {
+<<ANG if .GodotScreens ANG>> screenRoutes *screenAccessRoutes <<ANG end ANG>>
  playableWorlds map[string]worldData
 	// Doc 96: combat panel options of the last decision point, and the barks cursor over combat events (memory only).
 	combatPanel combatPanelCache
@@ -875,6 +876,9 @@ func (r *Runtime) queueDisk(j diskJob) {
 func (r *Runtime) diskComplete(result diskResult) {
 	j := result.job
 	if j.action == "list" {
+        for _,slot := range result.slots {
+            if slot.Problem!="" {slot.Problem=r.localText(j.client.locale,slot.Problem,slot.Problem)}
+        }
 		r.send(j.client, &pb.ServerMessage{Msg: &pb.ServerMessage_SaveSlots{SaveSlots: &pb.PocSaveSlots{Slots: result.slots}}})
 		return
 	}
@@ -1076,18 +1080,24 @@ func (r *Runtime) readSlots() []*pb.PocSaveSlot {
 	var slots []*pb.PocSaveSlot
 	for _, id := range r.world.Config.SaveSlots {
 		v := &pb.PocSaveSlot{Id: id}
+<<ANG if .GodotScreens ANG>>
+		v.Number = int32(len(slots) + 1)
+<<ANG end ANG>>
 		s, created, err := r.readSave(id)
 		if err == nil {
 			v.Exists = true
 			v.Valid = true
 			v.SavedAtUnixMs = created
+<<ANG if .GodotScreens ANG>>
+            v.LocalOffsetSeconds = screenSaveOffset(created)
+<<ANG end ANG>>
 			v.Tick = s.Tick
 			v.Seed = s.Seed
 			v.PlayerX = int32(s.Player.X)
 			v.PlayerY = int32(s.Player.Y)
 		} else if !errors.Is(err, os.ErrNotExist) {
 			v.Exists = true
-			v.Problem = "Сохранение повреждено или несовместимо"
+			v.Problem = "ui.screen.save.invalid"
 		}
 		slots = append(slots, v)
 	}

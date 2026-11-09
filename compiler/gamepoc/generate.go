@@ -1225,6 +1225,7 @@ func generatePOC(project string, legacyUnity bool) error {
 		"godot_screen_crafting.go.tmpl":         filepath.Join(project, "internal/poc/screens_crafting.gen.go"),
 		"godot_screen_services.go.tmpl":         filepath.Join(project, "internal/poc/screens_services.gen.go"),
 		"godot_screen_inventory.go.tmpl":        filepath.Join(project, "internal/poc/screens_inventory.gen.go"),
+		"godot_screen_targets.go.tmpl":          filepath.Join(project, "internal/poc/screens_targets.gen.go"),
 		"godot_screen_views.go.tmpl":            filepath.Join(project, "internal/poc/screens_views.gen.go"),
 		"crafting_view.go.tmpl":                 filepath.Join(project, "internal/poc/crafting_view.gen.go"),
 		"crafting_sources.go.tmpl":              filepath.Join(project, "internal/poc/crafting_sources.gen.go"),
