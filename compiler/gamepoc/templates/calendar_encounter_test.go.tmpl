@@ -85,6 +85,19 @@ func TestCalendarEncounterActualGreetingPersistsContact(t *testing.T){
  slot:=r.world.Config.SaveSlots[0];if err:=r.writeSave(slot,r.snapshotState());err!=nil{t.Fatal(err)};saved,_,err:=r.readSave(slot);if err!=nil{t.Fatal(err)};if !saved.CalendarEncounter.Met{t.Fatal("greeting contact lost on load")}
 }
 
+func TestConversationScreenProjectionIsReadOnlyAndTyped(t *testing.T) {
+ r:=encounterFixture(t);e:=r.world.CalendarEncounter
+ encounterAdvanceTo(t,r,e.Morning)
+ for r.state.CalendarEncounter.Phase!="selling"&&r.state.Life.Seconds<e.Morning+7200{encounterAdvanceTo(t,r,r.state.Life.Seconds+30)}
+ peddlerPlace(t,r,playerActorID,inv.Cell{X:e.Meet.At.X+1,Y:e.Meet.At.Y});r.state.Life.Actor(playerActorID).Body=nil
+ before,_:=json.Marshal(r.snapshotState())
+ for _,locale:=range []string{"ru","en"}{
+  msg:=&pb.PocGameState{};r.appendConversation(msg,locale);v:=msg.Conversation
+  if v==nil||v.SpeakerName==""||strings.HasPrefix(v.SpeakerName,"actor.")||v.Skin==""||v.Text==""||len(v.Choices)!=1||v.Choices[0].Action!="encounter_greet"{t.Fatalf("incomplete %s conversation: %+v",locale,v)}
+ }
+ after,_:=json.Marshal(r.snapshotState());if string(before)!=string(after){t.Fatal("screen projection changed game rules/state")}
+}
+
 func TestCalendarEncounterVisibleProjectionKeepsOnlyVisiblePresentation(t *testing.T){
  r:=encounterFixture(t);e:=r.world.CalendarEncounter;encounterAdvanceTo(t,r,e.Morning+900)
  peddlerPlace(t,r,playerActorID,inv.Cell{X:e.Meet.At.X+2,Y:e.Meet.At.Y});r.world.Config.DebugPerception=false

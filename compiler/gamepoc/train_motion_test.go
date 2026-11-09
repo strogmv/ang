@@ -14,7 +14,7 @@ import (
 func trainMotionFixture() TrainMotionCatalog {
 	return TrainMotionCatalog{PrefabResource: "TrainMotion/MarketTrainV1", ClockDomain: "simulation", TrainID: "train.test", StockID: "stock.test", RouteID: "route.test", RouteVersion: 1, EpochSeconds: 0, InitialDistanceM: 152.4, SpeedMPS: 3, DwellSeconds: 12,
 		Points:   []TrainRoutePoint{{-100, 0}, {300, 0}, {300, 400}, {-100, 400}, {-100, 0}},
-		Modules:  []TrainModule{{"passenger", 0, 13.6, -.53, []float64{4, -4}}, {"freight", -14.2, 13.6, -.53, []float64{4, -4}}, {"freight2", -28.4, 13.6, -.53, []float64{4, -4}}, {"freight3", -42.6, 13.6, -.53, []float64{4, -4}}},
+		Modules:  []TrainModule{{"passenger", 0, 2.8, 13.6, -.53, []float64{4, -4}}, {"freight", -14.2, 2.8, 13.6, -.53, []float64{4, -4}}, {"freight2", -28.4, 2.8, 13.6, -.53, []float64{4, -4}}, {"freight3", -42.6, 2.8, 13.6, -.53, []float64{4, -4}}},
 		Bindings: []TrainBinding{{LevelID: "a", StartM: 100, EndM: 220}, {LevelID: "b", PassageID: "b.lower", StartM: 500, EndM: 620}, {LevelID: "c", PassageID: "c.lower", StartM: 900, EndM: 1020}}}
 }
 func TestTrainMotionRejectsInvalidRoutes(t *testing.T) {
@@ -40,6 +40,8 @@ func TestTrainMotionRejectsInvalidRoutes(t *testing.T) {
 		"entry to exterior train":  func(c *TrainMotionCatalog) { c.Bindings[0].EntryAllowed = true },
 		"sharp visible corner":     func(c *TrainMotionCatalog) { c.Bindings[0].StartM = 350; c.Bindings[0].EndM = 470 },
 		"duplicate module":         func(c *TrainMotionCatalog) { c.Modules[1].ID = c.Modules[0].ID },
+		"missing body width":       func(c *TrainMotionCatalog) { c.Modules[0].WidthM = 0 },
+		"invalid body width":       func(c *TrainMotionCatalog) { c.Modules[0].WidthM = math.NaN() },
 		"bogie outside body":       func(c *TrainMotionCatalog) { c.Modules[0].BogieOffsetsM[0] = 10 },
 	}
 	for name, mutate := range cases {

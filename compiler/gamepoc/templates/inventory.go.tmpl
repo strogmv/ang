@@ -111,12 +111,12 @@ func (r *Runtime) inventoryCommand(c *connection, q *pb.PocInventoryCommand) {
 		return
 	}
 	if !r.state.Active || q.Epoch != r.state.Epoch {
-		reject("Состояние мира изменилось. Обновите инвентарь.")
+		reject(r.localText(c.locale, "ui.screen.inventory.state_changed", "ui.screen.inventory.state_changed"))
 		return
 	}
 	raw, e := proto.MarshalOptions{Deterministic: true}.Marshal(q)
 	if e != nil {
-		reject("Некорректная команда")
+		reject(r.localText(c.locale, "ui.screen.inventory.bad_command", "ui.screen.inventory.bad_command"))
 		return
 	}
 	hash := sha256.Sum256(raw)
@@ -125,26 +125,26 @@ func (r *Runtime) inventoryCommand(c *connection, q *pb.PocInventoryCommand) {
 	if q.Action != "open" && q.Sequence <= cursor.Sequence {
 		if q.Sequence == cursor.Sequence && cursor.RequestTag == tag {
 			result.Ok = true
-			result.Message = "Уже выполнено"
+			result.Message = r.localText(c.locale, "ui.screen.inventory.replayed", "ui.screen.inventory.replayed")
 		} else {
-			reject("Команда устарела")
+			reject(r.localText(c.locale, "ui.screen.inventory.stale", "ui.screen.inventory.stale"))
 		}
 		return
 	}
 	if q.Action == "open" {
 		st, ok := r.state.Inventory.Stores[q.StoreId]
 		if !ok || st.Locked || !r.inventoryReach(inv.Location{Kind: "store", Store: st.ID}) {
-			reject("Хранилище недоступно")
+			reject(r.localText(c.locale, "ui.screen.inventory.storage_unavailable", "ui.screen.inventory.storage_unavailable"))
 			return
 		}
 		r.openStore = st.ID
 		r.focusActor(playerActorID, st.ID)
 		result.Ok = true
-		result.Message = "Хранилище открыто"
+		result.Message = r.localText(c.locale, "ui.screen.inventory.storage_opened", "ui.screen.inventory.storage_opened")
 		return
 	}
 	if r.state.Paused || (r.missionActor() == playerActorID && r.state.Demo.Captured) {
-		reject("Сейчас нельзя перемещать вещи")
+		reject(r.localText(c.locale, "ui.screen.inventory.unavailable", "ui.screen.inventory.unavailable"))
 		return
 	}
 	// Peddlers (world.peddlers): a piece off a tray, junk to the cart man.
@@ -157,11 +157,11 @@ func (r *Runtime) inventoryCommand(c *connection, q *pb.PocInventoryCommand) {
 	}
 	action := inv.Action{Actor: playerActorID, Kind: q.Action, Item: q.ItemId, Store: q.StoreId, Quantity: q.Quantity, ExpectedRevision: q.ExpectedRevision, Sequence: q.Sequence, RequestTag: tag}
 	if _, err := r.executeActorAction(action); err != nil {
-		reject("Не удалось выполнить действие: проверьте доступ, место и состояние вещи")
+		reject(r.localText(c.locale, "ui.screen.inventory.failed", "ui.screen.inventory.failed"))
 		return
 	}
 	result.Ok = true
-	result.Message = "Готово"
+	result.Message = r.localText(c.locale, "ui.screen.inventory.done", "ui.screen.inventory.done")
 }
 func (r *Runtime) appendInventory(msg *pb.PocGameState, locales ...string) {
 	locale := "ru"
@@ -211,15 +211,15 @@ func (r *Runtime) appendInventory(msg *pb.PocGameState, locales ...string) {
 				continue
 			}
 		}
-		location := "На земле"
+		location := r.localText(locale, "ui.screen.inventory.ground", "ui.screen.inventory.ground")
 		if i.Location.Kind == "store" {
 			location = r.localText(locale, s.Stores[i.Location.Store].Name, s.Stores[i.Location.Store].Name)
 		}
 		if owned {
 			if i.Location.Store == inv.ActorStore(playerActorID) {
-				location = "У героя"
+				location = r.localText(locale, "ui.screen.inventory.carried", "ui.screen.inventory.carried")
 			} else {
-				location += " · с собой"
+				location += r.localText(locale, "ui.screen.inventory.carried_suffix", "ui.screen.inventory.carried_suffix")
 			}
 		}
 		item := &pb.PocStoredItem{Id: id, Name: r.localText(locale, d.Name, d.Name), Quantity: i.Quantity, Owner: i.Owner, Location: location, Revision: i.Revision, Carried: owned, CanTake: (!owned && (i.Owner == "" || i.Owner == playerActorID)) || (owned && i.Location.Store != inv.ActorStore(playerActorID)), CanDrop: owned}
@@ -263,10 +263,11 @@ func (r *Runtime) appendInventory(msg *pb.PocGameState, locales ...string) {
 	for _, id := range ids {
 		e := s.Entitlements[id]
 		if e.Actor == playerActorID && !e.Revoked {
-			view.Entitlements = append(view.Entitlements, m.Definitions[e.Definition].Name)
+			view.Entitlements = append(view.Entitlements, r.localText(locale,m.Definitions[e.Definition].Name,m.Definitions[e.Definition].Name))
 		}
 	}
-	msg.Inventory = view
+<<ANG if .GodotScreens ANG>>	r.appendScreenInventory(view,locale)
+<<ANG end ANG>>	msg.Inventory = view
 }
 func (r *Runtime) validateInventory(s state) error {
 	if s.Life.Enabled {

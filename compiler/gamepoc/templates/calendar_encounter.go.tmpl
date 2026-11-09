@@ -247,6 +247,14 @@ func(r *Runtime)encounterAgent(a *pb.PocAgentState){
  a.EncounterPose=pose
 }
 func(r *Runtime)appendConversation(msg *pb.PocGameState,locale string){
+ defer func(){
+  v:=msg.Conversation;if v==nil{return}
+  v.SpeakerName=r.craftingActorName(locale,v.Speaker)
+  v.Skin=barkCatalog.Castes[v.Speaker];if v.Skin!="copper"&&v.Skin!="silver"&&v.Skin!="gold"{v.Skin="copper"}
+  v.CasteName=r.localText(locale,"ui.caste."+v.Skin,"")
+  for _,choice:=range v.Choices{choice.Action="encounter_choice";if v.Kind=="trade_greeting"{choice.Action="encounter_greet"}}
+ }()
+
  e:=r.world.CalendarEncounter;if e==nil{return};s:=r.state.CalendarEncounter
  text:=func(key string)string{return r.localText(locale,key,key)}
  if s.Phase=="selling"&&r.encounterNear(e.Actor,e.Reach)&&!s.Met{

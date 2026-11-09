@@ -201,6 +201,7 @@ func (r *Runtime) sendLifeState(c *connection) {
 	}
 	terrain := v.world.Terrain
 	msg := &pb.PocGameState{Epoch: s.Epoch, Tick: s.Tick, GameSeconds: s.Life.Seconds, Seed: s.Seed, Paused: s.Paused, Speed: s.Speed, PlayerX: int32(s.Player.X), PlayerY: int32(s.Player.Y), PlayerName: s.PlayerName, Width: int32(len(terrain[0])), Height: int32(len(terrain)), Terrain: terrain, Active: s.Active, ContentHash: r.world.ContentHash, SimTimeNs: r.simNS(), MotionStartNs: s.MoveStartNS, MovementStepNs: r.lifeMotionDurationNS(r.lifeHeroMoveTicks()), LastMoveSeq: s.LastMoveSeq, ServerTickHz: r.tickHz, ServerStepUs: r.stepUS, ServerUptimeMs: time.Since(r.started).Milliseconds(), ServerLagMs: r.lagMS}
+<<ANG if .GodotSettings ANG>> msg.Locale=r.validLocale(c.locale) <<ANG end ANG>>
 	for _, at := range s.Path {
 		msg.Path = append(msg.Path, &pb.PocPoint{X: int32(at.X), Y: int32(at.Y)})
 	}
@@ -301,6 +302,7 @@ func (r *Runtime) sendLifeState(c *connection) {
 	r.appendStorefrontState(view, hero, msg.PlayerView)
 	r.appendVending(view, hero, msg.PlayerView, c.locale)
 	r.appendPeddlers(view, hero, msg.PlayerView, c.locale)
+<<ANG if .GodotScreens ANG>> r.appendScreenTrade(msg,c.locale);r.appendScreenServices(msg,c.locale) <<ANG end ANG>>
  view.CartParkingJson=r.cartParkingJSON(hero,msg.PlayerView)
  r.appendConversation(msg,c.locale)
 	r.appendCraft(view, hero, msg.PlayerView)

@@ -136,7 +136,7 @@ func TestTrainMotionFullGeneration(t *testing.T) {
 }
 
 func TestClientTrainCalibrationHasNoRouteSnapshot(t *testing.T) {
-	c := Compiled{TrainMotion: &TrainMotionCatalog{Modules: []TrainModule{{ID: "car.01", OffsetM: 0, LengthM: 13.6}}}}
+	c := Compiled{TrainMotion: &TrainMotionCatalog{Modules: []TrainModule{{ID: "car.01", OffsetM: 0, LengthM: 13.6, WidthM: 2.8}}}}
 	raw, err := clientResource(c)
 	if err != nil {
 		t.Fatal(err)

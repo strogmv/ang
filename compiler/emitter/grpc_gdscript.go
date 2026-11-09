@@ -41,7 +41,11 @@ const gdKeywords = " and or not when abstract if elif else for while match break
 // Keep proto names on the wire even when a field is a GDScript keyword or
 // shadows RefCounted/Object members. Prefixing is injective (including pb_*).
 func gdField(f protoreflect.FieldDescriptor) string {
-	n := string(f.Name())
+	return GDScriptFieldName(string(f.Name()))
+}
+
+// GDScriptFieldName shares the contract's injective property mapping with typed UI emitters.
+func GDScriptFieldName(n string) string {
 	reserved := " class class_name extends is in as self tool signal func static const enum var onready export setget breakpoint preload yield assert void null true false if elif else for while match break continue pass return await super set get int float bool String Array Dictionary name new from_dict to_dict get_class get_script get_meta set_meta get_meta_list has_meta remove_meta get_instance_id is_class is_queued_for_deletion notification free call callv call_deferred emit_signal connect disconnect is_connected duplicate reference unreference init_ref get_reference_count set_script get_property_list get_method_list get_signal_list get_signal_connection_list get_incoming_connections has_method has_signal has_user_signal add_user_signal to_string set_deferred notify_property_list_changed property_can_revert property_get_revert tr tr_n set_block_signals is_blocking_signals cancel_free "
 	if strings.Contains(reserved, " "+n+" ") || strings.Contains(gdKeywords, " "+n+" ") || strings.HasPrefix(n, "pb_") {
 		return "pb_" + n

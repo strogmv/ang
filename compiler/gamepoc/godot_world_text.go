@@ -279,8 +279,11 @@ func GenerateGodot(project string) error {
 	if err != nil {
 		return err
 	}
-	compiled, _, err := readCompiled(project)
+	compiled, def, err := readCompiled(project)
 	if err != nil {
+		return err
+	}
+	if err = writeGodotScreens(project, compiled, def); err != nil {
 		return err
 	}
 	compiled.WorldTextDrawn, err = compileWorldText(project, compiled)

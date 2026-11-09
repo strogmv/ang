@@ -7,7 +7,7 @@ import shutil
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from runtime import apply_legacy, digest, fail, identity_tags, import_asset, model_matrix, signature, validate_geometry, check_known_conflicts, inherited_properties, resolve_wall_role, art_consumers, installed_triangle_budget, write_json
+from runtime import recorded_asset, apply_legacy, digest, fail, identity_tags, import_asset, model_matrix, signature, validate_geometry, check_known_conflicts, inherited_properties, resolve_wall_role, art_consumers, installed_triangle_budget, write_json
 import bpy
 from mathutils import Matrix
 
@@ -301,8 +301,8 @@ for base,lod,objects in lod_groups:
     # An exact unchanged kit GLB is retained byte for byte. The signature covers
     # evaluated geometry, material identities, UV and normals at the CUE pivot.
     source_row = mapping.get('ids', {}).get(base, sources.get(base, {})) if lod==0 else {}
-    asset = Path(source_row.get('source_asset', ''))
-    passthrough = not any(obj.name in object_roles for obj in objects) and source_row.get('source_signature') == mesh_hash and asset.is_file() and digest(asset) == source_row.get('source_sha256') and asset.suffix == '.glb'
+    asset = recorded_asset(source_row, row)
+    passthrough = not any(obj.name in object_roles for obj in objects) and source_row.get('source_signature') == mesh_hash and asset is not None
     if passthrough:
         file = out / (key + '.glb')
         shutil.copy2(asset, file)

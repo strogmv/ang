@@ -1,0 +1,71 @@
+
+func definition(id: String) -> Dictionary:
+	for entry in specification().entries:
+		if entry.id==id:return entry
+	return {}
+func valid(id: String,v: Variant) -> bool:
+	var entry:=definition(id)
+	match str(entry.kind):
+		"toggle":return v is bool
+		"choice":
+			for option in entry.options:
+				if v is String and v==option.value:return true
+			return false
+		"stepped_number":
+			if not (v is int or v is float) or not is_finite(float(v)):return false
+			var steps: float=(float(v)-entry.min)/entry.step
+			return v>=entry.min and v<=entry.max and absf(steps-roundf(steps))<0.000001
+	return false
+func _warn(text: String) -> void:
+	warnings.append(text);push_warning(text)
+func load_file(path: String="user://settings.cfg") -> void:
+	warnings.clear()
+	file=ConfigFile.new()
+	for entry in specification().entries:_assign(entry.id,entry.default)
+	var result:=file.load(path)
+	if result!=OK and result!=ERR_FILE_NOT_FOUND:_warn("settings load: "+error_string(result))
+	for section in file.get_sections():
+		for key in file.get_section_keys(section):
+			var known:=false
+			for entry in specification().entries:
+				if entry.section==section and entry.key==key:known=true;break
+			if not known:_warn("unknown setting storage key: "+section+"/"+key)
+	for entry in specification().entries:
+		var stored=file.get_value(entry.section,entry.key,entry.default)
+		if valid(entry.id,stored):_assign(entry.id,stored)
+		else:_warn("setting "+entry.id+" invalid; using default")
+func save_file(path: String="user://settings.cfg") -> Error:
+	for entry in specification().entries:file.set_value(entry.section,entry.key,value(entry.id))
+	var result:=file.save(path)
+	if result!=OK:_warn("settings save: "+error_string(result))
+	return result
+func set_value(id: String,v: Variant) -> bool:
+	if not valid(id,v):_warn("setting "+id+" invalid; using default");_assign(id,definition(id).default);changed.emit(id,value(id));return false
+	_assign(id,v);changed.emit(id,value(id));return true
+func cycle(id: String,direction:=1) -> void:
+	var entry:=definition(id)
+	match str(entry.kind):
+		"toggle":set_value(id,not value(id))
+		"choice":
+			var index:=0
+			for i in range(entry.options.size()):
+				if entry.options[i].value==value(id):index=i;break
+			set_value(id,entry.options[posmod(index+direction,entry.options.size())].value)
+		"stepped_number":
+			var count:=roundi((entry.max-entry.min)/entry.step)+1
+			var index:=roundi((float(value(id))-entry.min)/entry.step)
+			set_value(id,entry.min+posmod(index+direction,count)*entry.step)
+func display(id: String) -> String:
+	var entry:=definition(id)
+	var current=value(id)
+	for option in entry.get("options",[]):
+		if option.value==current:return tr(option.text_key)
+	var scale: float=entry.get("display_scale",1.0)
+	var copy:=str(snappedf(float(current)*scale,0.01))
+	if copy.ends_with(".0"):copy=copy.trim_suffix(".0")
+	return tr(entry.get("value_key","")).replace("{value}",copy)
+
+func snapshot() -> Dictionary:
+	var result:={}
+	for entry in specification().entries:result[entry.id]=value(entry.id)
+	return result

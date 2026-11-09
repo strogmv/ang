@@ -193,6 +193,8 @@ type Compiled struct {
 	GodotScenes      []GodotScene           `json:"-"`
 	GodotTargets     []string               `json:"-"`
 	GodotTheme       *GodotTheme            `json:"-"`
+	GodotSettings    *GodotSettings         `json:"-"`
+	GodotScreens     *GodotScreens          `json:"-"`
 	WebSocket        bool                   `json:"-"`
 	ViewDelivery     bool                   `json:"-"`
 	CartParking      *CartParkingCatalog    `json:"cart_parking,omitempty"`
@@ -510,6 +512,16 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	if theme := world.LookupPath(cue.ParsePath("godot_theme")); theme.Exists() {
 		if err := theme.Decode(&out.GodotTheme); err != nil {
 			return out, nil, err
+		}
+	}
+	if settings := world.LookupPath(cue.ParsePath("godot_settings")); settings.Exists() {
+		if err := settings.Decode(&out.GodotSettings); err != nil {
+			return out, nil, fmt.Errorf("godot_settings: %w", err)
+		}
+	}
+	if screens := world.LookupPath(cue.ParsePath("godot_screens")); screens.Exists() {
+		if err := screens.Decode(&out.GodotScreens); err != nil {
+			return out, nil, fmt.Errorf("godot_screens: %w", err)
 		}
 	}
 	if localization := world.LookupPath(cue.ParsePath("localization")); localization.Exists() {
@@ -880,6 +892,15 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 // Generate writes only the explicitly owned POC artifacts and the shared GRPC
 // outputs using ANG's existing normalizer/emitters. Other project files are untouched.
 func Generate(project string) error {
+	return generatePOC(project, true)
+}
+
+// GenerateActive writes the server and Godot client, without rendering retired Unity outputs.
+func GenerateActive(project string) error {
+	return generatePOC(project, false)
+}
+
+func generatePOC(project string, legacyUnity bool) error {
 	project, err := filepath.Abs(project)
 	if err != nil {
 		return err
@@ -893,6 +914,9 @@ func Generate(project string) error {
 	}
 	compiled.ViewDelivery = def.ViewSubscription != ""
 	compiled.WebSocket = def.WebSocket
+	if err := writeGodotScreens(project, compiled, def); err != nil {
+		return err
+	}
 	unity := filepath.Clean(filepath.Join(project, compiled.Config.UnityDir))
 	worldJSON, err := json.MarshalIndent(compiled, "", "  ")
 	if err != nil {
@@ -1196,6 +1220,12 @@ func Generate(project string) error {
 		"crafting.cs.tmpl":                      filepath.Join(unity, "Assets/Generated/Poc/PocCrafting.cs"),
 		"crafting_commands.go.tmpl":             filepath.Join(project, "internal/poc/crafting_commands.gen.go"),
 		"crafting_time.go.tmpl":                 filepath.Join(project, "internal/poc/crafting_time.gen.go"),
+		"godot_screen_views_test.go.tmpl":       filepath.Join(project, "internal/poc/screens_views_generated_test.go"),
+		"godot_screen_combat.go.tmpl":           filepath.Join(project, "internal/poc/screens_combat.gen.go"),
+		"godot_screen_crafting.go.tmpl":         filepath.Join(project, "internal/poc/screens_crafting.gen.go"),
+		"godot_screen_services.go.tmpl":         filepath.Join(project, "internal/poc/screens_services.gen.go"),
+		"godot_screen_inventory.go.tmpl":        filepath.Join(project, "internal/poc/screens_inventory.gen.go"),
+		"godot_screen_views.go.tmpl":            filepath.Join(project, "internal/poc/screens_views.gen.go"),
 		"crafting_view.go.tmpl":                 filepath.Join(project, "internal/poc/crafting_view.gen.go"),
 		"crafting_sources.go.tmpl":              filepath.Join(project, "internal/poc/crafting_sources.gen.go"),
 		"crafting_sources_view.go.tmpl":         filepath.Join(project, "internal/poc/crafting_sources_view.gen.go"),
@@ -1261,6 +1291,12 @@ func Generate(project string) error {
 		"hero_body.cs.tmpl":                     filepath.Join(unity, "Assets/Generated/Poc/PocHeroBody.cs"),
 		"location_sdk_multideck_proof.cs.tmpl":  filepath.Join(unity, "Assets/Generated/Poc/PocLocationSDKMultideckProof.cs"),
 	} {
+		if strings.HasPrefix(name, "godot_screen_") && compiled.GodotScreens == nil {
+			continue
+		}
+		if !legacyUnity && strings.HasPrefix(dest, unity+string(filepath.Separator)) {
+			continue
+		}
 		data, err := sources.ReadFile("templates/" + name)
 		if err != nil {
 			return err
@@ -1323,13 +1359,22 @@ func Generate(project string) error {
 	}
 	csDir := filepath.Join(unity, "Assets/Generated/AngelsDemons")
 	for _, svc := range def.Services {
+		if !legacyUnity {
+			continue
+		}
 		files[filepath.Join(csDir, "Grpc", svc.Name+"Grpc.cs")] = []byte(emitter.RenderCSharpStubs(def, svc))
 	}
 	for _, sm := range emitter.SessionMethods(def) {
+		if !legacyUnity {
+			continue
+		}
 		files[filepath.Join(csDir, "Sessions", sm.Service.Name+sm.Method.Name+"Session.cs")] = []byte(emitter.RenderCSharpSession(def, sm.Service, sm.Method))
 	}
 	names := make([]string, 0, len(files))
 	for path := range files {
+		if !legacyUnity && strings.HasPrefix(path, unity+string(filepath.Separator)) {
+			continue
+		}
 		names = append(names, path)
 	}
 	sort.Strings(names)
@@ -1351,6 +1396,10 @@ func Generate(project string) error {
 		if err := os.Remove(filepath.Join(project, "internal/poc", name)); err != nil && !os.IsNotExist(err) {
 			return err
 		}
+	}
+	if !legacyUnity {
+		fmt.Printf("Generated active server and Godot from CUE: %s, content %s\n", compiled.Config.LevelID, compiled.ContentHash[:12])
+		return nil
 	}
 	if err := os.MkdirAll(filepath.Join(csDir, "Messages"), 0755); err != nil {
 		return err

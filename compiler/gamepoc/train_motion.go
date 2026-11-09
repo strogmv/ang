@@ -48,6 +48,7 @@ type TrainRoutePoint struct {
 type TrainModule struct {
 	ID            string    `json:"id"`
 	OffsetM       float64   `json:"offset_m"`
+	WidthM        float64   `json:"width_m"`
 	LengthM       float64   `json:"length_m"`
 	BogieYM       float64   `json:"bogie_y_m"`
 	BogieOffsetsM []float64 `json:"bogie_offsets_m"`
@@ -151,7 +152,7 @@ func (c TrainMotionCatalog) validate(life json.RawMessage) error {
 	ids := map[string]bool{}
 	tail := 0.0
 	for i, m := range c.Modules {
-		if m.ID == "" || ids[m.ID] || !finite(m.OffsetM) || m.OffsetM > 0 || !finite(m.LengthM) || m.LengthM <= 0 || m.LengthM > 100 || len(m.BogieOffsetsM) != 2 || !finite(m.BogieYM) {
+		if m.ID == "" || ids[m.ID] || !finite(m.OffsetM) || m.OffsetM > 0 || !finite(m.LengthM) || m.LengthM <= 0 || m.LengthM > 100 || !finite(m.WidthM) || m.WidthM <= 0 || m.WidthM > 20 || len(m.BogieOffsetsM) != 2 || !finite(m.BogieYM) {
 			return fmt.Errorf("invalid or duplicate module")
 		}
 		if i == 0 && m.OffsetM != 0 {

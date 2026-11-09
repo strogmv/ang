@@ -628,6 +628,7 @@ func (r *Runtime) sendState(c *connection) {
 	}
 	s := r.state
 	msg := &pb.PocGameState{Epoch: s.Epoch, Tick: s.Tick, GameSeconds: s.Tick * r.world.Config.GameSecondsPerTick, Seed: s.Seed, Paused: s.Paused, Speed: s.Speed, PlayerX: int32(s.Player.X), PlayerY: int32(s.Player.Y), PlayerName: s.PlayerName, Width: int32(len(r.world.Terrain[0])), Height: int32(len(r.world.Terrain)), Terrain: r.world.Terrain, Active: s.Active, ContentHash: r.world.ContentHash}
+<<ANG if .GodotSettings ANG>> msg.Locale=r.validLocale(c.locale) <<ANG end ANG>>
 	r.appendDemo(msg)
 	r.localizeNPC0Demo(msg, c.locale)
 	r.appendInventory(msg)

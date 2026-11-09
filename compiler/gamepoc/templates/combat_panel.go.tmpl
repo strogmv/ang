@@ -23,6 +23,7 @@ type combatPanelCache struct {
 }
 
 func (r *Runtime) appendCombatPanel(msg *pb.PocGameState, locale string) {
+<<ANG if .GodotScreens ANG>> defer r.appendScreenCombat(msg,locale) <<ANG end ANG>>
 	r.appendWoundViews(msg,locale)
  r.appendGroundWeapons(msg)
  r.appendTakedownOptions(msg,locale)
@@ -119,7 +120,7 @@ func (r *Runtime) combatOptions(locale string) []*pb.PocCombatOption {
 	}
 	var out []*pb.PocCombatOption
 	emit := func(group, id, label string, action behavior.CombatAction, nominal int, why func(error) string) {
-		o := &pb.PocCombatOption{Id: id, Action: action.Type, TargetId: action.TargetID, Mode: action.Mode, ItemId: action.ItemID, X: int32(action.To.X), Y: int32(action.To.Y), Ap: int32(nominal), Label: label, Group: group}
+		o := &pb.PocCombatOption{Id: id, BodyPart: action.BodyPart, Aim:int32(action.Aim), Action: action.Type, TargetId: action.TargetID, Mode: action.Mode, ItemId: action.ItemID, X: int32(action.To.X), Y: int32(action.To.Y), Ap: int32(nominal), Label: label, Group: group}
 		switch {
 		case !ready:
 			o.Reason = text("error.combat.not_turn")

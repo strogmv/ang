@@ -9,6 +9,20 @@ def digest(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
+def recorded_asset(source_row, identity):
+    """Rebind a relocated unchanged asset through the current CUE contract.
+
+    A .blend may retain provenance from a deleted staging directory. The
+    contract path is authoritative; an exact recorded SHA is still mandatory.
+    """
+    name = identity.get('source_asset') or identity.get('asset') or source_row.get('source_asset')
+    expected = source_row.get('source_sha256')
+    if not name or not expected:
+        return None
+    asset = Path(name)
+    return asset if asset.is_file() and asset.suffix == '.glb' and digest(asset) == expected else None
+
+
 def write_json(path, value):
     Path(path).write_text(json.dumps(value, indent=2, allow_nan=False) + '\n')
 

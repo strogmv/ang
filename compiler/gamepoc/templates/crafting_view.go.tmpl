@@ -388,5 +388,6 @@ func (r *Runtime) appendCrafting(msg *pb.PocGameState, locale string) {
 		view.Notice = r.craftingText(locale, n.Key, "name", name, "pct", n.Detail)
 		view.NoticeSeconds = n.Second
 	}
-	msg.Crafting = view
+<<ANG if .GodotScreens ANG>>	r.appendScreenCrafting(view,locale)
+<<ANG end ANG>>	msg.Crafting = view
 }

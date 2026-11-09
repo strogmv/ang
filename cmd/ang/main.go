@@ -69,6 +69,14 @@ func main() {
 			project = os.Args[2]
 		}
 		generate := gamepoc.Generate
+		if project == "--active-client" {
+			if len(os.Args) != 4 {
+				fmt.Fprintln(os.Stderr, "usage: ang game-poc --active-client <backend>")
+				os.Exit(2)
+			}
+			project = os.Args[3]
+			generate = gamepoc.GenerateActive
+		}
 		if project == "--godot-only" {
 			if len(os.Args) != 4 {
 				fmt.Fprintln(os.Stderr, "usage: ang game-poc --godot-only <backend>")
