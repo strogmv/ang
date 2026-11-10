@@ -190,6 +190,7 @@ type Menu struct {
 }
 
 type Compiled struct {
+	ExitZones        *ExitZoneCatalog       `json:"exit_zones,omitempty"`
 	LiftingDecks     *LiftingDeckCatalog    `json:"lifting_decks,omitempty"`
 	GodotScenes      []GodotScene           `json:"-"`
 	GodotTargets     []string               `json:"-"`
@@ -720,6 +721,9 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 			return out, nil, fmt.Errorf("world.painted_inventory_anchors: %w", err)
 		}
 	}
+	if out.ExitZones, err = readExitZones(world, out); err != nil {
+		return out, nil, err
+	}
 	if err := out.Wayfinding.validate(out.Life, out.Walkable, out.Localization, out.PaintedInventoryAnchors); err != nil {
 		return out, nil, err
 	}
@@ -1238,6 +1242,8 @@ func generatePOC(project string, legacyUnity bool) error {
 		"godot_screen_crafting.go.tmpl":         filepath.Join(project, "internal/poc/screens_crafting.gen.go"),
 		"godot_screen_services.go.tmpl":         filepath.Join(project, "internal/poc/screens_services.gen.go"),
 		"godot_screen_inventory.go.tmpl":        filepath.Join(project, "internal/poc/screens_inventory.gen.go"),
+		"exit_zones.go.tmpl":                    filepath.Join(project, "internal/poc/exit_zones.gen.go"),
+		"exit_zones_test.go.tmpl":               filepath.Join(project, "internal/poc/exit_zones_generated_test.go"),
 		"godot_screen_targets.go.tmpl":          filepath.Join(project, "internal/poc/screens_targets.gen.go"),
 		"godot_screen_views.go.tmpl":            filepath.Join(project, "internal/poc/screens_views.gen.go"),
 		"crafting_view.go.tmpl":                 filepath.Join(project, "internal/poc/crafting_view.gen.go"),

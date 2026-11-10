@@ -60,7 +60,9 @@ func(r *Runtime)advanceTrainMotion(previousGame int64){
  now:=r.state.Tick*r.tickNS()
  s:=&r.state.TrainDispatch
  previousNS:=s.LastNS
- if !s.Initialized{previousNS=now-r.tickNS()}
+ // Physical time starts at zero: a frame at tick 0 has no elapsed interval yet,
+ // so no run may be accepted with a start before the save domain.
+ if !s.Initialized{previousNS=max(0,now-r.tickNS())}
  dt:=float64(now-previousNS)/1e9
  if dt<=0{return}
  rate:=float64(r.state.Life.Seconds-previousGame)/dt

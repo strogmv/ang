@@ -13,6 +13,8 @@ func(r *Runtime)advanceMarketSupply()error{
  poses:=map[string]inv.DeliveryPose{}
  for _,a:=range r.state.Life.Actors{poses[a.ID]=inv.DeliveryPose{Break:a.Brain.BreakKind!="",Level:a.Level,At:inv.Cell{X:a.Position.X,Y:a.Position.Y},Present:a.OnFloor()&&len(a.Path)==0&&r.combatMerchantSafe(a.ID)&&r.encounterTradeAllowed(a.ID)}}
  if err:=r.state.Inventory.Advance(r.state.Tick);err!=nil{return err}
+ if err:=r.advanceLiftingDeckFreight();err!=nil{return err}
+ r.holdUnreadyDeckPickups(poses)
  return r.state.Inventory.AdvanceCommerce(r.inventoryModelFor(true),r.state.Life.Seconds,poses)
 }
 func(r *Runtime)commerceAccessible(actor string,location inv.Location)bool{
@@ -43,4 +45,43 @@ func(r *Runtime)storefrontOpen(id string)bool{
   open,_:=r.state.Inventory.ShopStatus(shop);a:=r.state.Life.Actor(shop.Owner)
   return open&&r.combatMerchantSafe(shop.Owner)&&a!=nil&&a.OnFloor()&&len(a.Path)==0&&shop.ServesCell(a.Level,inv.Cell{X:a.Position.X,Y:a.Position.Y})
  };return false
+}
+
+
+// A late physical landing holds the existing receiving duty; changing the
+// calendar rate cannot let a trader collect a not-yet-arrived consignment.
+// Existing cart approaches retain their previous priority and behavior.
+func(r *Runtime)commerceRouteDetour(a *behavior.LifeActor,wanted behavior.LifeStep)(behavior.LifeStep,bool){
+ if step,on:=r.cartRouteDetour(a,wanted);on{return step,true}
+ // Preserve the existing need/safety choices; only the proprietor duty waits.
+ if !wanted.Obligation&&wanted.Activity!="service"&&wanted.Activity!="work"&&wanted.Activity!="post"{return wanted,false}
+ if r.world.LiftingDecks==nil{return wanted,false}
+ for _,deck:=range r.world.LiftingDecks.Decks{if deck.Freight==nil{continue};for _,route:=range deck.Freight.Routes{
+  for _,d:=range r.world.Inventory.Deliveries{if d.ID!=route.DeliveryID||d.Carrier!=a.ID{continue};progress:=r.state.Inventory.Deliveries[d.ID];if progress.Phase!=""||r.state.Life.Seconds<progress.NextDue{continue}
+   // A new game starts at 07:00 after today's pickup slot. Future Copper
+   // reserves must not drag proprietors away from their open stalls today.
+   dueThisPeriod:=r.state.Life.Seconds/d.PeriodSeconds*d.PeriodSeconds+d.FirstSecond%d.PeriodSeconds
+   if r.state.Life.Seconds<dueThisPeriod{continue}
+   g:=r.state.LiftingDecks[deck.ID];pending:=r.state.Life.Seconds>=g.FreightNextSecond
+   for _,item:=range r.state.Inventory.Items{if item.Quantity>0&&item.Location.Kind=="store"&&(item.Location.Store==route.DeckStore||item.Location.Store==route.ReceivingStore){pending=true;break}}
+   if pending{return behavior.LifeStep{Level:d.Pickup.Level,At:behavior.Cell{X:d.Pickup.At.X,Y:d.Pickup.At.Y},Activity:"rest",Label:"life.merchant.collecting_supply",Obligation:true},true}
+  }
+ }};return wanted,false
+}
+
+
+func(r *Runtime)holdUnreadyDeckPickups(poses map[string]inv.DeliveryPose){
+ if r.world.LiftingDecks==nil{return}
+ for _,deck:=range r.world.LiftingDecks.Decks{f:=deck.Freight;if f==nil{continue};g:=r.state.LiftingDecks[deck.ID]
+  for _,route:=range f.Routes{
+   copper,aboard,receiving:=int64(0),int64(0),int64(0)
+   for _,item:=range r.state.Inventory.Items{if item.Location.Kind!="store"{continue};switch item.Location.Store{case route.CopperStore:copper+=item.Quantity;case route.DeckStore:aboard+=item.Quantity;case route.ReceivingStore:receiving+=item.Quantity}}
+   // An empty source during the physical incoming run is not an exhausted
+   // day's attempt. Do not advance its existing delivery NextDue to tomorrow.
+   waiting:=aboard>0||(receiving==0&&copper>0&&g.FreightNextSecond<=r.state.Life.Seconds)
+   handoff:=receiving>0&&g.FreightLandedNS>0&&g.UpdatedNS-g.FreightLandedNS<f.ReceivingDwellS*1000000000
+   if !waiting&&!handoff{continue}
+   for _,d:=range r.world.Inventory.Deliveries{if d.ID==route.DeliveryID{p:=poses[d.Carrier];p.Present=false;poses[d.Carrier]=p}}
+  }
+ }
 }

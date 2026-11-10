@@ -206,6 +206,8 @@ func(r *Runtime)localText(locale,key,fallback string)string{if strings.HasPrefix
 func(r *Runtime)lifeExitKnown(e behavior.LifeEdge)bool{return r.wayfindingWalks(e.From,e.Exit)}
 func(r *Runtime)lifeEdgeName(locale string,e behavior.LifeEdge)string{return r.regionLevelName(locale,e.To)}
 func(r *Runtime)resetInstantTravel(){}
+// This planar fixture has no lifting deck; an accepted move has no queue to cancel.
+func(r *Runtime)cancelQueuedLiftingDeckRide(actorID string){}
 // Game-time motion clock of the full host; route privacy does not depend on it.
 func(r *Runtime)lifeMotionTick()int64{return r.state.Tick}
 func(r *Runtime)syncLifeHero(){r.syncs++}

@@ -4,6 +4,8 @@ import json
 import math
 from pathlib import Path
 
+SIGNATURE_SCHEMA = "ang.mesh-signature.v2.all-uv"
+
 
 def digest(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
@@ -163,7 +165,7 @@ def import_asset(scene, contract, key, asset, mapping=None, collection=None):
     bpy.context.view_layer.update()
     objects = [obj for obj in imported if obj.type == 'MESH']
     mesh_hash, _ = signature(objects, model_matrix(contract, key, mapping), bpy.context.evaluated_depsgraph_get())
-    return {'source_asset': str(asset), 'source_sha256': digest(asset), 'source_signature': mesh_hash, 'asset_basis': basis}, [{'node': 'collection:' + col.name, 'property': 'ang_id', 'before': None, 'after': key, 'import_asset': str(asset)}]
+    return {'source_asset': str(asset), 'source_sha256': digest(asset), 'source_signature': mesh_hash, 'source_signature_schema': SIGNATURE_SCHEMA, 'asset_basis': basis, 'source_batch_policy': artifact_batch_policy(asset), 'source_pose_signature': hierarchy_signature(imported, model_matrix(contract, key, mapping)), 'source_artifact_pose_signature': artifact_pose_signature(asset)}, [{'node': 'collection:' + col.name, 'property': 'ang_id', 'before': None, 'after': key, 'import_asset': str(asset)}]
 
 
 def triangle_rect(tri, rect):
@@ -202,6 +204,9 @@ def material_state(material):
                         value = str(value)
                 inputs.append((socket.name, value))
             entry = {'type': node.type, 'name': node.name, 'inputs': inputs}
+            for field in ['uv_map', 'attribute_name', 'layer_name', 'interpolation', 'projection', 'extension']:
+                if hasattr(node, field):
+                    entry[field] = getattr(node, field)
             if hasattr(node, 'operation'):
                 entry['operation'] = node.operation
             if hasattr(node, 'blend_type'):
@@ -249,9 +254,14 @@ def triangle_box(triangle, low, high):
 
 
 def signature(objects, model_matrix, depsgraph):
-    """Normalised evaluated meshes; object order/names do not select identities."""
+    """Evaluated mesh identity with exact complete UV/colour payloads.
+
+    Legacy position/normal normalisation stays unchanged. All UV sets, names,
+    ordering and active policies are exact; an edit of UV1 alone is never an
+    unchanged-source cache hit. Old source memos are a different schema.
+    """
     import struct
-    h = hashlib.sha256()
+    h = hashlib.sha256(SIGNATURE_SCHEMA.encode())
     counts = []
     for obj in objects:
         ev = obj.evaluated_get(depsgraph)
@@ -259,21 +269,25 @@ def signature(objects, model_matrix, depsgraph):
         mesh.calc_loop_triangles()
         matrix = model_matrix @ ev.matrix_world
         normal = matrix.to_3x3().inverted().transposed()
-        uv = mesh.uv_layers.active
         materials = [s.material.name if s.material else '' for s in obj.material_slots]
         local = hashlib.sha256()
+        local.update(uv_content_signature(mesh).encode())
+        for attribute in mesh.color_attributes:
+            local.update(json.dumps([attribute.name, attribute.domain, attribute.data_type]).encode())
+            for item in attribute.data:
+                values = list(item.color)
+                if not all(math.isfinite(v) for v in values):
+                    fail(f'object {obj.name!r}: non-finite vertex colour')
+                local.update(struct.pack('<4f', *values))
         for tri in mesh.loop_triangles:
             local.update(str(tri.material_index).encode())
             for li in tri.loops:
                 p = matrix @ mesh.vertices[mesh.loops[li].vertex_index].co
                 n = (normal @ mesh.corner_normals[li].vector).normalized()
-                tex = uv.data[li].uv if uv else (0, 0)
-                # Blender stores coordinates/normals as float32. Quantisation
-                # ignores only import/depsgraph rounding, never visible edits.
-                values = [float(v) for v in [*p, *n, *tex]]
+                values = [float(v) for v in [*p, *n]]
                 if not all(math.isfinite(v) for v in values):
-                    fail(f'object {obj.name!r}: non-finite vertex/normal/UV; repair this mesh')
-                local.update(struct.pack('<8d', *(round(v, 6) for v in values)))
+                    fail(f'object {obj.name!r}: non-finite vertex/normal; repair this mesh')
+                local.update(struct.pack('<6d', *(round(v, 6) for v in values)))
         local.update(json.dumps([material_state(slot.material) for slot in obj.material_slots], sort_keys=True).encode())
         counts.append((local.digest(), {'name': obj.name, 'triangles': len(mesh.loop_triangles), 'materials': materials}))
         ev.to_mesh_clear()
@@ -640,3 +654,187 @@ def installed_triangle_budget(contract, source_triangles, warnings, partial=Fals
     return {'triangles': models + procedural, 'bound_models_lod0': models,
             'emitter_primitives': procedural, 'consumers': consumers, 'status': status,
             'scope': 'Required LOD0 model placements and exact ANG emitted primitives; excludes runtime actors, localized text, particles and legacy assembly additions.'}
+
+
+def selected_node_names(names, selectors):
+    """CUE selectors retain motion/interaction identities, never guessed by level."""
+    import fnmatch
+    kept = set()
+    for selector in selectors:
+        matches = {name for name in names if fnmatch.fnmatchcase(name, selector)}
+        if not matches:
+            fail(f'preserve_node_names selector {selector!r} matches no source node; repair the motion contract')
+        kept.update(matches)
+    return kept
+
+
+def batch_partition(point, partitions):
+    """A mesh belongs to exactly one independently posed authored assembly."""
+    if not partitions:
+        return ''
+    matches = [row['name'] for row in partitions if row['min'] <= point['xyz'.index(row['axis'])] < row['max']]
+    if len(matches) != 1:
+        fail(f'batch_partitions: mesh centre {tuple(point)!r} belongs to {len(matches)} groups; fix disjoint authored bounds')
+    return matches[0]
+
+
+def material_batch_key(mat, bindings=None):
+    """Equal shader inputs share a batch; CUE role sentinels remain distinct."""
+    if mat is None:
+        return ''
+    if mat.name.startswith('ANG_ROLE__') or mat.name in (bindings or {}):
+        return mat.name
+    state = material_state(mat)
+    state.pop('name', None)
+    return hashlib.sha256(json.dumps(state, sort_keys=True, allow_nan=False).encode()).hexdigest()
+
+
+def batch_policy_signature(row, material_names=(), bindings=None):
+    """Portable content/policy identity for reusing a validated kit artifact."""
+    source = Path(__file__).resolve()
+    policy = {'schema':'ang.static-material-batches.v1',
+              'preserve_node_names':row.get('preserve_node_names', []),
+              'batch_partitions':row.get('batch_partitions', []),
+              'used_material_bindings':{name:bindings[name] for name in sorted(set(material_names)) if name in (bindings or {})},
+              'exporter_sha256':digest(source.with_name('export.py')),
+              'runtime_sha256':digest(source)}
+    return hashlib.sha256(json.dumps(policy, sort_keys=True).encode()).hexdigest()
+
+
+def artifact_batch_policy(asset):
+    """Read only our portable policy marker; asset SHA is checked separately."""
+    import struct
+    raw = Path(asset).read_bytes()
+    if Path(asset).suffix != '.glb' or len(raw)<20:
+        return ''
+    size, kind = struct.unpack_from('<II', raw, 12)
+    if kind != 0x4e4f534a:
+        return ''
+    document = json.loads(raw[20:20+size])
+    values = {node.get('extras',{}).get('ang_batch_policy_sha256') for node in document.get('nodes',[])} - {None}
+    return next(iter(values)) if len(values)==1 else ''
+
+
+def hierarchy_signature(objects, model_matrix):
+    """Exact named parents and local frames, including non-rendering pivots.
+
+    Geometry equality cannot prove that a hinge, sound anchor or text slot is
+    unchanged. Root matrices are expressed in the model frame so a CUE placement
+    does not by itself invalidate reuse of the same canonical kit.
+    """
+    members = set(objects)
+    rows = []
+    for obj in sorted(members, key=lambda item: item.name):
+        parent = obj.parent if obj.parent in members else None
+        matrix = obj.matrix_local if parent is not None else model_matrix @ obj.matrix_world
+        values = [[float(v) for v in row] for row in matrix]
+        if not all(math.isfinite(v) for row in values for v in row):
+            fail(f'object {obj.name!r}: non-finite motion frame')
+        row = {'name':obj.name, 'type':obj.type, 'parent':parent.name if parent else None, 'local_matrix':values}
+        if parent is not None and hasattr(obj, 'matrix_parent_inverse'):
+            row['parent_inverse'] = [[float(v) for v in line] for line in obj.matrix_parent_inverse]
+        rows.append(row)
+    return hashlib.sha256(json.dumps(rows, sort_keys=True, allow_nan=False).encode()).hexdigest()
+
+
+def artifact_pose_signature(asset):
+    """Exact parent/TRS graph of the canonical GLB, not only its mesh payload."""
+    import struct
+    raw = Path(asset).read_bytes()
+    if Path(asset).suffix != '.glb' or len(raw)<20:
+        return ''
+    size, kind = struct.unpack_from('<II', raw, 12)
+    if kind != 0x4e4f534a:
+        return ''
+    document = json.loads(raw[20:20+size])
+    nodes = document.get('nodes', [])
+    parents = {}
+    for index, node in enumerate(nodes):
+        for child in node.get('children', []):
+            parents[child] = index
+    graph = [{'name':node.get('name', ''), 'source_node':node.get('extras', {}).get('ang_source_node'),
+              'parent':parents.get(index), 'matrix':node.get('matrix'),
+              'translation':node.get('translation', [0,0,0]), 'rotation':node.get('rotation', [0,0,0,1]),
+              'scale':node.get('scale', [1,1,1]), 'mesh':'mesh' in node}
+             for index, node in enumerate(nodes)]
+    return hashlib.sha256(json.dumps(graph, sort_keys=True, allow_nan=False).encode()).hexdigest()
+
+
+def source_pose_unchanged(source_row, row, current_pose, artifact_pose):
+    """Require a canonical-input graph and its unchanged imported-frame memo.
+
+    The existing importer flattens art for validation. Its exact result is
+    recorded immediately from the SHA-verified canonical GLB, before any author
+    can edit it. Reuse draws the canonical artifact, preserving its real graph;
+    it never mistakes equal closed mesh vertices for equal motion frames.
+    """
+    moving = bool(row.get('preserve_nodes') or row.get('preserve_node_names') or row.get('batch_partitions') or source_row.get('source_batch_policy'))
+    if not moving:
+        return True
+    return bool(current_pose and artifact_pose and source_row.get('source_pose_signature') == current_pose
+                and source_row.get('source_artifact_pose_signature') == artifact_pose)
+
+
+def check_batch_attributes(mesh, name):
+    """Never silently drop authored render attributes in the static writer."""
+    if len(mesh.color_attributes) > 0:
+        fail(f'object {name!r}: static batching does not yet copy vertex colours; preserve this named node explicitly or add attribute support')
+
+
+def artifact_material_names(asset, original=False):
+    """Only actually used aliases influence a compiled kit's binding policy."""
+    import struct
+    raw = Path(asset).read_bytes()
+    size, kind = struct.unpack_from('<II', raw, 12)
+    if kind != 0x4e4f534a:
+        return []
+    document = json.loads(raw[20:20+size])
+    if original:
+        names = [name for node in document.get('nodes', [])
+                 for name in node.get('extras', {}).get('ang_batch_material_names', [])]
+        if names:
+            return sorted(set(names))
+    used = {part['material'] for mesh in document.get('meshes', []) for part in mesh['primitives'] if 'material' in part}
+    return sorted({document['materials'][index].get('name', '') for index in used})
+
+
+def check_retained_material_aliases(original_names, present_names, bindings):
+    lost = (set(original_names)-set(present_names)) & set(bindings)
+    if lost:
+        fail(f'compiled kit no longer contains CUE-bound material aliases {sorted(lost)}; re-export the original authoring source with the current material bindings')
+
+
+def mesh_uv_layout(mesh):
+    """Exact ordered UV schema; different defaults never share one batch."""
+    layers = mesh.uv_layers
+    return (tuple(layer.name for layer in layers), layers.active_index if len(layers) else -1,
+            next((i for i, layer in enumerate(layers) if layer.active_render), -1),
+            next((i for i, layer in enumerate(layers) if layer.active_clone), -1))
+
+
+def uv_content_signature(mesh):
+    """All UV float32 values and policies, without quantisation."""
+    import struct
+    h = hashlib.sha256(json.dumps(mesh_uv_layout(mesh)).encode())
+    for layer in mesh.uv_layers:
+        for item in layer.data:
+            values = list(item.uv)
+            if not all(math.isfinite(v) for v in values):
+                fail(f'UV layer {layer.name!r}: non-finite coordinates')
+            h.update(struct.pack('<2f', *values))
+    return h.hexdigest()
+
+
+def write_batch_uv_layers(mesh, layout, values):
+    """Restore every compatible source layer and its active/render defaults."""
+    names, active, render, clone = layout
+    for index, name in enumerate(names):
+        layer = mesh.uv_layers.new(name=name)
+        for loop in mesh.loops:
+            layer.data[loop.index].uv = values[index][loop.vertex_index]
+    if names:
+        mesh.uv_layers.active_index = active
+        if render >= 0:
+            mesh.uv_layers[render].active_render = True
+        if clone >= 0:
+            mesh.uv_layers[clone].active_clone = True

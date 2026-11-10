@@ -320,7 +320,7 @@ func (r *Runtime) sendLifeState(c *connection) {
 	r.appendLifeMaintenance(view, hero, msg.PlayerView)
 	r.appendLifeInspection(msg, v, hero, c.locale)
 	r.appendStorefrontInspection(msg, c.locale)
-<<ANG if .GodotScreens ANG>> r.appendScreenTargets(msg) <<ANG end ANG>>
+<<ANG if .GodotScreens ANG>> r.appendScreenTargets(msg);r.appendExitTargets(msg,c.locale) <<ANG end ANG>>
 	r.appendDevelopment(msg)
 	r.appendCrafting(msg, c.locale)
 	if !r.world.Config.DebugPerception {
@@ -406,8 +406,8 @@ func (r *Runtime) lifeCommand(q *pb.PocLifeCommand) error {
 		}
 		r.state.Life.SecondsPerTick = int64(q.SecondsPerTick)
 	case "auto":
+        r.cancelQueuedLiftingDeckRide(playerActorID)
  hero.Sneaking=false
-		if r.liftingDeckForEdge(q.Destination)!=nil { return r.requestLiftingDeckRide(playerActorID,q.Destination) }
 		r.resetInstantTravel()
 		hero.AdmissionDeniedEdge = ""
 		hero.PendingPath = nil
@@ -422,6 +422,8 @@ func (r *Runtime) lifeCommand(q *pb.PocLifeCommand) error {
 			return errors.New("Этот выход сейчас недоступен")
 		}
         if edge.ClosedReasonKey!=""{return textError{Key:edge.ClosedReasonKey}}
+        if r.liftingDeckForEdge(q.Destination)!=nil { return r.requestLiftingDeckRide(playerActorID,q.Destination) }
+        r.cancelQueuedLiftingDeckRide(playerActorID)
 		r.resetInstantTravel()
 		hero.AdmissionDeniedEdge = ""
 		hero.PendingPath = nil
@@ -574,7 +576,8 @@ func (r *Runtime) lifeWalkToPoint(target behavior.Cell, x, y float64, point, run
 			r.syncLifeHero()
 			return false
 		}
-		r.resetInstantTravel()
+		r.cancelQueuedLiftingDeckRide(playerActorID)
+	r.resetInstantTravel()
 		r.syncLifeHero()
 		r.state.Life.ObserveDecisions()
 		return true
@@ -593,6 +596,7 @@ func (r *Runtime) lifeWalkToPoint(target behavior.Cell, x, y float64, point, run
 	} else {
 		hero.MoveStartTick = r.lifeMotionTick()
 	}
+	r.cancelQueuedLiftingDeckRide(playerActorID)
 	r.resetInstantTravel()
 	hero.AdmissionDeniedEdge = ""
 	hero.Path = route

@@ -13,28 +13,51 @@ import (
 type LiftingDeckCatalog struct {
 	Decks []LiftingDeckDefinition `json:"decks"`
 }
+
+type LiftingDeckFreightDefinition struct {
+	Resource        string  `json:"resource"`
+	YawDegrees      float64 `json:"yaw_degrees"`
+	FirstSecond     int64   `json:"first_second"`
+	PeriodSeconds   int64   `json:"period_seconds"`
+	UnloadAfterS    int64   `json:"unload_after_s"`
+	ReceivingDwellS int64   `json:"receiving_dwell_s"`
+	Routes          []struct {
+		DeliveryID     string    `json:"delivery_id"`
+		CopperStore    string    `json:"copper_store"`
+		DeckStore      string    `json:"deck_store"`
+		ReceivingStore string    `json:"receiving_store"`
+		Quantity       int64     `json:"quantity"`
+		DeckPlan       []float64 `json:"deck_plan_m"`
+		ReceivingPlan  []float64 `json:"receiving_plan_m"`
+	} `json:"routes"`
+}
+
 type LiftingDeckDefinition struct {
-	ID               string                   `json:"id"`
-	LevelID          string                   `json:"level_id"`
-	InstanceID       string                   `json:"instance_id"`
-	NameKey          string                   `json:"name_key"`
-	Access           string                   `json:"access"`
-	Manual           bool                     `json:"manual"`
-	ClosedWalkable   bool                     `json:"closed_walkable"`
-	Rect             struct{ X, Y, W, H int } `json:"rect"`
-	BarrierRect      struct{ X, Y, W, H int } `json:"barrier_rect"`
-	BarrierFloor     []string                 `json:"barrier_floor,omitempty"`
-	Approach         struct{ X, Y int }       `json:"approach"`
-	Plan             []float64                `json:"plan_m"`
-	DepthM           float64                  `json:"depth_m"`
-	ChamberSpeedMPS  float64                  `json:"chamber_speed_mps"`
-	LockdownSpeedMPS float64                  `json:"lockdown_speed_mps"`
-	PowerSpeedMPS    float64                  `json:"power_speed_mps"`
-	ShaftDepthM      float64                  `json:"shaft_depth_m"`
-	ShaftSpeedMPS    float64                  `json:"shaft_speed_mps"`
-	TravelEdge       string                   `json:"travel_edge"`
-	ReturnEdge       string                   `json:"return_edge"`
-	Runs             struct {
+	Freight              *LiftingDeckFreightDefinition `json:"freight,omitempty"`
+	ID                   string                        `json:"id"`
+	LevelID              string                        `json:"level_id"`
+	InstanceID           string                        `json:"instance_id"`
+	NameKey              string                        `json:"name_key"`
+	Access               string                        `json:"access"`
+	Manual               bool                          `json:"manual"`
+	ClosedWalkable       bool                          `json:"closed_walkable"`
+	Rect                 struct{ X, Y, W, H int }      `json:"rect"`
+	BarrierRect          struct{ X, Y, W, H int }      `json:"barrier_rect"`
+	BarrierFloor         []string                      `json:"barrier_floor,omitempty"`
+	Approach             struct{ X, Y int }            `json:"approach"`
+	ControlPlan          []float64                     `json:"control_plan_m"`
+	Plan                 []float64                     `json:"plan_m"`
+	DepthM               float64                       `json:"depth_m"`
+	ChamberSpeedMPS      float64                       `json:"chamber_speed_mps"`
+	LockdownSpeedMPS     float64                       `json:"lockdown_speed_mps"`
+	PowerSpeedMPS        float64                       `json:"power_speed_mps"`
+	ShaftDepthM          float64                       `json:"shaft_depth_m"`
+	ShaftSpeedMPS        float64                       `json:"shaft_speed_mps"`
+	TravelEdge           string                        `json:"travel_edge"`
+	ReturnEdge           string                        `json:"return_edge"`
+	SignalBeforeOpenS    int64                         `json:"signal_before_open_s"`
+	SignalBeforeDescendS int64                         `json:"signal_before_descend_s"`
+	Runs                 struct {
 		PeriodSeconds  int64   `json:"period_seconds"`
 		DayStartSecond int64   `json:"day_start_second"`
 		DayEndSecond   int64   `json:"day_end_second"`
@@ -47,7 +70,6 @@ type LiftingDeckDefinition struct {
 		Lock            int64 `json:"lock"`
 		BeaconPeriod    int64 `json:"beacon_period"`
 		Equalise        int64 `json:"equalise"`
-		Signal          int64 `json:"signal"`
 		Barrier         int64 `json:"barrier"`
 		Open            int64 `json:"open"`
 		Loading         int64 `json:"loading"`
@@ -105,6 +127,52 @@ func readLiftingDecks(world cue.Value, life json.RawMessage) (*LiftingDeckCatalo
 	}
 	if err = c.validate(life); err != nil {
 		return nil, fmt.Errorf("world.lifting_decks: %w", err)
+	}
+
+	hasFreight := false
+	for _, d := range c.Decks {
+		hasFreight = hasFreight || d.Freight != nil
+	}
+	if hasFreight {
+		var commerce struct {
+			Deliveries []struct {
+				ID          string `json:"id"`
+				Carrier     string `json:"carrier"`
+				SourceStore string `json:"source_store"`
+				Quantity    int64  `json:"quantity"`
+			} `json:"deliveries"`
+			Stores []struct {
+				ID    string `json:"id"`
+				Owner string `json:"owner"`
+			} `json:"business_stores"`
+		}
+		if err := world.LookupPath(cue.ParsePath("inventory")).Decode(&commerce); err != nil {
+			return nil, fmt.Errorf("lifting-deck freight inventory: %w", err)
+		}
+		owners := map[string]string{}
+		for _, store := range commerce.Stores {
+			owners[store.ID] = store.Owner
+		}
+		for _, d := range c.Decks {
+			if d.Freight == nil {
+				continue
+			}
+			for _, route := range d.Freight.Routes {
+				found := false
+				for _, delivery := range commerce.Deliveries {
+					if delivery.ID != route.DeliveryID {
+						continue
+					}
+					found = true
+					if route.ReceivingStore != delivery.SourceStore || route.Quantity != delivery.Quantity || owners[route.CopperStore] != delivery.Carrier || owners[route.DeckStore] != delivery.Carrier || owners[route.ReceivingStore] != delivery.Carrier {
+						return nil, fmt.Errorf("lifting deck %s: freight must transfer the same existing owned consignment %s", d.ID, route.DeliveryID)
+					}
+				}
+				if !found {
+					return nil, fmt.Errorf("lifting deck %s: unknown existing freight delivery %s", d.ID, route.DeliveryID)
+				}
+			}
+		}
 	}
 	// The live overlay is applied repeatedly to a session model. Keep the
 	// authored bytes so lowering a barrier restores its floor, including an
@@ -189,10 +257,10 @@ func (c LiftingDeckCatalog) validate(life json.RawMessage) error {
 				}
 			}
 		}
-		if len(d.Plan) != 3 {
-			return fmt.Errorf("%s: plan_m requires x,height,y", d.ID)
+		if len(d.Plan) != 3 || len(d.ControlPlan) != 3 {
+			return fmt.Errorf("%s: plan_m/control_plan_m require x,height,y", d.ID)
 		}
-		for _, n := range append(d.Plan, d.DepthM, d.ChamberSpeedMPS, d.LockdownSpeedMPS, d.PowerSpeedMPS, d.ShaftDepthM, d.ShaftSpeedMPS) {
+		for _, n := range append(append([]float64{}, d.ControlPlan...), append(d.Plan, d.DepthM, d.ChamberSpeedMPS, d.LockdownSpeedMPS, d.PowerSpeedMPS, d.ShaftDepthM, d.ShaftSpeedMPS)...) {
 			if math.IsNaN(n) || math.IsInf(n, 0) {
 				return fmt.Errorf("%s: nonfinite geometry", d.ID)
 			}
@@ -203,11 +271,32 @@ func (c LiftingDeckCatalog) validate(life json.RawMessage) error {
 		if d.Runs.PeriodSeconds < 1 || d.Runs.DayStartSecond < 0 || d.Runs.DayEndSecond <= d.Runs.DayStartSecond || d.Runs.DayEndSecond > 86400 {
 			return fmt.Errorf("%s: invalid run calendar", d.ID)
 		}
-		for _, t := range []int64{d.Timing.Unlock, d.Timing.Unseat, d.Timing.Reseat, d.Timing.Lock, d.Timing.BeaconPeriod, d.Timing.Equalise, d.Timing.Signal, d.Timing.Barrier, d.Timing.Open, d.Timing.Loading, d.Timing.Close, d.Timing.LockdownWarning, d.Timing.LockdownBarrier, d.Timing.LockdownClose, d.Timing.Retry} {
+		if d.SignalBeforeOpenS < 10 || d.SignalBeforeOpenS > 3600 || d.SignalBeforeDescendS < 10 || d.SignalBeforeDescendS > 3600 {
+			return fmt.Errorf("%s: at least ten physical seconds of normal warning required", d.ID)
+		}
+		for _, t := range []int64{d.Timing.Unlock, d.Timing.Unseat, d.Timing.Reseat, d.Timing.Lock, d.Timing.BeaconPeriod, d.Timing.Equalise, d.Timing.Barrier, d.Timing.Open, d.Timing.Loading, d.Timing.Close, d.Timing.LockdownWarning, d.Timing.LockdownBarrier, d.Timing.LockdownClose, d.Timing.Retry} {
 			if t <= 0 || t > 3600000 {
 				return fmt.Errorf("%s: invalid physical timing", d.ID)
 			}
 		}
+		if f := d.Freight; f != nil {
+			if !strings.HasPrefix(f.Resource, "res://") || strings.Contains(f.Resource, "..") || f.FirstSecond < 0 || f.FirstSecond >= 86400 || f.PeriodSeconds < 1 || f.UnloadAfterS < 1 || f.ReceivingDwellS < 1 || f.UnloadAfterS*1000 >= d.Timing.Loading || len(f.Routes) == 0 {
+				return fmt.Errorf("%s: invalid physical freight definition", d.ID)
+			}
+			seen := map[string]bool{}
+			for _, route := range f.Routes {
+				if route.DeliveryID == "" || seen[route.DeliveryID] || route.CopperStore == "" || route.DeckStore == "" || route.ReceivingStore == "" || route.CopperStore == route.DeckStore || route.DeckStore == route.ReceivingStore || route.Quantity < 1 || len(route.DeckPlan) != 3 || len(route.ReceivingPlan) != 3 {
+					return fmt.Errorf("%s: invalid finite freight route", d.ID)
+				}
+				seen[route.DeliveryID] = true
+				for _, v := range append(append([]float64{}, route.DeckPlan...), route.ReceivingPlan...) {
+					if math.IsInf(v, 0) || math.IsNaN(v) {
+						return fmt.Errorf("%s: nonfinite freight pose", d.ID)
+					}
+				}
+			}
+		}
+
 		for _, s := range d.Runs.ExtraSeconds {
 			if s < 0 || s >= 86400 {
 				return fmt.Errorf("%s: invalid extra run", d.ID)

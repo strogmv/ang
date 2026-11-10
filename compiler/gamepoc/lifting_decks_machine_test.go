@@ -25,7 +25,7 @@ func TestLiftingDeckRuntimeInterlocks(t *testing.T) {
 		t.Fatal(err)
 	}
 	tests := string(testsRaw)
-	tests = tests[strings.Index(tests, "func liftingDeckFixture"):strings.Index(tests, "func TestLiftingDeckPermitRefusal")]
+	tests = tests[strings.Index(tests, "func liftingDeckFixture"):strings.Index(tests, "func TestLiftingDeckPermitRefusal")] + tests[strings.Index(tests, "func TestLiftingDeckTenSecondSignalsUsePhysicalTime"):strings.Index(tests, "func TestLiftingDeckMarketFreightConservationClocksAndSave")]
 	dir := t.TempDir()
 	for name, data := range map[string]string{"go.mod": "module liftingfixture\n\ngo 1.23\n", "machine.go": "package poc\nimport \"math\"\n" + first + machine + walk, "machine_test.go": "package poc\nimport(\"encoding/json\";\"math\";\"reflect\";\"testing\")\n" + tests} {
 		if err = os.WriteFile(filepath.Join(dir, name), []byte(data), 0600); err != nil {

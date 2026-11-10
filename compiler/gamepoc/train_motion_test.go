@@ -141,7 +141,7 @@ func TestTrainMotionAuthoredCUE(t *testing.T) {
 	if c.TrainMotion.ClockDomain != "simulation" || c.TrainMotion.SpeedMPS != 8 || len(c.TrainMotion.Modules) != 4 {
 		t.Fatal("wrong physical motion contract")
 	}
-	if c.TrainMotion.RouteVersion != 5 || len(c.TrainMotion.AdditionalFleet) != 1 || c.TrainMotion.TrainID != "train.c7.passenger.01" || c.TrainMotion.PrefabResource != "TrainMotion/PassengerTrainV2" || c.TrainMotion.Timetable == nil {
+	if c.TrainMotion.RouteVersion != 6 || len(c.TrainMotion.AdditionalFleet) != 1 || c.TrainMotion.TrainID != "train.c7.passenger.01" || c.TrainMotion.PrefabResource != "TrainMotion/PassengerTrainV2" || c.TrainMotion.Timetable == nil {
 		t.Fatal("wrong passenger fleet identity/phase")
 	}
 	freight := c.TrainMotion.AdditionalFleet[0]
@@ -162,8 +162,36 @@ func TestTrainMotionAuthoredCUE(t *testing.T) {
 			hubNative = true
 		}
 	}
+	var reveal struct {
+		LengthM       float64 `json:"length_m"`
+		CameraRevealM float64 `json:"camera_reveal_m"`
+		LowerExtentM  float64 `json:"lower_extent_m"`
+	}
+	cmd := exec.Command("cue", "export", ".", "-e", "rail_tunnel_4m")
+	cmd.Dir = filepath.Join(project, "..", "content", "world", "godot_finishing")
+	raw, revealErr := cmd.CombinedOutput()
+	if revealErr != nil {
+		t.Fatalf("authored tunnel data: %v %s", revealErr, raw)
+	}
+	if err := json.Unmarshal(raw, &reveal); err != nil {
+		t.Fatal(err)
+	}
+	if reveal.CameraRevealM <= 0 || reveal.LowerExtentM >= -3.42 {
+		t.Fatal("tunnel leaves the pale rail foot exposed or omits its camera reveal", reveal)
+	}
+	for _, m := range c.TrainMotion.Modules {
+		if reveal.LengthM-reveal.CameraRevealM < m.LengthM {
+			t.Fatal("intact tunnel cannot hide a complete carriage before visibility changes", m, reveal)
+		}
+	}
+	for i, span := range [][2]float64{{100, 164}, {340, 404}, {500, 620}} {
+		b := c.TrainMotion.Bindings[i]
+		if b.StartM != span[0]-reveal.CameraRevealM || b.EndM != span[1]+reveal.CameraRevealM {
+			t.Fatal("visibility must cover the real camera reveal, not pop inside its open lining", b, reveal)
+		}
+	}
 	hubBinding := c.TrainMotion.Bindings[0]
-	if !hubNative || (hubBinding.PassageID != "" || hubBinding.X != 0 || hubBinding.Y != 0 || hubBinding.Z != 27.5 || hubBinding.YawDegrees != 0 || hubBinding.StartM != 100 || hubBinding.EndM != 164 || hubBinding.FloorElevationM != 18) {
+	if !hubNative || (hubBinding.PassageID != "" || hubBinding.X != 0 || hubBinding.Y != 0 || hubBinding.Z != 27.5 || hubBinding.YawDegrees != 0 || hubBinding.StartM != 100-reveal.CameraRevealM || hubBinding.EndM != 164+reveal.CameraRevealM || hubBinding.FloorElevationM != 18) {
 		t.Fatal("native hub must bind the real upper platform railway, not the retired lower loop")
 	}
 	if c.TrainMotion.Bindings[2].PassageID != "housing.lower_rail" {

@@ -54,16 +54,18 @@ type ScreenRegionStyle struct {
 	Border     string `json:"border"`
 }
 type ScreenTarget struct {
-	Position string                 `json:"position"`
-	ID       string                 `json:"id"`
-	Source   ScreenValue            `json:"source"`
-	Bind     map[string]ScreenValue `json:"bind"`
-	Screen   string                 `json:"screen,omitempty"`
-	List     string                 `json:"list,omitempty"`
-	RowKey   string                 `json:"row_key,omitempty"`
-	RadiusPX int                    `json:"radius_px"`
-	Priority int                    `json:"priority"`
-	Person   bool                   `json:"person,omitempty"`
+	PointerHeightM *float64               `json:"pointer_height_m,omitempty"`
+	Action         string                 `json:"action,omitempty"`
+	Position       string                 `json:"position"`
+	ID             string                 `json:"id"`
+	Source         ScreenValue            `json:"source"`
+	Bind           map[string]ScreenValue `json:"bind"`
+	Screen         string                 `json:"screen,omitempty"`
+	List           string                 `json:"list,omitempty"`
+	RowKey         string                 `json:"row_key,omitempty"`
+	RadiusPX       int                    `json:"radius_px"`
+	Priority       int                    `json:"priority"`
+	Person         bool                   `json:"person,omitempty"`
 }
 type ScreenWorldInput struct {
 	Peaceful     ScreenShortcut `json:"peaceful"`

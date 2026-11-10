@@ -7,9 +7,9 @@ import shutil
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from runtime import recorded_asset, apply_legacy, digest, fail, identity_tags, import_asset, model_matrix, signature, validate_geometry, check_known_conflicts, inherited_properties, resolve_wall_role, art_consumers, installed_triangle_budget, write_json
+from runtime import recorded_asset, apply_legacy, digest, fail, identity_tags, import_asset, model_matrix, signature, validate_geometry, check_known_conflicts, inherited_properties, resolve_wall_role, art_consumers, installed_triangle_budget, write_json, batch_policy_signature, selected_node_names, batch_partition, material_batch_key, hierarchy_signature, artifact_pose_signature, source_pose_unchanged, check_batch_attributes, artifact_material_names, check_retained_material_aliases, mesh_uv_layout, write_batch_uv_layers, SIGNATURE_SCHEMA
 import bpy
-from mathutils import Matrix
+from mathutils import Matrix, Vector
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--contract', required=True)
@@ -281,6 +281,217 @@ def material(name, fallback):
 
 
 
+def export_batched_hierarchy(base, objects, transform, file, row):
+    """Merge static draw surfaces inside explicitly preserved motion frames.
+
+    A static mesh can never bridge two moving ancestors or two CUE partitions.
+    Source names are retained only for declared motion, signal or interaction
+    nodes. Exact shader content is shared; no geometry/UV tolerance is used.
+    """
+    members = set(objects)
+    members.update(obj for obj in scene.objects if obj.type == 'EMPTY' and memberships.get(obj.name) == base and not obj.get('ang_ignore_reason'))
+    for obj in objects:
+        ancestor = obj.parent
+        while ancestor is not None and memberships.get(ancestor.name) == base:
+            members.add(ancestor)
+            ancestor = ancestor.parent
+    originals = sorted(members, key=lambda obj: obj.name)
+    names = {obj: obj.name for obj in originals}
+    selected_names = selected_node_names(names.values(), row.get('preserve_node_names', []))
+    kept = {obj for obj in originals if names[obj] in selected_names}
+    # Local motion numbers are relative to authored parents. Keep the whole
+    # transform chain, but not its static mesh descendants.
+    for obj in list(kept):
+        ancestor = obj.parent
+        while ancestor in members:
+            kept.add(ancestor)
+            ancestor = ancestor.parent
+    temporary = bpy.data.collections.new('ANG_BATCHED_EXPORT')
+    scene.collection.children.link(temporary)
+    copies = {}
+    partitions = {}
+    used_partitions = set()
+    materials = {}
+    material_keys = {}
+    source_material_names = set()
+    batches = {}
+    source_meshes = 0
+    source_surfaces = 0
+    mesh_cache = {}
+    mesh_instances = 0
+    def canonical(mat):
+        if mat is not None:
+            source_material_names.add(mat.name)
+        if mat not in material_keys:
+            material_keys[mat] = material_batch_key(mat, contract.get('material_bindings', {}))
+        identity = material_keys[mat]
+        if identity not in materials:
+            materials[identity] = mat
+        return identity, materials[identity]
+    def share_mesh(mesh, allow=True):
+        nonlocal mesh_instances
+        known_attributes = {'position', '.corner_vert', '.corner_edge', '.edge_verts', 'sharp_face', 'sharp_edge', 'custom_normal', '.select_vert', '.select_edge', '.select_poly', '.uv_select_vert', '.uv_select_edge', '.uv_select_face'} | {uv.name for uv in mesh.uv_layers}
+        if allow and all(attr.name in known_attributes for attr in mesh.attributes):
+            import struct
+            h = hashlib.sha256(json.dumps(mesh_uv_layout(mesh)).encode())
+            mesh.calc_loop_triangles()
+            for triangle in mesh.loop_triangles:
+                h.update(struct.pack('<I', triangle.material_index))
+                for li in triangle.loops:
+                    h.update(struct.pack('<6f', *mesh.vertices[mesh.loops[li].vertex_index].co, *mesh.corner_normals[li].vector))
+                    for uv in mesh.uv_layers:
+                        h.update(uv.name.encode())
+                        h.update(struct.pack('<2f', *uv.data[li].uv))
+            h.update(json.dumps([canonical(mat)[0] for mat in mesh.materials]).encode())
+            fingerprint = h.hexdigest()
+            if fingerprint in mesh_cache:
+                previous = mesh
+                mesh = mesh_cache[fingerprint]
+                bpy.data.meshes.remove(previous)
+                mesh_instances += 1
+            else:
+                mesh_cache[fingerprint] = mesh
+        return mesh
+
+    def nearest(obj):
+        ancestor = obj.parent
+        while ancestor is not None:
+            if ancestor in kept:
+                return ancestor
+            ancestor = ancestor.parent
+        return None
+    def depth(obj):
+        n = 0
+        while obj.parent is not None:
+            n += 1
+            obj = obj.parent
+        return n
+    bpy.ops.object.select_all(action='DESELECT')
+    try:
+        for obj in originals:
+            obj.name = 'ANG_SOURCE_' + names[obj]
+        for original in sorted(kept, key=lambda obj: (depth(obj), names[obj])):
+            if original.type == 'MESH':
+                ev = original.evaluated_get(depsgraph)
+                mesh = bpy.data.meshes.new_from_object(ev, depsgraph=depsgraph)
+                source_meshes += 1
+                source_surfaces += len(mesh.materials)
+                for index, fallback in enumerate(mesh.materials):
+                    mat = material('ANG_ROLE__'+object_roles[names[original]], fallback) if names[original] in object_roles else fallback
+                    _, mesh.materials[index] = canonical(mat)
+                mesh = share_mesh(mesh, not original.vertex_groups)
+                duplicate = bpy.data.objects.new(names[original], mesh)
+            else:
+                duplicate = bpy.data.objects.new(names[original], None)
+            temporary.objects.link(duplicate)
+            duplicate['ang_source_node'] = names[original]
+            duplicate.matrix_world = transform @ original.matrix_world
+            owner = nearest(original)
+            if owner is not None:
+                matrix = duplicate.matrix_world.copy()
+                duplicate.parent = copies[owner]
+                duplicate.matrix_world = matrix
+            copies[original] = duplicate
+        for original in objects:
+            if original in kept:
+                continue
+            ev = original.evaluated_get(depsgraph)
+            mesh = ev.to_mesh()
+            mesh.calc_loop_triangles()
+            source_meshes += 1
+            source_surfaces += len(mesh.materials)
+            check_batch_attributes(mesh, names[original])
+            owner = nearest(original)
+            partition = ''
+            if row.get('batch_partitions'):
+                corners = [transform @ ev.matrix_world @ Vector(point) for point in original.bound_box]
+                centre = [(min(p[i] for p in corners)+max(p[i] for p in corners))/2 for i in range(3)]
+                partition = batch_partition(centre, row['batch_partitions'])
+                used_partitions.add(partition)
+                if owner is None and partition not in partitions:
+                    anchor = bpy.data.objects.new(partition, None)
+                    anchor['ang_source_node'] = partition
+                    temporary.objects.link(anchor)
+                    partitions[partition] = anchor
+            anchor = copies[owner] if owner is not None else partitions.get(partition)
+            if owner is not None:
+                # Compose the authored local chain directly. Cancelling two
+                # large world translations loses float32 bits and prevents
+                # exact instancing of otherwise identical repeated mechanisms.
+                chain = []
+                ancestor = original
+                while ancestor != owner:
+                    chain.append(ancestor.matrix_local.copy())
+                    ancestor = ancestor.parent
+                matrix = Matrix.Identity(4)
+                for local in reversed(chain):
+                    matrix = matrix @ local
+            else:
+                matrix = (anchor.matrix_world.inverted() if anchor is not None else Matrix.Identity(4)) @ transform @ ev.matrix_world
+            normal = matrix.to_3x3().inverted().transposed()
+            reflected = matrix.to_3x3().determinant() < 0
+            uv_layout = mesh_uv_layout(mesh)
+            expected = mapping.get('objects', {}).get(names[original], {}).get('materials') or original.get('ang_source_materials')
+            if isinstance(expected, str):
+                expected = json.loads(expected)
+            for triangle in mesh.loop_triangles:
+                fallback = original.material_slots[triangle.material_index].material if triangle.material_index < len(original.material_slots) else None
+                role = object_roles.get(names[original])
+                name = 'ANG_ROLE__'+role if role else expected[min(triangle.material_index, len(expected)-1)] if expected else fallback.name if fallback else ''
+                identity, mat = canonical(material(name, fallback))
+                group = (names[owner] if owner is not None else '', partition, identity, uv_layout)
+                batch = batches.setdefault(group, {'anchor': anchor, 'mat': mat, 'vertices': [], 'normals': [], 'uv_layout':uv_layout, 'uv_sets': [[] for _ in uv_layout[0]], 'sources': set()})
+                batch['sources'].add(names[original])
+                loops = list(triangle.loops)
+                if reflected:
+                    loops.reverse()
+                for li in loops:
+                    batch['vertices'].append(tuple(matrix @ mesh.vertices[mesh.loops[li].vertex_index].co))
+                    batch['normals'].append(tuple((normal @ mesh.corner_normals[li].vector).normalized()))
+                    for index, layer in enumerate(mesh.uv_layers):
+                        batch['uv_sets'][index].append(tuple(layer.data[li].uv))
+            ev.to_mesh_clear()
+        for index, (group, batch) in enumerate(sorted(batches.items())):
+            mesh = bpy.data.meshes.new('ANG_STATIC_'+str(index))
+            vertices = batch['vertices']
+            mesh.from_pydata(vertices, [], [tuple(range(i, i+3)) for i in range(0, len(vertices), 3)])
+            mesh.update()
+            write_batch_uv_layers(mesh, batch['uv_layout'], batch['uv_sets'])
+            for poly in mesh.polygons:
+                poly.use_smooth = True
+            mesh.normals_split_custom_set_from_vertices(batch['normals'])
+            if batch['mat'] is not None:
+                mesh.materials.append(batch['mat'])
+            mesh = share_mesh(mesh)
+            duplicate = bpy.data.objects.new('ANG_STATIC_'+str(index), mesh)
+            duplicate['ang_static_batch'] = True
+            duplicate['ang_merged_source_nodes'] = sorted(batch['sources'])
+            temporary.objects.link(duplicate)
+            if batch['anchor'] is not None:
+                duplicate.parent = batch['anchor']
+        marker = bpy.data.objects.new('ANG_ExportPolicy', None)
+        marker['ang_batch_material_names'] = sorted(source_material_names)
+        marker['ang_batch_policy_sha256'] = batch_policy_signature(row, source_material_names, contract.get('material_bindings', {}))
+        temporary.objects.link(marker)
+        for obj in temporary.objects:
+            obj.select_set(True)
+        bpy.ops.export_scene.gltf(filepath=str(file), export_format='GLB', use_selection=True,
+                                  export_yup=True, export_animations=False, export_lights=False,
+                                  export_cameras=False, export_extras=True)
+        return {'preserved_nodes': sorted(names[obj] for obj in kept),
+                'static_material_batches': len(batches), 'spatial_partitions': sorted(used_partitions),
+                'source_meshes': source_meshes, 'source_material_slots': source_surfaces,
+                'canonical_materials': len(materials), 'exact_shared_mesh_instances': mesh_instances,
+                'exported_meshes': len(batches)+sum(obj.type == 'MESH' for obj in kept),
+                'policy': 'Static surfaces merge by exact material inside the nearest preserved ancestor or authored spatial partition; no motion frames are merged.'}
+    finally:
+        for duplicate in list(temporary.objects):
+            bpy.data.objects.remove(duplicate, do_unlink=True)
+        bpy.data.collections.remove(temporary)
+        for original in originals:
+            original.name = names[original]
+
+
 def export_named_hierarchy(base, objects, transform, file):
     """Keep CUE-declared mechanism nodes; evaluated geometry stays at its pivot.
 
@@ -353,13 +564,38 @@ for base,lod,objects in lod_groups:
         continue
     transform = model_matrix(contract, base, mapping)
     mesh_hash, audit = signature(objects, transform, depsgraph)
-    component = {'id': base, 'lod':lod,'model_ref': row['model_ref'], 'mesh_signature': mesh_hash, 'triangles': sum(item['triangles'] for item in audit), 'objects': audit,'applied_material_roles':{o.name:object_roles[o.name] for o in objects if o.name in object_roles}, 'scale': [1, 1, 1], 'units': 'metre'}
+    component = {'mesh_signature_schema':SIGNATURE_SCHEMA, 'id': base, 'lod':lod,'model_ref': row['model_ref'], 'mesh_signature': mesh_hash, 'triangles': sum(item['triangles'] for item in audit), 'objects': audit,'applied_material_roles':{o.name:object_roles[o.name] for o in objects if o.name in object_roles}, 'scale': [1, 1, 1], 'units': 'metre'}
     # An exact unchanged kit GLB is retained byte for byte. The signature covers
     # evaluated geometry, material identities, UV and normals at the CUE pivot.
     source_row = mapping.get('ids', {}).get(base, sources.get(base, {})) if lod==0 else {}
     asset = recorded_asset(source_row, row)
-    passthrough = not any(obj.name in object_roles for obj in objects) and source_row.get('source_signature') == mesh_hash and asset is not None
-    if passthrough:
+    selective_policy = bool(row.get('preserve_node_names') or row.get('batch_partitions'))
+    binding_names = artifact_material_names(asset, original=True) if asset is not None else []
+    if asset is not None and source_row.get('source_batch_policy'):
+        check_retained_material_aliases(binding_names, artifact_material_names(asset), contract.get('material_bindings', {}))
+    policy_matches = not selective_policy or source_row.get('source_batch_policy') == batch_policy_signature(row, binding_names, contract.get('material_bindings', {}))
+    source_frames = [obj for obj in scene.objects if memberships.get(obj.name) == base]
+    pose_hash = hierarchy_signature(source_frames, transform)
+    artifact_pose_hash = artifact_pose_signature(asset) if asset is not None else ''
+    pose_matches = source_pose_unchanged(source_row, row, pose_hash, artifact_pose_hash)
+    component.update({'source_pose_signature':pose_hash, 'canonical_artifact_pose_signature':artifact_pose_hash,
+                      'canonical_pose_unchanged':pose_matches})
+    passthrough = source_row.get('source_signature_schema') == SIGNATURE_SCHEMA and policy_matches and pose_matches and not any(obj.name in object_roles for obj in objects) and source_row.get('source_signature') == mesh_hash and asset is not None
+    if passthrough and str(row.get('asset_resource', '')).startswith('res://'):
+        # The kit artifact has already passed the same geometry and batching
+        # contract. Reuse its registered resource, not a second embedded-texture
+        # copy under every consuming level's model directory.
+        resource = row['asset_resource']
+        retired = [] if resource in [prefix+key+'.glb',prefix+key+'.tscn'] else [key+'.glb',key+'.tscn']
+        report.setdefault('retired_artifacts', []).extend(retired)
+        for name in retired:
+            previous = out / name
+            if previous.is_file():
+                previous.unlink()
+        component.update({'reused_resource':resource, 'unchanged_source':str(asset),
+                          'unchanged_source_sha256':digest(asset),
+                          'reuse_policy':'Exact source SHA and canonical named parent/TRS graph, unchanged evaluated geometry and imported local-frame memo, matching export policy and no material override'})
+    elif passthrough:
         file = out / (key + '.glb')
         shutil.copy2(asset, file)
         if source_row.get('asset_basis', row.get('asset_basis', 'source_plan')) == 'godot':
@@ -370,6 +606,15 @@ for base,lod,objects in lod_groups:
         else:
             resource = prefix + file.name
         component.update({'file': file.name, 'sha256': digest(file), 'unchanged_source': str(asset), 'unchanged_source_sha256': digest(asset)})
+    elif row.get('preserve_node_names') or row.get('batch_partitions'):
+        file = out / (key + '.glb')
+        batching = export_batched_hierarchy(base, objects, transform, file, row)
+        adapter = out / (key + '.tscn')
+        adapter.write_text('[gd_scene format=3]\n[ext_resource type="PackedScene" path=' + json.dumps(prefix + file.name) + ' id="asset"]\n[node name="Art" type="Node3D"]\n[node name="Source" parent="." instance=ExtResource("asset")]\nscale = Vector3(1, 1, -1)\n')
+        resource = prefix + adapter.name
+        component.update({'file': file.name, 'sha256': digest(file), 'adapter':adapter.name,
+                          'adapter_sha256':digest(adapter), **batching,
+                          'motion_policy':'Only CUE preserved nodes remain separate; static material batching is generic'})
     elif row.get('preserve_nodes', False):
         file = out / (key + '.glb')
         preserved = export_named_hierarchy(base, objects, transform, file)
@@ -385,7 +630,8 @@ for base,lod,objects in lod_groups:
             ev = obj.evaluated_get(depsgraph)
             mesh = ev.to_mesh()
             mesh.calc_loop_triangles()
-            uv = mesh.uv_layers.active
+            check_batch_attributes(mesh, obj.name)
+            uv_layout = mesh_uv_layout(mesh)
             expected = mapping.get('objects', {}).get(obj.name, {}).get('materials') or obj.get('ang_source_materials')
             if isinstance(expected, str):
                 expected = json.loads(expected)
@@ -393,11 +639,12 @@ for base,lod,objects in lod_groups:
             for triangle in mesh.loop_triangles:
                 fallback = obj.material_slots[triangle.material_index].material if triangle.material_index < len(obj.material_slots) else None
                 name = 'ANG_ROLE__'+object_roles[obj.name] if obj.name in object_roles else expected[min(triangle.material_index, len(expected) - 1)] if expected else fallback.name if fallback else ''
-                batch = batches.setdefault(name, {'mat': material(name, fallback), 'vertices': [], 'uv': [], 'normals': []})
+                batch = batches.setdefault((name,uv_layout), {'mat': material(name, fallback), 'vertices': [], 'uv_layout':uv_layout, 'uv_sets':[[] for _ in uv_layout[0]], 'normals': []})
                 for li in triangle.loops:
                     batch['vertices'].append(tuple(transform @ ev.matrix_world @ mesh.vertices[mesh.loops[li].vertex_index].co))
                     batch['normals'].append(tuple((normal @ mesh.corner_normals[li].vector).normalized()))
-                    batch['uv'].append(tuple(uv.data[li].uv) if uv else (0, 0))
+                    for index, layer in enumerate(mesh.uv_layers):
+                        batch['uv_sets'][index].append(tuple(layer.data[li].uv))
             ev.to_mesh_clear()
         bpy.ops.object.select_all(action='DESELECT')
         exported = []
@@ -408,9 +655,7 @@ for base,lod,objects in lod_groups:
             mesh.update()
             if transform.to_3x3().determinant() < 0:
                 mesh.flip_normals()
-            layer = mesh.uv_layers.new(name='UVMap')
-            for loop in mesh.loops:
-                layer.data[loop.index].uv = batch['uv'][loop.vertex_index]
+            write_batch_uv_layers(mesh, batch['uv_layout'], batch['uv_sets'])
             for poly in mesh.polygons:
                 poly.use_smooth = True
             mesh.normals_split_custom_set_from_vertices(batch['normals'])

@@ -8,7 +8,7 @@ import (
 )
 
 func TestLiftingDeckDataCanDeclareSecondLocation(t *testing.T) {
-	raw := []byte(`{"decks":[{"id":"deck.second","level_id":"second","instance_id":"fixture","name_key":"ui.deck.second","access":"open","manual":false,"closed_walkable":true,"rect":{"x":0,"y":0,"w":2,"h":2},"barrier_rect":{"x":0,"y":2,"w":2,"h":1},"approach":{"x":2,"y":1},"plan_m":[0,0,0],"depth_m":3.65,"chamber_speed_mps":0.4,"lockdown_speed_mps":0.8,"power_speed_mps":0.6,"shaft_depth_m":500,"shaft_speed_mps":2,"travel_edge":"","return_edge":"","runs":{"period_seconds":600,"day_start_second":21600,"day_end_second":79200,"extra_seconds":[16800]},"timing_ms":{"unlock":1000,"unseat":1000,"reseat":600,"lock":500,"beacon_period":250,"equalise":6000,"signal":3000,"barrier":2800,"open":6000,"loading":20000,"close":6000,"lockdown_warning":1200,"lockdown_barrier":800,"lockdown_close":1600,"retry":5000},"nodes":[{"name":"deck.small","channel":"deck","axis":"y","min":-3.65,"max":0,"rotation":false}]}]}`)
+	raw := []byte(`{"decks":[{"id":"deck.second","level_id":"second","instance_id":"fixture","name_key":"ui.deck.second","access":"open","manual":false,"closed_walkable":true,"rect":{"x":0,"y":0,"w":2,"h":2},"barrier_rect":{"x":0,"y":2,"w":2,"h":1},"approach":{"x":2,"y":1},"plan_m":[0,0,0],"control_plan_m":[0,0,0],"depth_m":3.65,"chamber_speed_mps":0.4,"lockdown_speed_mps":0.8,"power_speed_mps":0.6,"shaft_depth_m":500,"shaft_speed_mps":2,"travel_edge":"","return_edge":"","runs":{"period_seconds":600,"day_start_second":21600,"day_end_second":79200,"extra_seconds":[16800]},"signal_before_open_s":10,"signal_before_descend_s":10,"timing_ms":{"unlock":1000,"unseat":1000,"reseat":600,"lock":500,"beacon_period":250,"equalise":6000,"barrier":2800,"open":6000,"loading":20000,"close":6000,"lockdown_warning":1200,"lockdown_barrier":800,"lockdown_close":1600,"retry":5000},"nodes":[{"name":"deck.small","channel":"deck","axis":"y","min":-3.65,"max":0,"rotation":false}]}]}`)
 	var c LiftingDeckCatalog
 	if err := json.Unmarshal(raw, &c); err != nil {
 		t.Fatal(err)
@@ -17,6 +17,12 @@ func TestLiftingDeckDataCanDeclareSecondLocation(t *testing.T) {
 	if err := c.validate(life); err != nil {
 		t.Fatal(err)
 	}
+
+	c.Decks[0].SignalBeforeOpenS = 9
+	if err := c.validate(life); err == nil || !strings.Contains(err.Error(), "ten physical seconds") {
+		t.Fatal("short normal signal accepted")
+	}
+	c.Decks[0].SignalBeforeOpenS = 10
 	// The second placement is compiled from CUE data through the same reader.
 	declaration := cuecontext.New().CompileString("lifting_decks: " + string(raw) + `
 localization:{messages:[{key:"ui.deck.second",context:"Second location fixture.",texts:{ru:"Вторая платформа",en:"Second deck"}}]}`)

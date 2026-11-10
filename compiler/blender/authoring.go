@@ -62,14 +62,25 @@ type Budget struct {
 	Provenance     string `json:"provenance,omitempty"`
 }
 
+// MeshPartition keeps independently posed assemblies from being merged together.
+// Bounds are in the exported model's local metre frame; they classify mesh centres.
+type MeshPartition struct {
+	Name string  `json:"name"`
+	Axis string  `json:"axis"`
+	Min  float64 `json:"min"`
+	Max  float64 `json:"max"`
+}
+
 type ArtSpec struct {
-	PreserveNodes bool   `json:"preserve_nodes,omitempty"`
-	Derived       bool   `json:"derived,omitempty"`
-	Reason        string `json:"reason,omitempty"`
-	AssetBasis    string `json:"asset_basis,omitempty"`
-	Greybox       bool   `json:"greybox,omitempty"`
-	Asset         string `json:"asset,omitempty"`
-	MaterialRole  string `json:"material_role,omitempty"`
+	PreserveNodeNames []string        `json:"preserve_node_names,omitempty"`
+	BatchPartitions   []MeshPartition `json:"batch_partitions,omitempty"`
+	PreserveNodes     bool            `json:"preserve_nodes,omitempty"`
+	Derived           bool            `json:"derived,omitempty"`
+	Reason            string          `json:"reason,omitempty"`
+	AssetBasis        string          `json:"asset_basis,omitempty"`
+	Greybox           bool            `json:"greybox,omitempty"`
+	Asset             string          `json:"asset,omitempty"`
+	MaterialRole      string          `json:"material_role,omitempty"`
 }
 
 type Locator struct {
@@ -115,27 +126,30 @@ type Pipeline struct {
 }
 
 type Identity struct {
-	PreserveNodes      bool   `json:"preserve_nodes,omitempty"`
-	RenderedBy         string `json:"rendered_by,omitempty"`
-	Floor              bool   `json:"floor,omitempty"`
-	Layer              string `json:"layer,omitempty"`
-	Procedural         bool   `json:"procedural,omitempty"`
-	DeclaredAssetBasis string `json:"declared_asset_basis,omitempty"`
-	SourceAsset        string `json:"source_asset,omitempty"`
-	SourceAssetBasis   string `json:"source_asset_basis,omitempty"`
-	Derived            bool   `json:"derived"`
-	ModuleSizeCells    [3]int `json:"module_size_cells"`
-	Reason             string `json:"reason,omitempty"`
-	AssetBasis         string `json:"asset_basis"`
-	ModelRef           string `json:"model_ref"`
-	Kind               string `json:"kind"`
-	ModuleID           string `json:"module_id,omitempty"`
-	World              Matrix `json:"world"`
-	Blockout           []Box  `json:"blockout"`
-	Asset              string `json:"asset,omitempty"`
-	Greybox            bool   `json:"greybox"`
-	MaterialRole       string `json:"material_role,omitempty"`
-	Required           bool   `json:"required"`
+	AssetResource      string          `json:"asset_resource,omitempty"`
+	PreserveNodeNames  []string        `json:"preserve_node_names,omitempty"`
+	BatchPartitions    []MeshPartition `json:"batch_partitions,omitempty"`
+	PreserveNodes      bool            `json:"preserve_nodes,omitempty"`
+	RenderedBy         string          `json:"rendered_by,omitempty"`
+	Floor              bool            `json:"floor,omitempty"`
+	Layer              string          `json:"layer,omitempty"`
+	Procedural         bool            `json:"procedural,omitempty"`
+	DeclaredAssetBasis string          `json:"declared_asset_basis,omitempty"`
+	SourceAsset        string          `json:"source_asset,omitempty"`
+	SourceAssetBasis   string          `json:"source_asset_basis,omitempty"`
+	Derived            bool            `json:"derived"`
+	ModuleSizeCells    [3]int          `json:"module_size_cells"`
+	Reason             string          `json:"reason,omitempty"`
+	AssetBasis         string          `json:"asset_basis"`
+	ModelRef           string          `json:"model_ref"`
+	Kind               string          `json:"kind"`
+	ModuleID           string          `json:"module_id,omitempty"`
+	World              Matrix          `json:"world"`
+	Blockout           []Box           `json:"blockout"`
+	Asset              string          `json:"asset,omitempty"`
+	Greybox            bool            `json:"greybox"`
+	MaterialRole       string          `json:"material_role,omitempty"`
+	Required           bool            `json:"required"`
 }
 
 type Box struct {
@@ -151,6 +165,7 @@ type WalkCell struct {
 }
 
 type Contract struct {
+	MaterialBindings    map[string]string         `json:"material_bindings,omitempty"`
 	ReservedHidden      []HiddenReserve           `json:"reserved_hidden,omitempty"`
 	SceneGeometry       godot.ProceduralGeometry  `json:"scene_geometry"`
 	PoseSource          string                    `json:"pose_source"`
@@ -447,6 +462,27 @@ func Build(level locationsdk.CompiledLevel, layout locationsdk.Layout, manifest 
 		}
 		q.DeclaredAssetBasis = spec.AssetBasis
 		q.PreserveNodes = spec.PreserveNodes
+		q.PreserveNodeNames = append([]string(nil), spec.PreserveNodeNames...)
+		q.BatchPartitions = append([]MeshPartition(nil), spec.BatchPartitions...)
+		names := map[string]bool{}
+		for _, name := range q.PreserveNodeNames {
+			if strings.TrimSpace(name) == "" || names[name] {
+				return c, fmt.Errorf("pipeline.instances[%q].preserve_node_names: empty or duplicate selector %q", id, name)
+			}
+			names[name] = true
+		}
+		partitions := map[string]bool{}
+		for i, part := range q.BatchPartitions {
+			if strings.TrimSpace(part.Name) == "" || partitions[part.Name] || !strings.Contains("xyz", part.Axis) || len(part.Axis) != 1 || math.IsNaN(part.Min) || math.IsNaN(part.Max) || math.IsInf(part.Min, 0) || math.IsInf(part.Max, 0) || part.Min >= part.Max {
+				return c, fmt.Errorf("pipeline.instances[%q].batch_partitions[%d]: unique name, x/y/z axis and finite min < max required", id, i)
+			}
+			partitions[part.Name] = true
+			for _, other := range q.BatchPartitions[:i] {
+				if other.Axis != part.Axis || (part.Min < other.Max && part.Max > other.Min) {
+					return c, fmt.Errorf("pipeline.instances[%q].batch_partitions: bounds must share one axis and never overlap", id)
+				}
+			}
+		}
 		source := spec.Asset
 		if source == "" {
 			source = models[q.ModelRef]
@@ -474,6 +510,7 @@ func Build(level locationsdk.CompiledLevel, layout locationsdk.Layout, manifest 
 		if active == "" {
 			active = source
 		}
+		q.AssetResource = active
 		q.AssetBasis = q.SourceAssetBasis
 		if strings.EqualFold(filepath.Ext(active), ".tscn") {
 			q.AssetBasis = "godot"
@@ -484,6 +521,7 @@ func Build(level locationsdk.CompiledLevel, layout locationsdk.Layout, manifest 
 		}
 		if q.Asset == "" && spec.Asset != "" {
 			q.Asset = q.SourceAsset
+			q.AssetResource = active
 			q.AssetBasis = q.SourceAssetBasis
 		}
 
@@ -497,6 +535,10 @@ func Build(level locationsdk.CompiledLevel, layout locationsdk.Layout, manifest 
 		}
 	}
 	if finishing != nil {
+		c.MaterialBindings = map[string]string{}
+		for name, role := range finishing.MaterialBindings {
+			c.MaterialBindings[name] = role
+		}
 		for role, material := range finishing.Materials {
 			c.Materials[role] = material
 		}
@@ -678,6 +720,7 @@ func refreshSemanticHash(contract *Contract) error {
 	semantic.Identities = map[string]Identity{}
 	for id, q := range c.Identities {
 		q.Asset = ""
+		q.AssetResource = ""
 		q.SourceAsset = ""
 		q.AssetBasis = ""
 		q.SourceAssetBasis = ""

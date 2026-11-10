@@ -1,7 +1,10 @@
 package gamepoc
 
 import (
+	"encoding/json"
 	"github.com/strogmv/ang/angir/normalizer"
+	"math"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -110,5 +113,67 @@ func TestGodotWorldInputNegative(t *testing.T) {
 				t.Fatalf("expected field %s: %v", test.field, err)
 			}
 		})
+	}
+}
+
+func TestGodotExitTargetActionIsDataAndRequiresZone(t *testing.T) {
+	root, c, d := targetFixture(t)
+	target := &c.GodotScreens.Targets[0]
+	target.ID = "exit"
+	target.Screen = ""
+	target.List = ""
+	target.RowKey = ""
+	target.Position = "zone"
+	target.Action = "life_enter"
+	target.Bind["zone"] = ScreenValue{Path: "row.id"}
+	target.Bind["enabled"] = ScreenValue{Path: "row.reachable"}
+	compiled, err := compileGodotScreens(root, c, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefix := "JSON.parse_string("
+	start := strings.Index(string(compiled), prefix)
+	if start < 0 {
+		t.Fatal("catalog lost specification JSON")
+	}
+	line := strings.SplitN(string(compiled)[start+len(prefix):], "\n", 2)[0]
+	raw, err := strconv.Unquote(strings.TrimSuffix(line, ")"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var spec GodotScreens
+	if err := json.Unmarshal([]byte(raw), &spec); err != nil {
+		t.Fatal(err)
+	}
+	if len(spec.Targets) != 1 || spec.Targets[0].Action != "life_enter" {
+		t.Fatal("exit action was not data driven")
+	}
+	target.Position = "cell"
+	if _, err := compileGodotScreens(root, c, d); err == nil || !strings.Contains(err.Error(), "requires a floor zone") {
+		t.Fatal(err)
+	}
+	target.Position = "zone"
+	delete(target.Bind, "enabled")
+	if _, err := compileGodotScreens(root, c, d); err == nil || !strings.Contains(err.Error(), "bind.enabled") {
+		t.Fatal(err)
+	}
+}
+
+func TestGodotTargetPointerHeightPreservesExplicitZero(t *testing.T) {
+	root, c, d := targetFixture(t)
+	zero := float64(0)
+	c.GodotScreens.Targets[0].PointerHeightM = &zero
+	compiled, err := compileGodotScreens(root, c, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(compiled), `pointer_height_m\":0`) {
+		t.Fatal("explicit zero pointer height was lost")
+	}
+	for _, value := range []float64{-1, math.Inf(1), math.NaN()} {
+		c.GodotScreens.Targets[0].PointerHeightM = &value
+		if _, err := compileGodotScreens(root, c, d); err == nil || !strings.Contains(err.Error(), "pointer_height_m") {
+			t.Fatalf("invalid pointer height was accepted: %v", err)
+		}
 	}
 }

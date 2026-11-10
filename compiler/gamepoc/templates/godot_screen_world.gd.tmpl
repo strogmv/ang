@@ -86,11 +86,22 @@ func route(target: Dictionary) -> void:
 	own_move = false
 
 func open(target: Dictionary) -> void:
+	if target.kind.get("action", "") == "life_enter":
+		if target.get("enabled", false):
+			host.link.controls.life("enter", str(target.id), 0, host.request_id())
+		return
 	host.open_game_screen(target.kind.screen)
 	host.game_ui.select_key(target.kind.list, target.kind.row_key, target.id)
 
 func peaceful(target: Dictionary) -> bool:
-	if target.is_empty() or target.kind.get("screen", "").is_empty():
+	if target.is_empty():
+		return false
+	if target.kind.get("action", "") == "life_enter":
+		if target.get("enabled", false):
+			cancel()
+			open(target)
+		return true
+	if target.kind.get("screen", "").is_empty():
 		return false
 	pending = target.uid
 	last_walk = Vector2i(-1, -1)
@@ -112,14 +123,25 @@ func process() -> void:
 func pointed(at: Vector2) -> Dictionary:
 	var selected: Dictionary = {}
 	var score := INF
+	var floor_selected: Dictionary = {}
+	var floor_score := INF
 	for target in targets:
 		var distance: float = visual.pointer_distance(target, at)
 		if distance > target.kind.radius_px:
 			continue
 		var candidate: float = distance - float(target.kind.priority) * 0.001
+		# Floor exits are a fallback. A real person, control or inspection keeps
+		# its existing hit test and operator relation even inside an exit zone.
+		if target.kind.get("position", "") == "zone":
+			if candidate < floor_score:
+				floor_score = candidate
+				floor_selected = target
+			continue
 		if candidate < score:
 			score = candidate
 			selected = target
+	if selected.is_empty():
+		selected = floor_selected
 	# A public operator relation gives a person the same action as their counter.
 	if not selected.is_empty() and selected.kind.get("screen", "").is_empty():
 		var actor: String = selected.get("actor", "")
@@ -133,7 +155,7 @@ func nearest() -> Dictionary:
 	var selected: Dictionary = {}
 	var score := INF
 	for target in targets:
-		if not target.reachable or target.kind.get("screen", "").is_empty():
+		if not target.reachable or (target.kind.get("screen", "").is_empty() and target.kind.get("action", "") != "life_enter"):
 			continue
 		var distance: float = visual.hero_distance(target)
 		if distance < score:

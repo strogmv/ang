@@ -221,7 +221,11 @@ func(s *LifeState)AdvanceWithTravelBy(m LifeModel,tick,delta int64,install Maint
   // The host may reserve an ordinary approach for a persistent carried object.
   // Preserve the already accepted movement segment; never teleport or rewind it.
   if m.Brain.Enabled&&!safety&&!a.Manual&&a.ID!=s.ControlledActorID&&s.BrainServices.RouteDetour!=nil{
-   if detour,active:=s.BrainServices.RouteDetour(a,brainStep);active{brainStep=detour;if a.Goal!=detour.At||a.Level!=detour.Level{if len(a.Path)>1{a.Path=a.Path[:1]};a.PendingPath=nil;a.Arrived=false;a.Goal=detour.At}}
+   if detour,active:=s.BrainServices.RouteDetour(a,brainStep);active{brainStep=detour
+    // A detour on another level is an ordinary journey: the travel planner below
+    // owns its exit legs. Writing that level's cell into Goal here every frame
+    // would cut the path each time and the person would never leave.
+    if a.Level==detour.Level&&a.Goal!=detour.At{if len(a.Path)>1{a.Path=a.Path[:1]};a.PendingPath=nil;a.Arrived=false;a.Goal=detour.At}}
   }
   if safety{brainStep=a.Safety.target()}else if a.Brain.Target.Activity!="work"{a.IncidentDelayedWork=false}
   if s.advanceResidence(m,a,tick,delta){continue}

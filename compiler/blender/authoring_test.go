@@ -502,3 +502,249 @@ func TestReservedHiddenRejectsFinalFloorAndCornerPrisms(t *testing.T) {
 		t.Fatalf("SDK obstacle swallowed hidden reserve: %v", err)
 	}
 }
+
+func TestSelectiveMotionAndSpatialBatchingContract(t *testing.T) {
+	level, layout, manifest, pipeline := testSource()
+	spec := ArtSpec{PreserveNodeNames: []string{"leaf.*", "control"}, BatchPartitions: []MeshPartition{{Name: "body.a", Axis: "x", Min: -2, Max: 2}, {Name: "body.b", Axis: "x", Min: 3, Max: 7}}}
+	pipeline.Instances["model.test"] = spec
+	first, err := Build(level, layout, manifest, pipeline, nil, map[string]string{"model.test": "res://mechanism.glb"}, nil, "", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := first.Identities["model.test"]
+	if len(row.PreserveNodeNames) != 2 || len(row.BatchPartitions) != 2 || row.BatchPartitions[1].Name != "body.b" {
+		t.Fatal("selective export policy lost", row)
+	}
+	spec.PreserveNodeNames = []string{"leaf.*"}
+	pipeline.Instances["model.test"] = spec
+	other, err := Build(level, layout, manifest, pipeline, nil, map[string]string{"model.test": "res://mechanism.glb"}, nil, "", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if other.GeometryContractSHA == first.GeometryContractSHA {
+		t.Fatal("changing preserved nodes must invalidate cached export")
+	}
+	for _, bad := range []ArtSpec{
+		{PreserveNodeNames: []string{""}}, {PreserveNodeNames: []string{"leaf", "leaf"}},
+		{BatchPartitions: []MeshPartition{{Name: "body", Axis: "x", Min: 2, Max: 2}}},
+		{BatchPartitions: []MeshPartition{{Name: "body", Axis: "xy", Min: 0, Max: 2}}},
+		{BatchPartitions: []MeshPartition{{Name: "body", Axis: "x", Min: 0, Max: 2}, {Name: "other", Axis: "x", Min: 1, Max: 3}}},
+		{BatchPartitions: []MeshPartition{{Name: "body", Axis: "x", Min: 0, Max: 2}, {Name: "body", Axis: "x", Min: 3, Max: 4}}},
+	} {
+		pipeline.Instances["model.test"] = bad
+		if _, err := Build(level, layout, manifest, pipeline, nil, nil, nil, "", ""); err == nil {
+			t.Fatalf("invalid batch policy accepted: %+v", bad)
+		}
+	}
+}
+
+func TestPythonSelectiveBatchingRejectsMissingNodesAndAmbiguousFrames(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 unavailable")
+	}
+	path := filepath.Join(t.TempDir(), "runtime.py")
+	if err = os.WriteFile(path, []byte(runtime), 0600); err != nil {
+		t.Fatal(err)
+	}
+	script := `import runpy,sys
+r=runpy.run_path(sys.argv[1]);keep=r['selected_node_names'];partition=r['batch_partition']
+assert keep(['leaf.L','leaf.R','frame','control'],['leaf.*','control'])=={'leaf.L','leaf.R','control'}
+try: keep(['frame'],['leaf.*']);assert False
+except ValueError as e: assert 'matches no source node' in str(e)
+parts=[{'name':'car.a','axis':'x','min':-2,'max':2},{'name':'car.b','axis':'x','min':3,'max':7}]
+assert partition((0,0,0),parts)=='car.a'
+assert partition((5,0,0),parts)=='car.b'
+for x in [2.5,8]:
+ try: partition((x,0,0),parts);assert False
+ except ValueError as e: assert 'belongs to 0 groups' in str(e)
+try: partition((0,0,0),[parts[0],parts[0]]);assert False
+except ValueError as e: assert 'belongs to 2 groups' in str(e)
+print('selective identities and disjoint moving frames PASS')`
+	output, err := exec.Command(python, "-B", "-c", script, path).CombinedOutput()
+	if err != nil {
+		t.Fatalf("%v\n%s", err, output)
+	}
+}
+
+func TestRegisteredArtifactResourceDoesNotChangeGeometryContract(t *testing.T) {
+	level, layout, manifest, pipeline := testSource()
+	a, err := Build(level, layout, manifest, pipeline, nil, map[string]string{"model.test": "res://kit/shared.tscn"}, nil, "", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := Build(level, layout, manifest, pipeline, nil, map[string]string{"model.test": "res://models/duplicate.tscn"}, nil, "", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Identities["model.test"].AssetResource != "res://kit/shared.tscn" {
+		t.Fatal("registered PackedScene resource lost")
+	}
+	if a.GeometryContractSHA != b.GeometryContractSHA {
+		t.Fatal("resource relocation changed geometry contract")
+	}
+}
+
+func TestPythonArtifactReuseRequiresUnchangedNamedMotionFrames(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 unavailable")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "runtime.py")
+	if err = os.WriteFile(path, []byte(runtime), 0600); err != nil {
+		t.Fatal(err)
+	}
+	script := `import runpy,sys
+r=runpy.run_path(sys.argv[1]);signature=r['hierarchy_signature'];unchanged=r['source_pose_unchanged']
+I=[[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]
+class Identity:
+ def __matmul__(self,other):return other
+class Node:
+ def __init__(self,name,kind,parent=None):self.name=name;self.type=kind;self.parent=parent;self.matrix_local=[row[:]for row in I];self.matrix_world=[row[:]for row in I]
+hinge=Node('hinge','EMPTY');leaf=Node('leaf','MESH',hinge);slot=Node('weight.slot','EMPTY',hinge)
+objects=[hinge,leaf,slot];first=signature(objects,Identity());row={'preserve_node_names':['hinge','weight.slot']};source={'source_pose_signature':first,'source_artifact_pose_signature':'canonical.graph'}
+assert unchanged(source,row,first,'canonical.graph')
+closed_vertices_world=[line[:]for line in leaf.matrix_world]
+# Shift the hinge and compensate the child's local pose: same closed mesh,
+# different pivot and motion frame. Geometry alone must not authorize reuse.
+hinge.matrix_world[0][3]=.125;leaf.matrix_local[0][3]=-.125
+assert leaf.matrix_world==closed_vertices_world
+assert not unchanged(source,row,signature(objects,Identity()),'canonical.graph')
+hinge.matrix_world[0][3]=0;leaf.matrix_local[0][3]=0;leaf.parent=None
+assert not unchanged(source,row,signature(objects,Identity()),'canonical.graph')
+leaf.parent=hinge;slot.matrix_local[1][3]=.25
+assert not unchanged(source,row,signature(objects,Identity()),'canonical.graph')
+assert not unchanged({},row,first,'canonical.graph')
+assert not unchanged(source,row,first,'different.asset.graph')
+print('same closed geometry, changed pivot/parent/text-slot frames reject artifact reuse PASS')`
+	output, err := exec.Command(python, "-B", "-c", script, path).CombinedOutput()
+	if err != nil {
+		t.Fatalf("%v\n%s", err, output)
+	}
+}
+
+func TestPythonStaticBatchingNeverDropsAuthoredColourOrSecondUV(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 unavailable")
+	}
+	path := filepath.Join(t.TempDir(), "runtime.py")
+	if err = os.WriteFile(path, []byte(runtime), 0600); err != nil {
+		t.Fatal(err)
+	}
+	script := `import runpy,sys
+from types import SimpleNamespace as Mesh
+check=runpy.run_path(sys.argv[1])['check_batch_attributes']
+check(Mesh(uv_layers=[],color_attributes=[]),'flat material')
+check(Mesh(uv_layers=['UVMap'],color_attributes=[]),'textured material')
+check(Mesh(uv_layers=['UV0','UV1'],color_attributes=[]),'two UV sets are copied exactly')
+try: check(Mesh(uv_layers=['UV0'],color_attributes=['paint']),'painted authored panel');assert False
+except ValueError as e: assert 'painted authored panel' in str(e) and 'preserve this named node' in str(e)
+# Every UV set is written back per corner, in order, with its defaults.
+ns=runpy.run_path(sys.argv[1])
+class Layer:
+ def __init__(s,name,n): s.name=name;s.data=[Mesh(uv=None) for _ in range(n)];s.active_render=False;s.active_clone=False
+class Layers(list):
+ active_index=-1
+ def new(s,name): layer=Layer(name,3);s.append(layer);return layer
+target=Mesh(uv_layers=Layers(),loops=[Mesh(index=i,vertex_index=i) for i in range(3)])
+first=[(0.0,0.0),(1.0,0.0),(0.0,1.0)];second=[(0.25,0.5),(0.75,0.5),(0.25,0.125)]
+ns['write_batch_uv_layers'](target,(('UV0','UV1'),1,0,1),[first,second])
+assert [l.name for l in target.uv_layers]==['UV0','UV1']
+assert [d.uv for d in target.uv_layers[0].data]==first and [d.uv for d in target.uv_layers[1].data]==second
+assert target.uv_layers.active_index==1 and target.uv_layers[0].active_render and target.uv_layers[1].active_clone and not target.uv_layers[1].active_render
+source=Mesh(uv_layers=[Mesh(name='UV0',active_render=True,active_clone=False),Mesh(name='UV1',active_render=False,active_clone=True)])
+source.uv_layers=type('L',(list,),{'active_index':1})(source.uv_layers)
+assert ns['mesh_uv_layout'](source)==(('UV0','UV1'),1,0,1)
+print('every UV set kept exactly; authored vertex colour requires explicit preservation PASS')`
+	output, err := exec.Command(python, "-B", "-c", script, path).CombinedOutput()
+	if err != nil {
+		t.Fatalf("%v\n%s", err, output)
+	}
+}
+
+func TestPythonEqualDummyPBRNeverMergesDifferentCUEMaterialRoles(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 unavailable")
+	}
+	path := filepath.Join(t.TempDir(), "runtime.py")
+	if err = os.WriteFile(path, []byte(runtime), 0600); err != nil {
+		t.Fatal(err)
+	}
+	script := `import runpy,sys
+from types import SimpleNamespace as Mat
+key=runpy.run_path(sys.argv[1])['material_batch_key']
+def material(name):return Mat(name=name,diffuse_color=[.5,.5,.5,1],roughness=1,metallic=0,use_backface_culling=False,use_nodes=False)
+a=material('ANG_ROLE__concrete.bronze');b=material('ANG_ROLE__concrete.copper')
+assert key(a)!=key(b)
+assert key(a)==key(material(a.name))
+a=material('source.grey.a');b=material('source.grey.b');assert key(a)==key(b)
+b.roughness=.75;assert key(a)!=key(b)
+b.roughness=1
+assert key(a,{'source.grey.a':'bronze','source.grey.b':'copper'})!=key(b,{'source.grey.a':'bronze','source.grey.b':'copper'})
+print('identical dummy PBR preserves distinct CUE roles; equal ordinary materials can batch PASS')`
+	output, err := exec.Command(python, "-B", "-c", script, path).CombinedOutput()
+	if err != nil {
+		t.Fatalf("%v\n%s", err, output)
+	}
+}
+
+func TestMaterialBindingsArePartOfTheAuthoringContract(t *testing.T) {
+	level, layout, manifest, pipeline := testSource()
+	finish := &godot.Finishing{Materials: map[string]godot.Material{
+		"bronze": {Color: [4]float64{.5, .5, .5, 1}, Roughness: 1, Provenance: "Fixture bronze role"},
+		"copper": {Color: [4]float64{.5, .5, .5, 1}, Roughness: 1, Provenance: "Fixture copper role"},
+	}, MaterialBindings: map[string]string{"ordinary.a": "bronze", "ordinary.b": "copper"}}
+	a, err := Build(level, layout, manifest, pipeline, finish, nil, nil, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.MaterialBindings["ordinary.a"] != "bronze" || a.MaterialBindings["ordinary.b"] != "copper" {
+		t.Fatal("CUE bindings lost before material batching")
+	}
+	finish.MaterialBindings["ordinary.a"] = "copper"
+	b, err := Build(level, layout, manifest, pipeline, finish, nil, nil, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.GeometryContractSHA == b.GeometryContractSHA {
+		t.Fatal("changing the semantic role of a source alias must invalidate an art export")
+	}
+	if a.MaterialBindings["ordinary.a"] != "bronze" {
+		t.Fatal("authoring contract retained a mutable alias map")
+	}
+}
+
+func TestPythonBatchPolicyUsesOnlyUsedAliasesAndRejectsLostBoundNames(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 unavailable")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "runtime.py")
+	if err = os.WriteFile(path, []byte(runtime), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(dir, "export.py"), []byte("# stable fixture program\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	script := `import runpy,sys
+r=runpy.run_path(sys.argv[1]);policy=r['batch_policy_signature'];check=r['check_retained_material_aliases']
+row={'preserve_node_names':['leaf'],'batch_partitions':[]};names=['ordinary.a','ordinary.b']
+a=policy(row,names,{'ordinary.a':'bronze','irrelevant':'copper'})
+b=policy(row,names,{'ordinary.a':'bronze','irrelevant':'gold'})
+assert a==b
+assert a!=policy(row,names,{'ordinary.a':'copper','irrelevant':'copper'})
+assert a!=policy(row,names,{'ordinary.a':'bronze','ordinary.b':'copper'})
+check(names,['ordinary.a'],{'irrelevant':'gold'})
+check(names,['ordinary.a'],{'ordinary.a':'bronze'})
+try: check(names,['ordinary.a'],{'ordinary.b':'copper'});assert False
+except ValueError as e: assert 'ordinary.b' in str(e) and 're-export the original authoring source' in str(e)
+print('only used aliases affect reuse; a newly bound lost alias cannot silently reuse merged art PASS')`
+	output, err := exec.Command(python, "-B", "-c", script, path).CombinedOutput()
+	if err != nil {
+		t.Fatalf("%v\n%s", err, output)
+	}
+}

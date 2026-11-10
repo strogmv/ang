@@ -2,6 +2,7 @@ package gamepoc
 
 import (
 	"fmt"
+	"math"
 	"strings"
 )
 
@@ -11,7 +12,7 @@ func (g *screenCompiler) targets(s *GodotScreens) error {
 	types := map[string]string{"id": "string", "label": "string", "x": "int32", "y": "int32",
 		"walk_x": "int32", "walk_y": "int32", "walk_deck": "int32", "visible": "bool", "reachable": "bool", "routable": "bool",
 		"world_x": "double", "world_y": "double", "world_z": "double", "use_world": "bool"}
-	optional := map[string]string{"actor": "string", "text": "string", "fragments": "message"}
+	optional := map[string]string{"actor": "string", "text": "string", "fragments": "message", "enabled": "bool", "zone": "string"}
 	for i := range s.Targets {
 		target := &s.Targets[i]
 		g.id = target.ID
@@ -20,10 +21,13 @@ func (g *screenCompiler) targets(s *GodotScreens) error {
 			return fmt.Errorf("screen %s field %s.id: invalid/duplicate target", g.id, field)
 		}
 		seen[target.ID] = true
+		if height := target.PointerHeightM; height != nil && (math.IsNaN(*height) || math.IsInf(*height, 0) || *height < 0) {
+			return fmt.Errorf("screen %s field %s.pointer_height_m: expected finite nonnegative metres", g.id, field)
+		}
 		if target.Position == "" {
 			target.Position = "cell"
 		}
-		if target.Position != "cell" && target.Position != "actor" && target.Position != "world" {
+		if target.Position != "cell" && target.Position != "actor" && target.Position != "world" && target.Position != "zone" {
 			return fmt.Errorf("screen %s field %s.position: unknown position shape", g.id, field)
 		}
 		if target.Position == "actor" {
@@ -70,6 +74,22 @@ func (g *screenCompiler) targets(s *GodotScreens) error {
 				return fmt.Errorf("screen %s field %s.bind.%s: expected %s", g.id, field, key, expected)
 			}
 			target.Bind[key] = value
+		}
+		if target.Action != "" && target.Action != "life_enter" {
+			return fmt.Errorf("screen %s field %s.action: unknown action", g.id, field)
+		}
+		if target.Action == "life_enter" {
+			if target.Screen != "" {
+				return fmt.Errorf("screen %s field %s.screen: exit action cannot also open a screen", g.id, field)
+			}
+			if target.Position != "zone" {
+				return fmt.Errorf("screen %s field %s.position: exit action requires a floor zone", g.id, field)
+			}
+			for _, key := range []string{"zone", "enabled"} {
+				if _, ok := target.Bind[key]; !ok {
+					return fmt.Errorf("screen %s field %s.bind.%s: required", g.id, field, key)
+				}
+			}
 		}
 		if target.Screen == "" {
 			if target.List != "" || target.RowKey != "" {

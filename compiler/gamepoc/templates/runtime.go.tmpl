@@ -80,6 +80,7 @@ type worldModular struct {
 	LayoutID string `json:"layout_id"`
 }
 type worldData struct {
+ ExitZones *exitZoneCatalog `json:"exit_zones,omitempty"`
  LiftingDecks *liftingDeckCatalog `json:"lifting_decks,omitempty"`
  MedicalCapsules *medicalCatalog `json:"medical_capsules"`
  SanitaryServices *sanitaryCatalog `json:"sanitary_services"`

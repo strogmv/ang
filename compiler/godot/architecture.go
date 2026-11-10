@@ -8,6 +8,8 @@ import (
 // Architecture is authored policy; engine-neutral roles identify surfaces and
 // CUE owns resource paths. Material names never imply a concrete wall.
 type Architecture struct {
+	WallTopMass      []WallTopMass `json:"wall_top_mass,omitempty"`
+	massResolved     bool
 	OpenPlanReason   string `json:"open_plan_reason,omitempty"`
 	concreteResolved bool
 	Concrete         *ConcreteInstance           `json:"concrete,omitempty"`

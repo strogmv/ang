@@ -26,6 +26,7 @@ func TestLiftingDeckPublishedThroughRealSendState(t *testing.T){
    life:=wire["game_state"].(map[string]any)["life"].(map[string]any)
    rows,ok:=life["lifting_decks"].([]any);if !ok||len(rows)!=1||rows[0].(map[string]any)["id"]!=d.ID{t.Fatalf("real lean packet lost %s at level %v: %v",d.ID,life["level_id"],rows)}
    state:=packet.GetGameState();access:=state.GetLife().GetLiftingDecks()[0].GetAccess()
+   if access==nil||access.WorldX!=d.ControlPlan[0]||access.WorldY!=d.ControlPlan[1]||access.WorldZ!=d.ControlPlan[2]{t.Fatal("real deck control target lost its measured panel centre")}
    if access==nil||!viewSees(state.PlayerView,int32(d.Approach.X),int32(d.Approach.Y))||!access.Visible||!access.Reachable||!access.Routable{t.Fatalf("deck access was built before perception or lost ordinary reach: %+v",access)}
    specs:=packet.GetGameState().GetLife().GetLiftingDeckSpecs()
    if frame==0&&(len(specs)!=1||len(specs[0].GetSounds())!=len(d.Sounds)||len(specs[0].GetNodes())!=len(d.Nodes)){t.Fatal("first frame lost static deck bindings")}
@@ -42,7 +43,7 @@ func TestLiftingDeckPublishedThroughRealSendState(t *testing.T){
 func liftingDeckFixture()liftingDeckDefinition{
  d:=liftingDeckDefinition{ID:"test.deck",LevelID:"hub",InstanceID:"platform",NameKey:"ui.deck",Access:"open",ClosedWalkable:true,DepthM:6.55,ChamberSpeedMPS:.4,LockdownSpeedMPS:.8,PowerSpeedMPS:.6,ShaftDepthM:500,ShaftSpeedMPS:2,Plan:[]float64{0,0,0}}
  d.Runs.PeriodSeconds=600;d.Runs.DayStartSecond=21600;d.Runs.DayEndSecond=79200;d.Runs.ExtraSeconds=[]int64{16800}
- d.Timing.Unlock=1000;d.Timing.Unseat=1000;d.Timing.Reseat=600;d.Timing.Lock=500;d.Timing.BeaconPeriod=250;d.Timing.Equalise=6000;d.Timing.Signal=3000;d.Timing.Barrier=2800;d.Timing.Open=12000;d.Timing.Loading=20000;d.Timing.Close=12000;d.Timing.LockdownWarning=1200;d.Timing.LockdownBarrier=800;d.Timing.LockdownClose=3600;d.Timing.Retry=5000
+ d.Timing.Unlock=1000;d.Timing.Unseat=1000;d.Timing.Reseat=600;d.Timing.Lock=500;d.Timing.BeaconPeriod=250;d.Timing.Equalise=6000;d.SignalBeforeOpenS=10;d.SignalBeforeDescendS=10;d.Timing.Barrier=2800;d.Timing.Open=12000;d.Timing.Loading=20000;d.Timing.Close=12000;d.Timing.LockdownWarning=1200;d.Timing.LockdownBarrier=800;d.Timing.LockdownClose=3600;d.Timing.Retry=5000
  return d
 }
 func TestLiftingDeckCyclePhysicalClockAndSkippedDispatches(t *testing.T){
@@ -55,7 +56,7 @@ func TestLiftingDeckCyclePhysicalClockAndSkippedDispatches(t *testing.T){
    if delta>d.ChamberSpeedMPS+.0001{t.Fatalf("calendar changed physical deck speed: %.6f",delta)}
    if p.Leaves>0&&p.Deck<liftingDeckFull&&g.walkable(){t.Fatal("open shaft became walkable")};previous=p
   }
-  for _,phase:=range []string{"equalising","signal_up","barrier_up","unlocking","unseating","opening","rising","loading","signal_down","descending","closing","rest"}{if !phases[phase]{t.Fatalf("missing phase %s: %v",phase,phases)}}
+  for _,phase:=range []string{"equalising","signal_up","barrier_up","unlocking","unseating","opening","rising","loading","signal_down","departure_barrier","descending","closing","rest"}{if !phases[phase]{t.Fatalf("missing phase %s: %v",phase,phases)}}
   if rate==30&&g.Skipped==0{t.Fatal("departures queued rather than skipped")}
  })}
 }
@@ -68,7 +69,7 @@ func TestLiftingDeckOccupiedLeavesHoldBeforeOpening(t *testing.T){
 }
 func TestLiftingDeckLockdownFromEveryPhaseAndPowerLoss(t *testing.T){
  d:=liftingDeckFixture()
- for _,phase:=range []string{"equalising","signal_up","opening","rising","loading","signal_down","descending","closing"}{for _,power:=range []bool{false,true}{
+ for _,phase:=range []string{"equalising","signal_up","opening","rising","loading","signal_down","departure_barrier","descending","closing"}{for _,power:=range []bool{false,true}{
   p:=liftingDeckPose{Leaves:liftingDeckFull,Deck:liftingDeckFull,Barrier:0,Unlock:liftingDeckFull,Damper:liftingDeckFull,Release:liftingDeckFull}
   if phase=="equalising"||phase=="signal_up"{p=liftingDeckPose{Damper:liftingDeckFull}}
   if phase=="opening"||phase=="closing"{p.Deck=0;p.Leaves=liftingDeckFull/2;p.Barrier=liftingDeckFull}
@@ -162,6 +163,10 @@ func TestLiftingDeckEveryActualPhaseLocksAndSaves(t *testing.T){
 func TestLiftingDeckPermitRefusalUsesServerReason(t *testing.T){
  r:=lifeRuntimeFixture(t);if r.world.LiftingDecks==nil||len(r.world.LiftingDecks.Decks)==0{t.Fatal("world lacks lifting deck")};catalog:=*r.world.LiftingDecks;catalog.Decks=append([]liftingDeckDefinition(nil),catalog.Decks...);catalog.Decks[0].Access="permit";r.world.LiftingDecks=&catalog
  err:=r.liftingDeckAccessError(catalog.Decks[0].TravelEdge);e,ok:=err.(textError);if !ok||e.Key!="error.lifting_deck.permit"{t.Fatalf("permit missing authoritative reason: %v",err)}
+ r.instantTravelStalled="retained plan";r.instantTravelEpoch=r.state.Epoch
+ err=r.requestLiftingDeckRide(playerActorID,catalog.Decks[0].TravelEdge);e,ok=err.(textError);if !ok||e.Key!="error.lifting_deck.permit"{t.Fatal("ordinary ride did not refuse permit before mutation")}
+ if r.instantTravelStalled!="retained plan"||r.instantTravelEpoch!=r.state.Epoch{t.Fatal("rejected permit mutated existing fast-trip intent")}
+
 }
 
 func TestLiftingDeckNPCRiderCountsBelowAndTransitSaveRestores(t *testing.T){
@@ -173,7 +178,8 @@ func TestLiftingDeckNPCRiderCountsBelowAndTransitSaveRestores(t *testing.T){
  rider.Level=d.LevelID;rider.Position=edge.Exit;rider.Goal=edge.Exit;rider.Path=nil;rider.PendingPath=nil;rider.Body=nil;rider.Trip=nil;rider.Manual=true;rider.Arrived=true;rider.OverrideLevel="";rider.OverrideEdge="";rider.Visits[d.LevelID]=1
  g:=r.state.LiftingDecks[d.ID];p:=liftingDeckPose{Leaves:liftingDeckFull,Deck:liftingDeckFull,Unlock:liftingDeckFull,Damper:liftingDeckFull,Release:liftingDeckFull};g.Phase="loading";g.From=p;g.To=p;g.StartNS=0;g.UpdatedNS=0;g.DurationNS=10000000;r.state.LiftingDecks[d.ID]=g;r.applyLiftingDeckTerrain()
  if err:=r.requestLiftingDeckRide(rider.ID,edge.ID);err!=nil{t.Fatal(err)}
- r.step();rider=r.state.Life.Actor(rider.ID)
+ for tick:=0;tick<100;tick++{r.step();rider=r.state.Life.Actor(rider.ID);if rider.Trip!=nil||!rider.OnFloor(){t.Fatal("rider left before the ten-second departure warning")}}
+ for tick:=0;tick<80&&r.state.Life.Actor(rider.ID).Trip==nil;tick++{r.step()};rider=r.state.Life.Actor(rider.ID)
  if rider.Trip==nil||rider.Trip.Edge!=edge.ID||rider.OnFloor(){t.Fatalf("rider still exists on the hub floor: %+v",rider)}
  if rider.Trip.Arrival-rider.Trip.Departure!=250{t.Fatal("shaft travel differs from 500m / 2m/s")}
  connection:=&connection{out:make(chan *pb.ServerMessage,16),stop:make(chan struct{})};r.sendState(connection);packet:=(<-connection.out).GetGameState();for _,agent:=range packet.SceneAgents{if agent.Id==rider.ID{t.Fatal("transit rider was published as a hub body")}}
@@ -207,4 +213,64 @@ func TestLiftingDeckBarrierOverlayRestoresAuthoredFloorAndRealEscape(t *testing.
  if ack:=(<-connection.out).GetMoveResult();ack==nil||!ack.Ok{t.Fatal("ordinary walk off leaves was rejected",ack)}
  for step:=0;step<250;step++{r.step();hero=r.state.Life.Actor(playerActorID);if hero.Trip!=nil{t.Fatal("escape was substituted with a ride")};if hero.Position==target&&len(hero.Path)==0{return}}
  t.Fatalf("person did not walk out of held leaves: %+v",*hero)
+}
+
+func TestLiftingDeckTenSecondSignalsUsePhysicalTime(t *testing.T){
+ for _,rate:=range []int64{1,10,30}{for _,depth:=range []float64{6.55,3.65}{
+  d:=liftingDeckFixture();d.DepthM=depth;g:=liftingDeckState{Phase:"rest",NextRunSecond:21600,ClearSinceNS:-1};up,down,leaf,descent,barrier:=int64(-1),int64(-1),int64(-1),int64(-1),int64(-1);previousDeck:=int64(0)
+  for tick:=int64(1);tick<=1400;tick++{now:=tick*100000000;g.advance(d,now,21600+tick*rate,false,false,false);p:=g.pose(now)
+   if up<0&&g.Phase=="equalising"{up=now};if barrier<0&&p.Barrier>0{barrier=now};if leaf<0&&p.Leaves>0{leaf=now};if down<0&&g.Phase=="signal_down"{down=now};if down>=0&&descent<0&&p.Deck<previousDeck{descent=now};previousDeck=p.Deck
+   if g.Phase=="rest"&&g.Runs>0{break}
+  }
+  if up<0||down<0||leaf-up<d.SignalBeforeOpenS*1000000000||barrier-up<d.SignalBeforeOpenS*1000000000||descent-down<d.SignalBeforeDescendS*1000000000{t.Fatalf("rate%d depth%.2f unsafe physical warnings: up%d barrier%d leaf%d down%d descent%d",rate,depth,up,barrier,leaf,down,descent)}
+  // The alarm is deliberately separate: its 1.2s warning is not extended.
+  if d.Timing.LockdownWarning!=1200{t.Fatal("normal warning changed the gate alarm")}
+ }}
+}
+
+func TestLiftingDeckWarningKeepsFlushDeckAndExitWalkable(t *testing.T){
+ d:=liftingDeckFixture();p:=liftingDeckPose{Leaves:liftingDeckFull,Deck:liftingDeckFull,Unlock:liftingDeckFull,Damper:liftingDeckFull,Release:liftingDeckFull};g:=liftingDeckState{Phase:"loading",From:p,To:p,DurationNS:d.Timing.Loading*1000000,NextRunSecond:22200,ClearSinceNS:-1}
+ g.advance(d,d.Timing.Loading*1000000+1,21600,false,false,false);start:=g.StartNS
+ for delta:=int64(1);delta<d.SignalBeforeDescendS*1000000000;delta+=100000000{g.advance(d,start+delta,21600,false,false,false);pose:=g.pose(g.UpdatedNS);if g.Phase!="signal_down"||!g.walkable()||pose.Barrier!=0||pose.Deck!=liftingDeckFull{t.Fatal("warning prevented exit before its ten-second deadline",g.Phase,pose)}}
+ g.advance(d,start+d.SignalBeforeDescendS*1000000000,21600,false,false,false);if g.Phase!="departure_barrier"{t.Fatal("warning deadline did not start authored barrier travel")}
+}
+
+// Real runtime inventory, model data and machine clock. The physical carrier is
+// deliberately waiting at its actual receiving point: even at x30 it cannot
+// collect a future consignment before the mechanism's receiving handoff.
+func TestLiftingDeckMarketFreightConservationClocksAndSave(t *testing.T){
+ for _,rate:=range []int64{1,10,30}{t.Run(map[int64]string{1:"1",10:"10",30:"30"}[rate],func(t *testing.T){
+  r:=lifeRuntimeFixture(t);var d liftingDeckDefinition;for _,candidate:=range r.world.LiftingDecks.Decks{if candidate.Freight!=nil{d=candidate;break}};if d.Freight==nil{t.Skip("no inbound deck freight")}
+  r.state.Life.Seconds=86400+d.Freight.FirstSecond-1;r.initLiftingDecks();total:=commerceTotal(r.state.Inventory)
+  for _,delivery:=range r.world.Inventory.Deliveries{actor:=r.state.Life.Actor(delivery.Carrier);actor.Level=delivery.Pickup.Level;actor.Position=behavior.Cell{X:delivery.Pickup.At.X,Y:delivery.Pickup.At.Y};actor.Goal=actor.Position;actor.Manual=true;actor.Path=nil;actor.Trip=nil;actor.ResidenceID="";actor.Body=nil}
+  manifest:=map[string][]string{};onDeck,received,saved:=false,false,false;var replay *Runtime
+  for tick:=0;tick<1400;tick++{
+   r.state.Tick++;r.state.Life.Tick=r.state.Tick;r.state.Life.Seconds+=rate;r.advanceLiftingDecks(r.state.Life.Seconds);if err:=r.advanceMarketSupply();err!=nil{t.Fatal(err)}
+   if replay!=nil{replay.state.Tick++;replay.state.Life.Tick=replay.state.Tick;replay.state.Life.Seconds+=rate;replay.advanceLiftingDecks(replay.state.Life.Seconds);if err:=replay.advanceMarketSupply();err!=nil{t.Fatal(err)};if !reflect.DeepEqual(r.state.Inventory,replay.state.Inventory)||!reflect.DeepEqual(r.state.LiftingDecks,replay.state.LiftingDecks){t.Fatal("saved cargo/physical cycle diverged")}}
+   g:=r.state.LiftingDecks[d.ID];rows:=r.liftingDeckCargo(d,g);deckQty,receivingQty:=int64(0),int64(0)
+   for _,row:=range rows{if row.Stage=="deck"{deckQty+=row.Quantity;manifest[row.Id]=append([]string(nil),row.ItemIds...)}else{receivingQty+=row.Quantity;if len(manifest[row.Id])==0||!reflect.DeepEqual(manifest[row.Id],row.ItemIds){t.Fatal("receiving handoff replaced manifested item IDs")}}}
+   if deckQty>0{onDeck=true;if deckQty!=int64(len(d.Freight.Routes))*3{t.Fatal("incomplete incoming market consignment")}}
+   if receivingQty>0{received=true;if g.FreightLandedNS<=0||g.Phase!="loading"{t.Fatal("cargo received before a real flush landing")}}
+   for _,delivery:=range r.world.Inventory.Deliveries{if r.state.Inventory.Deliveries[delivery.ID].Phase=="carrying"&&(!received||g.UpdatedNS-g.FreightLandedNS<d.Freight.ReceivingDwellS*1000000000){t.Fatal("calendar let a trader collect cargo before physical receiving")}}
+   if commerceTotal(r.state.Inventory)!=total{t.Fatal("deck transfer minted or lost stock")}
+   if onDeck&&!saved&&g.Phase=="rising"{snapshot:=r.snapshotState();slot:=r.world.Config.SaveSlots[0];if err:=r.writeSave(slot,snapshot);err!=nil{t.Fatal(err)};restored,_,err:=r.readSave(slot);if err!=nil{t.Fatal(err)};replay=&Runtime{world:r.world,canonicalWorld:r.canonicalWorld,sdkWorlds:r.sdkWorlds,state:restored};saved=true}
+   picked:=0;for _,delivery:=range r.world.Inventory.Deliveries{if r.state.Inventory.Deliveries[delivery.ID].Phase=="carrying"{picked++}}
+   if picked==len(d.Freight.Routes){break}
+  }
+  if !onDeck||!received||!saved{t.Fatal("incomplete actual freight/save proof",onDeck,received,saved)}
+  for _,route:=range d.Freight.Routes{
+   if commerceQuantity(r.state.Inventory,route.CopperStore)!=9||commerceQuantity(r.state.Inventory,route.DeckStore)!=0||commerceQuantity(r.state.Inventory,route.ReceivingStore)!=0{t.Fatal("finite stock did not move Copper → deck → receiving → carrier")}
+   progress:=r.state.Inventory.Deliveries[route.DeliveryID];if progress.Phase!="carrying"||len(progress.Cargo)==0{t.Fatal("existing market delivery did not collect landed stock")};ids:=[]string{};for _,cargo:=range progress.Cargo{ids=append(ids,cargo.Item)};if !reflect.DeepEqual(ids,manifest[route.DeliveryID]){t.Fatal("trader pickup replaced actual cargo IDs")}
+  }
+ })}
+}
+
+func TestLiftingDeckOrdinaryEnterQueuesAndAcceptedMoveCancels(t *testing.T){
+ r:=lifeRuntimeFixture(t);d:=r.world.LiftingDecks.Decks[0];h:=r.state.Life.Actor(playerActorID);h.Level=d.LevelID;h.Position=behavior.Cell{X:d.Approach.X,Y:d.Approach.Y};h.Goal=h.Position;h.Body=nil;h.Trip=nil;h.Path=nil;h.PendingPath=nil;h.OverrideLevel="";h.OverrideEdge="";h.Manual=true;h.Arrived=true;h.Visits[d.LevelID]=1;r.syncLifeHero();r.updateLifeExploration()
+ r.instantTravelStalled="old plan";r.instantTravelEpoch=r.state.Epoch
+ if err:=r.lifeCommand(&pb.PocLifeCommand{Action:"enter",Destination:d.TravelEdge});err!=nil{t.Fatal(err)}
+ if r.instantTravelStalled!=""||r.instantTravelEpoch!=""{t.Fatal("accepted deck enter retained a stale fast-trip intent")}
+ g:=r.state.LiftingDecks[d.ID];if h.Trip!=nil||h.OverrideEdge!=""||len(g.PendingRiders)!=1||g.PendingRiders[0]!=playerActorID{t.Fatal("ordinary enter bypassed physical deck queue")}
+ if !r.lifeWalkTo(behavior.Cell{X:d.Approach.X+1,Y:d.Approach.Y}){t.Fatal("cancel fixture walk was refused")};if len(r.state.LiftingDecks[d.ID].PendingRiders)!=0{t.Fatal("new ordinary move kept an unsolicited ride queued")}
+ for step:=0;step<20;step++{r.step()};if h.Trip!=nil{t.Fatal("canceled ride departed")}
 }

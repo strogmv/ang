@@ -402,7 +402,11 @@ func resolveConcreteInstances(f *Finishing) (*Finishing, error) {
 // ResolveArchitectureForLevel derives touch wear from authored movement and
 // service geometry at build time. Only coalesced actual route cells are used.
 func ResolveArchitectureForLevel(f *Finishing, level locationsdk.CompiledLevel) (*Finishing, error) {
-	resolved, err := ResolveArchitecture(f)
+	mass, err := resolveWallTopMass(f, level)
+	if err != nil {
+		return nil, err
+	}
+	resolved, err := ResolveArchitecture(mass)
 	if err != nil || resolved == nil {
 		return resolved, err
 	}

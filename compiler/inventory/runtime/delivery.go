@@ -379,3 +379,49 @@ func (s *State) commerceApply(m Model, t Transaction) (Result, error) {
 	}
 	return result, err
 }
+
+// MoveMachineConsignment is the trusted machine handoff used by authored cargo
+// machinery. It transfers existing items only; the host determines when the
+// physical mechanism reaches its landing. Client requests cannot call it.
+// Ownership, locks, capacities and finite quantities use the ordinary inventory
+// transaction, including stable split IDs and replay cursors.
+func (s *State) MoveMachineConsignment(m Model, owner, from, to, definition string, quantity int64, tag string) ([]Cargo, error) {
+	if quantity < 1 || from == to || tag == "" {
+		return nil, errors.New("invalid machine consignment")
+	}
+	source, sok := s.Stores[from]
+	dest, dok := s.Stores[to]
+	if !sok || !dok || source.Owner != owner || dest.Owner != owner || source.Anchor.Kind != "world" || dest.Anchor.Kind != "world" {
+		return nil, errors.New("machine consignment requires owned physical stores")
+	}
+	seq := s.Cursors[owner].Sequence + 1
+	remaining := quantity
+	moves := []Move{}
+	cargo := []Cargo{}
+	for _, id := range sortedKeys(s.Items) {
+		i := s.Items[id]
+		if remaining == 0 {
+			break
+		}
+		if i.Location != (Location{Kind: "store", Store: from}) || i.Definition != definition || i.Owner != owner || s.Reserved(m, id) {
+			continue
+		}
+		qty := min(i.Quantity, remaining)
+		cid := id
+		if qty < i.Quantity {
+			cid = fmt.Sprintf("instance:tx:%s:%d:%d", owner, seq, len(moves))
+		}
+		moves = append(moves, Move{Item: id, Quantity: qty, ExpectedRevision: i.Revision, To: Location{Kind: "store", Store: to}})
+		cargo = append(cargo, Cargo{Item: cid, Quantity: qty})
+		remaining -= qty
+	}
+	if len(moves) == 0 {
+		return nil, nil
+	}
+	next := s.Clone()
+	if _, err := next.commerceApply(m, Transaction{Actor: owner, Sequence: seq, RequestTag: tag, Moves: moves}); err != nil {
+		return nil, err
+	}
+	*s = next
+	return cargo, nil
+}

@@ -298,3 +298,34 @@ func TestMobileShopfrontOpensAtAnyStopAndOnlyThere(t *testing.T) {
 		t.Fatal("a mobile shop with a world-anchored tray was accepted")
 	}
 }
+
+func TestMachineConsignmentMovesSameFiniteItemsAndRejectsForeignStore(t *testing.T) {
+	m, s := commerceFixture(t)
+	before := countStore(s, "source")
+	cargo, err := s.MoveMachineConsignment(m, "merchant", "source", "reserve", "goods", 3, "deck/run1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cargo) == 0 || countStore(s, "source") != before-3 || countStore(s, "reserve") != 3 {
+		t.Fatal("machine minted or lost finite stock")
+	}
+	total := int64(0)
+	for _, c := range cargo {
+		i := s.Items[c.Item]
+		if i.Quantity != c.Quantity || i.Location != (Location{Kind: "store", Store: "reserve"}) {
+			t.Fatal("manifest differs from actual moved IDs")
+		}
+		total += c.Quantity
+	}
+	if total != 3 {
+		t.Fatal("incorrect consignment")
+	}
+	snapshot := s.Clone()
+	m.Stores["reserve"] = Store{ID: "reserve", Owner: "foreign", Anchor: Anchor{Kind: "world", Level: "market", At: Cell{5, 5}}}
+	if _, err = s.MoveMachineConsignment(m, "merchant", "source", "reserve", "goods", 3, "deck/run2"); err == nil {
+		t.Fatal("foreign store accepted")
+	}
+	if !reflect.DeepEqual(snapshot, s) {
+		t.Fatal("failed machine handoff mutated inventory")
+	}
+}
