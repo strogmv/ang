@@ -156,7 +156,7 @@ func TestIlluminationActualCatalogKeepsEngineeringAndCommerceIdentities(t *testi
 	for _, id := range additionalBlocked {
 		t.Log("source inside authored static/gate box:", id)
 	}
-	for id, shop := range map[string]string{"src.lum.pl.C1-n2-3": "tenant11", "src.lum.pl.G1": "tenant33"} {
+	for id, shop := range map[string]string{"src.lum.pl.C1-n2-3": "tenant11", "src.lum.pl.G1": "tenant12"} {
 		e := illuminationFind(t, c, id)
 		if !reflect.DeepEqual(e.StorefrontIDs, []string{shop}) {
 			t.Fatal("place ID was not joined to the existing shop", id, e.StorefrontIDs)

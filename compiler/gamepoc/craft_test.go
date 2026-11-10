@@ -69,3 +69,95 @@ func TestCraftKitsAgainstThePassport(t *testing.T) {
 		}
 	}
 }
+
+// heapFixture: the craft fixture with a deck level, a front deck and one heap slot of the produce kit; the stall's display
+// stocks the slot's item and a locked consignment of the trader holds more of it.
+func heapFixture() Compiled {
+	c := craftFixture()
+	g := c.Craft
+	g.Passport.Levels = append(g.Passport.Levels, CraftLevel{ID: "deck", ZMM: 1090, ZMaxMM: 1090, DMM: [2]int{30, 490}, HeightMM: 620})
+	g.Models = map[string]CraftModel{
+		"market.goods.container.tray":          {Kind: "container", Scene: "res://kit/market-goods/market.goods.container.tray.tscn", SizeMM: [3]int{620, 460, 60}, Triangles: 100},
+		"market.goods.container.tray.red":      {Kind: "container", Scene: "res://kit/market-goods/market.goods.container.tray.red.tscn", SizeMM: [3]int{620, 460, 60}, Triangles: 100},
+		"market.goods.container.crate":         {Kind: "container", Scene: "res://kit/market-goods/market.goods.container.crate.tscn", SizeMM: [3]int{312, 412, 260}, Triangles: 100},
+		"market.goods.heap.apple.pyramid.full": {Kind: "heap", Scene: "res://kit/market-goods/a.full.tscn", SizeMM: [3]int{560, 420, 530}, Triangles: 5000, Produce: "apple", Fill: "full", Container: "market.goods.container.tray"},
+		"market.goods.heap.apple.pyramid.half": {Kind: "heap", Scene: "res://kit/market-goods/a.half.tscn", SizeMM: [3]int{540, 400, 400}, Triangles: 3000, Produce: "apple", Fill: "half", Container: "market.goods.container.tray"},
+		"market.goods.heap.apple.pyramid.few":  {Kind: "heap", Scene: "res://kit/market-goods/a.few.tscn", SizeMM: [3]int{300, 300, 120}, Triangles: 600, Produce: "apple", Fill: "few", Container: "market.goods.container.tray"},
+		"market.goods.heap.plum.crate.half":    {Kind: "heap", Scene: "res://kit/market-goods/p.half.tscn", SizeMM: [3]int{300, 300, 200}, Triangles: 600, Produce: "plum", Fill: "half", Container: "market.goods.container.tray"},
+	}
+	s := &g.Stalls[0]
+	s.Rows, s.Devices, s.Lights, s.Effects = nil, nil, nil, nil
+	s.Fixtures = []CraftFixture{{ID: "deck.w", Kind: "front_deck", Mount: "front", XMM: [2]int{40, 1480}, DMM: [2]int{30, 300}, ZMM: [2]int{950, 1090}}}
+	h := CraftHeap{ID: "fruit", Item: "item.fruit", Mount: "deck", Tare: "market.goods.container.tray", XMM: 400, DMM: 260, ZMM: 1090, Full: 4}
+	h.Heaps.Full, h.Heaps.Half, h.Heaps.Few = "market.goods.heap.apple.pyramid.full", "market.goods.heap.apple.pyramid.half", "market.goods.heap.apple.pyramid.few"
+	s.Heaps = []CraftHeap{h}
+	s.Supply = &CraftSupply{Store: "shop/consignment", Days: 30, WindowMinutes: 60}
+	g.Counters = []CraftCounter{{Place: "C1-s0-1", Island: "island.C1", Shop: "shop", Side: "south", Units: []int{0, 1}, PackAway: true}}
+	c.Inventory.Shopfronts = []inv.Shopfront{{ID: "shop", Owner: "char.t", DisplayStore: "shop/display", ReserveStore: "shop/reserve", PackAway: true}}
+	c.Inventory.Definitions = map[string]inv.Definition{"item.fruit": {}}
+	c.Inventory.Stores = map[string]inv.Store{"shop/consignment": {ID: "shop/consignment", Owner: "char.t", Locked: true}}
+	c.Inventory.Sources = []inv.Source{
+		{ID: "a", Definition: "item.fruit", Quantity: 4, Location: inv.Location{Kind: "store", Store: "shop/display"}},
+		{ID: "b", Definition: "item.fruit", Quantity: 120, Location: inv.Location{Kind: "store", Store: "shop/consignment"}},
+	}
+	return c
+}
+
+func TestCraftHeapSlotsAgainstTheKitAndTheStall(t *testing.T) {
+	if err := validateCraft(heapFixture()); err != nil {
+		t.Fatalf("valid heap stall rejected: %v", err)
+	}
+	second := func(c *Compiled, x int) {
+		h := c.Craft.Stalls[0].Heaps[0]
+		h.ID, h.XMM = "more", x
+		c.Craft.Stalls[0].Heaps = append(c.Craft.Stalls[0].Heaps, h)
+	}
+	cases := []struct {
+		name, want string
+		edit       func(c *Compiled)
+	}{
+		{"tare not in the kit", "not a tare of the produce kit", func(c *Compiled) { c.Craft.Stalls[0].Heaps[0].Tare = "market.goods.container.bucket" }},
+		{"heap not in the kit", "not a full heap of the produce kit", func(c *Compiled) { c.Craft.Stalls[0].Heaps[0].Heaps.Full = "market.goods.heap.pear" }},
+		{"wrong level of a heap", "not a few heap of the produce kit", func(c *Compiled) { c.Craft.Stalls[0].Heaps[0].Heaps.Few = "market.goods.heap.apple.pyramid.half" }},
+		{"heap of another tare", "the slot's tare is", func(c *Compiled) { c.Craft.Stalls[0].Heaps[0].Tare = "market.goods.container.crate" }},
+		{"two kinds in one slot", "mixes apple and plum", func(c *Compiled) { c.Craft.Stalls[0].Heaps[0].Heaps.Half = "market.goods.heap.plum.crate.half" }},
+		{"off the level height", "level deck is at", func(c *Compiled) { c.Craft.Stalls[0].Heaps[0].ZMM = 950 }},
+		{"outside the stall's units", "outside the stall's units", func(c *Compiled) { c.Craft.Stalls[0].Heaps[0].XMM = 2900 }},
+		{"too deep for the level", "mm deep at depth", func(c *Compiled) { c.Craft.Stalls[0].Heaps[0].DMM = 300 }},
+		{"no deck under the slot", "without a front deck", func(c *Compiled) { c.Craft.Stalls[0].Heaps[0].XMM = 2000 }},
+		{"slots overlap", "overlap", func(c *Compiled) { second(c, 700) }},
+		{"item not on the display", "does not stock", func(c *Compiled) { c.Inventory.Sources = c.Inventory.Sources[1:] }},
+		{"consignment not locked", "not a locked store", func(c *Compiled) {
+			st := c.Inventory.Stores["shop/consignment"]
+			st.Locked = false
+			c.Inventory.Stores["shop/consignment"] = st
+		}},
+		{"consignment without the item", "holds no item.fruit", func(c *Compiled) { c.Inventory.Sources = c.Inventory.Sources[:1] }},
+		{"supply without slots", "a supply without heap slots", func(c *Compiled) { c.Craft.Stalls[0].Heaps = nil }},
+		{"counter units not adjacent", "not adjacent units", func(c *Compiled) { c.Craft.Counters[0].Units = []int{0, 2} }},
+		{"counter unit taken twice", "also belongs to", func(c *Compiled) {
+			c.Craft.Counters = append(c.Craft.Counters, CraftCounter{Place: "C1-s1", Island: "island.C1", Side: "south", Units: []int{1}})
+		}},
+		{"counter of an unknown shop", "is not a shopfront", func(c *Compiled) { c.Craft.Counters[0].Shop = "other" }},
+	}
+	for _, tc := range cases {
+		c := heapFixture()
+		tc.edit(&c)
+		err := validateCraft(c)
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("%s: want an error with %q, got %v", tc.name, tc.want, err)
+		}
+	}
+	// a colour variant of the heap's tare is the same tare; two decks carry a tray across their joint
+	c := heapFixture()
+	c.Craft.Stalls[0].Heaps[0].Tare = "market.goods.container.tray.red"
+	c.Craft.Stalls[0].Fixtures = append(c.Craft.Stalls[0].Fixtures, CraftFixture{ID: "deck.e", Kind: "front_deck", Mount: "front", XMM: [2]int{1520, 2960}, DMM: [2]int{30, 300}, ZMM: [2]int{950, 1090}})
+	second(&c, 1500)
+	if err := validateCraft(c); err != nil {
+		t.Fatalf("tray across the joint of two decks rejected: %v", err)
+	}
+	rect := clientCraftCounters(c.Craft)[0]
+	if got := rect["rect_m"].([]float64); got[0] != 0 || got[1] != 1.75 || got[2] != 3 || got[3] != 3.5 || rect["goods_prefixes"].([]string)[1] != "C1-s1_" {
+		t.Fatalf("counter rectangle and prefixes: %v", rect)
+	}
+}

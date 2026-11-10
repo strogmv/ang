@@ -9,8 +9,10 @@ package poc
 import (
 	"hash/fnv"
 	"math"
+	"sort"
 
 	behavior "angelsdemons/server/internal/behavior"
+	inv "angelsdemons/server/internal/inventory"
 	pb "angelsdemons/server/internal/transport/grpc/pb/game/v1"
 )
 
@@ -28,6 +30,37 @@ type craftStallDef struct {
 	BrainPlace string           `json:"brain_place"`
 	Seller     []craftActionDef `json:"seller"`
 	Buyer      []craftActionDef `json:"buyer"`
+	// market goods v2: the produce heap slots of an open stall, the island nodes they replace, the morning supply
+	Face     string         `json:"face"`
+	XMM      [2]int64       `json:"x_mm"`
+	Heaps    []craftHeapDef `json:"heaps"`
+	Replaces []string       `json:"replaces"`
+	Supply   *struct {
+		Store         string `json:"store"`
+		WindowMinutes int64  `json:"window_minutes"`
+	} `json:"supply,omitempty"`
+}
+type craftHeapDef struct {
+	ID    string `json:"id"`
+	Item  string `json:"item"`
+	Tare  string `json:"tare"`
+	Heaps struct {
+		Full string `json:"full"`
+		Half string `json:"half"`
+		Few  string `json:"few"`
+	} `json:"heaps"`
+	XMM  int64 `json:"x_mm"`
+	DMM  int64 `json:"d_mm"`
+	ZMM  int64 `json:"z_mm"`
+	Full int64 `json:"full"`
+}
+type craftCounterDef struct {
+	Place  string `json:"place"`
+	Island string `json:"island"`
+	At     struct {
+		X int64 `json:"x"`
+		Y int64 `json:"y"`
+	} `json:"at"`
 }
 type craftKitDef struct {
 	ID      string `json:"id"`
@@ -46,6 +79,147 @@ type craftCatalog struct {
 	// demo-hub v26-alive: what a seller does in the closing and opening phases of his place
 	ClosingActions []craftActionDef `json:"closing_actions"`
 	OpeningActions []craftActionDef `json:"opening_actions"`
+	Passport       struct {
+		SizeMM struct {
+			D int64 `json:"d"`
+		} `json:"size_mm"`
+	} `json:"passport"`
+	Models map[string]struct {
+		Scene string `json:"scene"`
+	} `json:"models"`
+	Counters []craftCounterDef `json:"counters"`
+}
+
+// craftHeapLevel: what a heap slot shows for q units left of a full stock: more than two thirds is full, more than a
+// third is half, anything is few, nothing is the empty tare.
+func craftHeapLevel(q, full int64) string {
+	switch {
+	case q <= 0:
+		return "empty"
+	case 3*q > 2*full:
+		return "full"
+	case 3*q > full:
+		return "half"
+	}
+	return "few"
+}
+
+// craftHeapPacked: the slots of a stall are packed away one by one in the closing phase from its east end and laid out
+// one by one in the opening phase from its west end (i of n slots, west to east; ppm of the phase).
+func craftHeapPacked(phase string, ppm int64, i, n int) bool {
+	switch phase {
+	case "open":
+		return false
+	case "closing":
+		return ppm*int64(n+1) >= int64(n-i)*1000000
+	case "opening":
+		return ppm*int64(n+1) < int64(i+1)*1000000
+	}
+	return true
+}
+
+func (r *Runtime) craftStock(store, definition string) int64 {
+	var n int64
+	for _, i := range r.state.Inventory.Items {
+		if i.Location.Kind == "store" && i.Location.Store == store && i.Definition == definition && !i.Hidden {
+			n += i.Quantity
+		}
+	}
+	return n
+}
+
+// craftHeaps: the heap slots of a stall for the view — the pose from the island and the stall frame, the fill from the
+// real stock of the slot's item in the stall's display store. A shut stall has every slot packed.
+func (r *Runtime) craftHeaps(s craftStallDef, display, phase string, ppm int64) []*pb.PocCraftHeap {
+	g := r.world.Craft
+	var island *craftCounterDef
+	for i := range g.Counters {
+		if g.Counters[i].Place == s.Place {
+			island = &g.Counters[i]
+		}
+	}
+	if island == nil || len(s.Heaps) == 0 {
+		return nil
+	}
+	out := make([]*pb.PocCraftHeap, 0, len(s.Heaps))
+	for i, h := range s.Heaps {
+		row := &pb.PocCraftHeap{Id: h.ID, Fill: "packed", X: float64(island.At.X)*0.5 + float64(s.XMM[0]+h.XMM)/1000, Z: float64(h.ZMM) / 1000}
+		if s.Face == "south" {
+			row.Y = float64(island.At.Y)*0.5 + float64(g.Passport.SizeMM.D-h.DMM)/1000
+		} else {
+			row.Y, row.YawDegrees = float64(island.At.Y)*0.5+float64(h.DMM)/1000, 180
+		}
+		if !craftHeapPacked(phase, ppm, i, len(s.Heaps)) {
+			row.Fill = craftHeapLevel(r.craftStock(display, h.Item), h.Full)
+			row.TareResource = g.Models[h.Tare].Scene
+			switch row.Fill {
+			case "full":
+				row.HeapResource = g.Models[h.Heaps.Full].Scene
+			case "half":
+				row.HeapResource = g.Models[h.Heaps.Half].Scene
+			case "few":
+				row.HeapResource = g.Models[h.Heaps.Few].Scene
+			}
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
+// advanceCraftSupply: while the owner of a supplied stall lays out (the supply window at the start of his hours, the
+// stall open), every heap slot is topped up to its full stock from the stall's locked consignment (the farm's cull on a
+// waybill). Goods only move: the consignment is finite, and a slot it cannot fill stays as it is.
+func (r *Runtime) advanceCraftSupply() error {
+	g := r.world.Craft
+	if len(g.Stalls) == 0 || !r.state.Life.Enabled {
+		return nil
+	}
+	day := ((r.state.Life.Seconds % 86400) + 86400) % 86400
+	for _, s := range g.Stalls {
+		if s.Supply == nil || len(s.Heaps) == 0 {
+			continue
+		}
+		var front *inv.Shopfront
+		for i := range r.world.Inventory.Shopfronts {
+			if r.world.Inventory.Shopfronts[i].ID == s.Shop {
+				front = &r.world.Inventory.Shopfronts[i]
+			}
+		}
+		if front == nil || day < front.OpenSecond || day >= front.OpenSecond+s.Supply.WindowMinutes*60 || !r.storefrontOpen(s.Shop) {
+			continue
+		}
+		ids := make([]string, 0)
+		for id, i := range r.state.Inventory.Items {
+			if i.Location.Kind == "store" && i.Location.Store == s.Supply.Store && i.Owner == front.Owner {
+				ids = append(ids, id)
+			}
+		}
+		sort.Strings(ids)
+		var moves []inv.Move
+		for _, h := range s.Heaps {
+			need := h.Full - r.craftStock(front.DisplayStore, h.Item) - r.craftStock(front.ReserveStore, h.Item)
+			for _, id := range ids {
+				if need <= 0 {
+					break
+				}
+				i := r.state.Inventory.Items[id]
+				if i.Definition != h.Item {
+					continue
+				}
+				q := min(i.Quantity, need)
+				moves = append(moves, inv.Move{Item: id, Quantity: q, ExpectedRevision: i.Revision, To: inv.Location{Kind: "store", Store: front.DisplayStore}})
+				need -= q
+			}
+		}
+		if len(moves) == 0 {
+			continue
+		}
+		tx := inv.Transaction{Actor: front.Owner, Sequence: r.state.Inventory.Cursors[front.Owner].Sequence + 1, RequestTag: "craft/supply/" + s.Place, Moves: moves}
+		if _, err := r.vendingApplyUnlocked(r.inventoryModelFor(true), tx, s.Supply.Store); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func craftHash(s string) uint32 { h := fnv.New32a(); _, _ = h.Write([]byte(s)); return h.Sum32() }
@@ -132,10 +306,10 @@ func (r *Runtime) appendCraft(view *pb.PocLifeView, hero *behavior.LifeActor, pe
 	for _, s := range g.Stalls {
 		var openS, closeS int64
 		var service behavior.Cell
-		found := false
+		display, found := "", false
 		for _, sh := range r.world.Inventory.Shopfronts {
 			if sh.ID == s.Shop {
-				openS, closeS, service, found = sh.OpenSecond, sh.CloseSecond, behavior.Cell{X: sh.Service.At.X, Y: sh.Service.At.Y}, true
+				openS, closeS, service, display, found = sh.OpenSecond, sh.CloseSecond, behavior.Cell{X: sh.Service.At.X, Y: sh.Service.At.Y}, sh.DisplayStore, true
 				break
 			}
 		}
@@ -158,6 +332,10 @@ func (r *Runtime) appendCraft(view *pb.PocLifeView, hero *behavior.LifeActor, pe
 			default:
 				out.Phase = "open"
 			}
+		}
+		out.Heaps = r.craftHeaps(s, display, out.Phase, int64(out.PhasePpm))
+		for _, name := range s.Replaces {
+			out.ReplacedNodes = append(out.ReplacedNodes, "island."+s.Island+":"+name)
 		}
 		if kit.Charge != nil && kit.Charge.FullHours > 0 {
 			t := day

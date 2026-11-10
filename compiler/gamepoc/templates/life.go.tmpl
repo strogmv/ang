@@ -132,6 +132,9 @@ func (r *Runtime) advanceLifeFrameBy(delta int64) error {
 	if err := r.advanceVending(); err != nil {
 		return err
 	}
+	if err := r.advanceCraftSupply(); err != nil {
+		return err
+	}
 	if err := r.advancePeddlers(); err != nil {
 		return err
 	}

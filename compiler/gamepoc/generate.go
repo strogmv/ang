@@ -1223,6 +1223,7 @@ func generatePOC(project string, legacyUnity bool) error {
 		"conversation.cs.tmpl":                  filepath.Join(unity, "Assets/Generated/Poc/PocConversation.cs"),
 		"peddlers.cs.tmpl":                      filepath.Join(unity, "Assets/Generated/Poc/PocPeddlers.cs"),
 		"craft.go.tmpl":                         filepath.Join(project, "internal/poc/craft.gen.go"),
+		"craft_heaps_test.go.tmpl":              filepath.Join(project, "internal/poc/craft_heaps_generated_test.go"),
 		"craft.cs.tmpl":                         filepath.Join(unity, "Assets/Generated/Poc/PocCraft.cs"),
 		"soundscape.go.tmpl":                    filepath.Join(project, "internal/poc/soundscape.gen.go"),
 		"soundscape_test.go.tmpl":               filepath.Join(project, "internal/poc/soundscape_generated_test.go"),

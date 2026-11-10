@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"strings"
 
 	"cuelang.org/go/cue"
+
+	inv "github.com/strogmv/ang/compiler/inventory/runtime"
 )
 
 // Craft places of the hub islands (demo-hub v16-goods, world.market_goods): a craft kit puts rows of goods, fixtures,
@@ -135,6 +138,50 @@ type CraftKit struct {
 		StartPPM  int64   `json:"start_ppm"`
 	} `json:"charge,omitempty"`
 }
+
+// Market goods v2 (phase 3): a model of the produce kit, a heap slot of an open stall, the morning supply of a stall and
+// the counter of an island place (its units own the shut covers and the goods blocks of the island model).
+type CraftModel struct {
+	Kind      string `json:"kind"`
+	Scene     string `json:"scene"`
+	SizeMM    [3]int `json:"size_mm"`
+	Triangles int    `json:"triangles"`
+	Produce   string `json:"produce,omitempty"`
+	Fill      string `json:"fill,omitempty"`
+	Container string `json:"container,omitempty"`
+}
+type CraftHeap struct {
+	ID    string `json:"id"`
+	Item  string `json:"item"`
+	Mount string `json:"mount"`
+	Tare  string `json:"tare"`
+	Heaps struct {
+		Full string `json:"full"`
+		Half string `json:"half"`
+		Few  string `json:"few"`
+	} `json:"heaps"`
+	XMM  int   `json:"x_mm"`
+	DMM  int   `json:"d_mm"`
+	ZMM  int   `json:"z_mm"`
+	Full int64 `json:"full"`
+}
+type CraftSupply struct {
+	Store         string `json:"store"`
+	Days          int64  `json:"days"`
+	WindowMinutes int64  `json:"window_minutes"`
+}
+type CraftCounter struct {
+	Place  string `json:"place"`
+	Island string `json:"island"`
+	Shop   string `json:"shop"`
+	At     struct {
+		X int `json:"x"`
+		Y int `json:"y"`
+	} `json:"at"`
+	Side     string `json:"side"`
+	Units    []int  `json:"units"`
+	PackAway bool   `json:"pack_away"`
+}
 type CraftStall struct {
 	Place      string         `json:"place"`
 	Island     string         `json:"island"`
@@ -156,8 +203,11 @@ type CraftStall struct {
 		Item string `json:"item"`
 		RU   string `json:"ru"`
 	} `json:"beacon"`
-	Seller []CraftAction `json:"seller"`
-	Buyer  []CraftAction `json:"buyer"`
+	Seller   []CraftAction `json:"seller"`
+	Buyer    []CraftAction `json:"buyer"`
+	Heaps    []CraftHeap   `json:"heaps"`
+	Replaces []string      `json:"replaces"`
+	Supply   *CraftSupply  `json:"supply,omitempty"`
 }
 type CraftCatalog struct {
 	Level     string        `json:"level"`
@@ -168,6 +218,9 @@ type CraftCatalog struct {
 	// demo-hub v26-alive: what a seller does in the closing and opening phases of his place (market_hub/closing.cue)
 	ClosingActions []CraftAction `json:"closing_actions,omitempty"`
 	OpeningActions []CraftAction `json:"opening_actions,omitempty"`
+	// market goods v2: the produce kit models and the counters of the island places
+	Models   map[string]CraftModel `json:"models,omitempty"`
+	Counters []CraftCounter        `json:"counters,omitempty"`
 }
 
 func readCraft(world cue.Value) (*CraftCatalog, error) {
@@ -196,7 +249,10 @@ func readCraft(world cue.Value) (*CraftCatalog, error) {
 //   - wired (doc 57): every consumer (watts > 0) has a cable from its body (first point within 0.25 m) to the island bus
 //     (last point inside a bus band); a light belongs to a fixture or device of the same stall;
 //   - inscriptions: only world-text slots of the island instance, by id;
-//   - people and places: the trader owns the shopfront, the buyers' brain place exists, the actions' props are known.
+//   - people and places: the trader owns the shopfront, the buyers' brain place exists, the actions' props are known;
+//   - heap slots (market goods v2): the tare and the three heaps are models of the kit and the heaps lie in that tare; the
+//     slot stands on its level inside the stall's units, on a front deck when the level is the deck, and no two slots
+//     overlap; the stall's display holds the item; a supplied stall has its locked consignment with every slot's item.
 func validateCraft(c Compiled) error {
 	g := c.Craft
 	if g == nil {
@@ -427,8 +483,172 @@ func validateCraft(c Compiled) error {
 		if len(s.Seller) == 0 {
 			return fmt.Errorf("market_goods %s: the seller does nothing", where)
 		}
+		if err := validateCraftHeaps(c, s, levels, place); err != nil {
+			return err
+		}
+	}
+	return validateCraftCounters(c, instances)
+}
+
+// validateCraftHeaps: the heap slots of one stall (see validateCraft).
+func validateCraftHeaps(c Compiled, s CraftStall, levels map[string]CraftLevel, place func(where, id, mount string, x0, x1, d, z0, z1 int, x [2]int, hang bool) error) error {
+	g, where := c.Craft, s.Place
+	if len(s.Heaps) == 0 {
+		if s.Supply != nil {
+			return fmt.Errorf("market_goods %s: a supply without heap slots", where)
+		}
+		return nil
+	}
+	var front *inv.Shopfront
+	for i := range c.Inventory.Shopfronts {
+		if c.Inventory.Shopfronts[i].ID == s.Shop {
+			front = &c.Inventory.Shopfronts[i]
+		}
+	}
+	if front == nil {
+		return fmt.Errorf("market_goods %s: heap slots need the shopfront %s", where, s.Shop)
+	}
+	stocked := map[string]map[string]bool{}
+	for _, src := range c.Inventory.Sources {
+		if src.Location.Kind == "store" {
+			if stocked[src.Location.Store] == nil {
+				stocked[src.Location.Store] = map[string]bool{}
+			}
+			stocked[src.Location.Store][src.Definition] = true
+		}
+	}
+	if s.Supply != nil {
+		st, ok := c.Inventory.Stores[s.Supply.Store]
+		if !ok || !st.Locked || st.Owner != s.Trader || s.Supply.Days < 1 {
+			return fmt.Errorf("market_goods %s: the consignment %s is not a locked store of %s", where, s.Supply.Store, s.Trader)
+		}
+	}
+	type span struct {
+		id     string
+		x0, x1 int
+	}
+	var spans []span
+	for _, h := range s.Heaps {
+		l, ok := levels[h.Mount]
+		if !ok || l.Hang {
+			return fmt.Errorf("market_goods %s: heap %s on level %q, not a standing level of the passport", where, h.ID, h.Mount)
+		}
+		if h.ZMM != l.ZMM {
+			return fmt.Errorf("market_goods %s: heap %s at z %d, level %s is at %d", where, h.ID, h.ZMM, h.Mount, l.ZMM)
+		}
+		tare, ok := g.Models[h.Tare]
+		if !ok || tare.Kind != "container" {
+			return fmt.Errorf("market_goods %s: heap %s stands in %q, not a tare of the produce kit", where, h.ID, h.Tare)
+		}
+		w, depth, height, produce := tare.SizeMM[0], tare.SizeMM[1], tare.SizeMM[2], ""
+		for _, level := range [][2]string{{"full", h.Heaps.Full}, {"half", h.Heaps.Half}, {"few", h.Heaps.Few}} {
+			m, ok := g.Models[level[1]]
+			if !ok || m.Kind != "heap" || m.Fill != level[0] {
+				return fmt.Errorf("market_goods %s: heap %s level %s is %q, not a %s heap of the produce kit", where, h.ID, level[0], level[1], level[0])
+			}
+			if h.Tare != m.Container && !strings.HasPrefix(h.Tare, m.Container+".") {
+				return fmt.Errorf("market_goods %s: heap %s: %s lies in %s, the slot's tare is %s", where, h.ID, level[1], m.Container, h.Tare)
+			}
+			if produce != "" && m.Produce != produce {
+				return fmt.Errorf("market_goods %s: heap %s mixes %s and %s", where, h.ID, produce, m.Produce)
+			}
+			produce = m.Produce
+			w, depth, height = max(w, m.SizeMM[0]), max(depth, m.SizeMM[1]), max(height, m.SizeMM[2])
+		}
+		x0, x1 := s.XMM[0]+h.XMM-(w+1)/2, s.XMM[0]+h.XMM+(w+1)/2
+		if err := place(where, "heap "+h.ID, h.Mount, x0, x1, h.DMM, h.ZMM, h.ZMM+height, s.XMM, false); err != nil {
+			return err
+		}
+		if h.DMM-(depth+1)/2 < l.DMM[0] || h.DMM+(depth+1)/2 > l.DMM[1] {
+			return fmt.Errorf("market_goods %s: heap %s is %d mm deep at depth %d, level %s holds %v", where, h.ID, depth, h.DMM, h.Mount, l.DMM)
+		}
+		if h.Mount == "deck" {
+			// the decks of adjacent units carry a tray together: at most 60 mm of its length (the joint) is unsupported
+			carried := 0
+			for _, f := range s.Fixtures {
+				if f.Kind == "front_deck" && f.ZMM[1] == l.ZMM {
+					carried += max(0, min(x1, s.XMM[0]+f.XMM[1])-max(x0, s.XMM[0]+f.XMM[0]))
+				}
+			}
+			if carried < x1-x0-60 {
+				return fmt.Errorf("market_goods %s: heap %s stands on the deck level without a front deck under it", where, h.ID)
+			}
+		}
+		for _, o := range spans {
+			if x0 < o.x1 && o.x0 < x1 {
+				return fmt.Errorf("market_goods %s: heaps %s and %s overlap", where, o.id, h.ID)
+			}
+		}
+		spans = append(spans, span{h.ID, x0, x1})
+		if _, ok := c.Inventory.Definitions[h.Item]; !ok || !stocked[front.DisplayStore][h.Item] {
+			return fmt.Errorf("market_goods %s: heap %s shows %s, which the stall's display does not stock", where, h.ID, h.Item)
+		}
+		if h.Full < 1 {
+			return fmt.Errorf("market_goods %s: heap %s has no full stock", where, h.ID)
+		}
+		if s.Supply != nil && !stocked[s.Supply.Store][h.Item] {
+			return fmt.Errorf("market_goods %s: the consignment %s holds no %s for heap %s", where, s.Supply.Store, h.Item, h.ID)
+		}
+	}
+	for _, name := range s.Replaces {
+		if name == "" || strings.Contains(name, ":") {
+			return fmt.Errorf("market_goods %s: replaced node %q", where, name)
+		}
 	}
 	return nil
+}
+
+// validateCraftCounters: every counter is 1..4 adjacent units of one side of an island of the level; a counter with a
+// shop names a shopfront; no unit belongs to two counters.
+func validateCraftCounters(c Compiled, instances map[string]bool) error {
+	fronts := map[string]bool{}
+	for _, sh := range c.Inventory.Shopfronts {
+		fronts[sh.ID] = true
+	}
+	taken := map[string]string{}
+	for _, k := range c.Craft.Counters {
+		if len(instances) > 0 && !instances[k.Island] {
+			return fmt.Errorf("market_goods counter %s: %s is not an island module of the level", k.Place, k.Island)
+		}
+		if (k.Side != "north" && k.Side != "south") || len(k.Units) < 1 || len(k.Units) > 4 {
+			return fmt.Errorf("market_goods counter %s: side %q, units %v", k.Place, k.Side, k.Units)
+		}
+		for i, u := range k.Units {
+			if u < 0 || u > 3 || (i > 0 && u != k.Units[i-1]+1) {
+				return fmt.Errorf("market_goods counter %s: units %v are not adjacent units of the island", k.Place, k.Units)
+			}
+			key := fmt.Sprintf("%s/%s/%d", k.Island, k.Side, u)
+			if other, ok := taken[key]; ok {
+				return fmt.Errorf("market_goods counter %s: unit %s also belongs to %s", k.Place, key, other)
+			}
+			taken[key] = k.Place
+		}
+		if k.Shop != "" && !fronts[k.Shop] && len(fronts) > 0 {
+			return fmt.Errorf("market_goods counter %s: %s is not a shopfront", k.Place, k.Shop)
+		}
+	}
+	return nil
+}
+
+// clientCraftCounters: the counters for the client — the plan rectangle of the counter's half of the island (metres) and
+// the name prefixes of its goods blocks in the island model ("<island>-<side letter><unit>_").
+func clientCraftCounters(g *CraftCatalog) []map[string]any {
+	out := []map[string]any{}
+	for _, k := range g.Counters {
+		x, y := float64(k.At.X)*0.5, float64(k.At.Y)*0.5
+		half := float64(g.Passport.SizeMM.D) / 2000
+		rect := []float64{x + float64(k.Units[0])*1.5, y, x + float64(k.Units[len(k.Units)-1]+1)*1.5, y + half}
+		letter := "n"
+		if k.Side == "south" {
+			rect[1], rect[3], letter = y+half, y+2*half, "s"
+		}
+		prefixes := []string{}
+		for _, u := range k.Units {
+			prefixes = append(prefixes, fmt.Sprintf("%s-%s%d_", strings.TrimPrefix(k.Island, "island."), letter, u))
+		}
+		out = append(out, map[string]any{"place": k.Place, "island": k.Island, "shop": k.Shop, "pack_away": k.PackAway, "rect_m": rect, "goods_prefixes": prefixes})
+	}
+	return out
 }
 
 // wiredFixture: a powered fixture's cable starts on the fixture's box (x, d, z bands widened by 0.25 m) and ends on the bus.
@@ -465,5 +685,9 @@ func clientCraft(g *CraftCatalog) map[string]any {
 	for _, k := range g.Kits {
 		kits = append(kits, map[string]any{"id": k.ID, "atlas": k.Atlas, "closure": k.Closure.Mode, "phase_minutes": k.Closure.PhaseMinutes, "charge": k.Charge != nil})
 	}
-	return map[string]any{"level": g.Level, "stalls": stalls, "kits": kits, "hand_props": g.HandProps}
+	view := map[string]any{"level": g.Level, "stalls": stalls, "kits": kits, "hand_props": g.HandProps}
+	if len(g.Counters) > 0 {
+		view["counters"] = clientCraftCounters(g)
+	}
+	return view
 }
