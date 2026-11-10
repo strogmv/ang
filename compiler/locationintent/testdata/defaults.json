@@ -1,0 +1,603 @@
+{
+ "materials": {
+  "caries.damp": {
+   "surface_kind": "deposit",
+   "color": [
+    0.018,
+    0.021,
+    0.017,
+    1
+   ],
+   "roughness": 0.9,
+   "metallic": 0,
+   "provenance": "Concealed physical CUE caries hint film/darkLED, source anchored, no downloaded texture or gameplay."
+  },
+  "caries.dust": {
+   "surface_kind": "deposit",
+   "color": [
+    0.14,
+    0.13,
+    0.11,
+    1
+   ],
+   "roughness": 0.9,
+   "metallic": 0,
+   "provenance": "Concealed physical CUE caries hint film/darkLED, source anchored, no downloaded texture or gameplay."
+  },
+  "caries.failed_led": {
+   "surface_kind": "deposit",
+   "color": [
+    0.006,
+    0.008,
+    0.007,
+    1
+   ],
+   "roughness": 0.9,
+   "metallic": 0,
+   "provenance": "Concealed physical CUE caries hint film/darkLED, source anchored, no downloaded texture or gameplay."
+  },
+  "caries.patina": {
+   "surface_kind": "deposit",
+   "color": [
+    0.08,
+    0.16,
+    0.1,
+    1
+   ],
+   "roughness": 0.9,
+   "metallic": 0,
+   "provenance": "Concealed physical CUE caries hint film/darkLED, source anchored, no downloaded texture or gameplay."
+  },
+  "concrete.bronze": {
+   "surface_kind": "concrete",
+   "surface_caste": "bronze",
+   "concrete": {
+    "tier": "bronze",
+    "albedo": "res://kit/material-repair/274db5e821_concrete_diff.jpg",
+    "normal": "res://kit/material-repair/4cc9907adc_concrete_nor_gl.jpg",
+    "roughness": "res://kit/material-repair/7f966ec7bc_concrete_rough.jpg",
+    "repairs_atlas": "res://kit/svc.hub.svc.repairs_lights_ring_wall_repairs_rgba.png",
+    "texture_scale": 0.25,
+    "stain_color": [
+     0.035,
+     0.032,
+     0.027
+    ],
+    "rust_color": [
+     0.19,
+     0.075,
+     0.03
+    ],
+    "stripe_color": [
+     0.2,
+     0.28,
+     0.32
+    ],
+    "tint": [
+     0.4,
+     0.38,
+     0.34
+    ],
+    "roughness_base": 0.85,
+    "pore_contrast": 0.8,
+    "normal_strength": 1,
+    "water": 0.25,
+    "rust": 0.35,
+    "patches": 1,
+    "soot": 0.35,
+    "protocol_stripe": 0,
+    "damage": 0.3
+   },
+   "provenance": "Designer caste-concrete/v1 proposal08.11: same three existing approved PolyHaven concrete images and existing repair atlas, common4m world UV; all deposits and history masks require actual CUE anchors/geometry/NAV. No free noise or new texture."
+  },
+  "concrete.bronze.approved": {
+   "surface_kind": "concrete",
+   "surface_caste": "bronze",
+   "resource": "res://kit/material-repair/RingWallMass.tres",
+   "provenance": "Approved Corridor7 market Bronze concrete, age0.7/public. Exact original RingWallMass resource and textures; explicit designer-proposal reference exception."
+  },
+  "concrete.copper": {
+   "surface_kind": "concrete",
+   "surface_caste": "copper",
+   "concrete": {
+    "tier": "copper",
+    "albedo": "res://kit/material-repair/274db5e821_concrete_diff.jpg",
+    "normal": "res://kit/material-repair/4cc9907adc_concrete_nor_gl.jpg",
+    "roughness": "res://kit/material-repair/7f966ec7bc_concrete_rough.jpg",
+    "repairs_atlas": "res://kit/svc.hub.svc.repairs_lights_ring_wall_repairs_rgba.png",
+    "texture_scale": 0.25,
+    "stain_color": [
+     0.035,
+     0.032,
+     0.027
+    ],
+    "rust_color": [
+     0.19,
+     0.075,
+     0.03
+    ],
+    "stripe_color": [
+     0.2,
+     0.28,
+     0.32
+    ],
+    "tint": [
+     0.22,
+     0.205,
+     0.185
+    ],
+    "roughness_base": 0.92,
+    "pore_contrast": 1,
+    "normal_strength": 1.2,
+    "water": 0.9,
+    "rust": 0.85,
+    "patches": 1,
+    "soot": 0.6,
+    "protocol_stripe": 0,
+    "damage": 0.7
+   },
+   "provenance": "Designer caste-concrete/v1 proposal08.11: same three existing approved PolyHaven concrete images and existing repair atlas, common4m world UV; all deposits and history masks require actual CUE anchors/geometry/NAV. No free noise or new texture."
+  },
+  "concrete.gold": {
+   "surface_kind": "concrete",
+   "surface_caste": "gold",
+   "concrete": {
+    "tier": "gold",
+    "albedo": "res://kit/material-repair/274db5e821_concrete_diff.jpg",
+    "normal": "res://kit/material-repair/4cc9907adc_concrete_nor_gl.jpg",
+    "roughness": "res://kit/material-repair/7f966ec7bc_concrete_rough.jpg",
+    "repairs_atlas": "res://kit/svc.hub.svc.repairs_lights_ring_wall_repairs_rgba.png",
+    "texture_scale": 0.25,
+    "stain_color": [
+     0.035,
+     0.032,
+     0.027
+    ],
+    "rust_color": [
+     0.19,
+     0.075,
+     0.03
+    ],
+    "stripe_color": [
+     0.2,
+     0.28,
+     0.32
+    ],
+    "tint": [
+     0.64,
+     0.47,
+     0.27
+    ],
+    "resin_color": [
+     0.95,
+     0.62,
+     0.12
+    ],
+    "resin_metallic": 0.25,
+    "roughness_base": 0.18,
+    "pore_contrast": 0.12,
+    "normal_strength": 0.25,
+    "water": 0,
+    "rust": 0,
+    "patches": 1,
+    "soot": 0,
+    "protocol_stripe": 0,
+    "damage": 0.025
+   },
+   "provenance": "Designer caste-concrete/v1 proposal08.11: same three existing approved PolyHaven concrete images and existing repair atlas, common4m world UV; all deposits and history masks require actual CUE anchors/geometry/NAV. No free noise or new texture."
+  },
+  "concrete.silver": {
+   "surface_kind": "concrete",
+   "surface_caste": "silver",
+   "concrete": {
+    "tier": "silver",
+    "albedo": "res://kit/material-repair/274db5e821_concrete_diff.jpg",
+    "normal": "res://kit/material-repair/4cc9907adc_concrete_nor_gl.jpg",
+    "roughness": "res://kit/material-repair/7f966ec7bc_concrete_rough.jpg",
+    "repairs_atlas": "res://kit/svc.hub.svc.repairs_lights_ring_wall_repairs_rgba.png",
+    "texture_scale": 0.25,
+    "stain_color": [
+     0.035,
+     0.032,
+     0.027
+    ],
+    "rust_color": [
+     0.19,
+     0.075,
+     0.03
+    ],
+    "stripe_color": [
+     0.2,
+     0.28,
+     0.32
+    ],
+    "tint": [
+     0.62,
+     0.63,
+     0.64
+    ],
+    "roughness_base": 0.42,
+    "pore_contrast": 0.15,
+    "normal_strength": 0.35,
+    "water": 0,
+    "rust": 0,
+    "patches": 1,
+    "soot": 0,
+    "protocol_stripe": 1,
+    "damage": 0.05
+   },
+   "provenance": "Designer caste-concrete/v1 proposal08.11: same three existing approved PolyHaven concrete images and existing repair atlas, common4m world UV; all deposits and history masks require actual CUE anchors/geometry/NAV. No free noise or new texture."
+  },
+  "market.floor": {
+   "resource": "res://materials/market_floor_art.tres",
+   "provenance": "Утверждённый пол рынка/узла (HubFloor-art), без новой росписи."
+  },
+  "market.steel": {
+   "resource": "res://materials/market_steel.tres",
+   "provenance": "Сталь конструкций рынка."
+  },
+  "greybox.missing": {
+   "color": [
+    0.62,
+    0.18,
+    0.55,
+    1
+   ],
+   "roughness": 0.9,
+   "provenance": "Заглушка недостающего блока: коробка по габариту паспорта, несёт ang_id; заменяется моделью с тем же ID."
+  },
+  "lamp.lens.silver": {
+   "color": [
+    0.9,
+    0.86,
+    0.8,
+    1
+   ],
+   "roughness": 0.4,
+   "emission": [
+    1,
+    0.735,
+    0.545
+   ],
+   "emission_energy": 2.5,
+   "provenance": "Матовый рассеиватель лампы серебра [Р]; светится цветом своей лампы."
+  },
+  "lamp.lens.gold": {
+   "color": [
+    0.9,
+    0.7,
+    0.45,
+    1
+   ],
+   "roughness": 0.35,
+   "emission": [
+    1,
+    0.62,
+    0.38
+   ],
+   "emission_energy": 2.5,
+   "provenance": "Янтарный рассеиватель лампы золота [Р]; светится цветом своей лампы."
+  },
+  "floor.mark": {
+   "color": [
+    0.43,
+    0.27,
+    0.055,
+    1
+   ],
+   "roughness": 0.72,
+   "metallic": 0.05,
+   "provenance": "Потёртая охра напольной разметки узла (MAT_th_worn_ochre_mark), тот же цвет."
+  }
+ },
+ "greybox_role": "greybox.missing",
+ "mark_role": "floor.mark",
+ "lamp_kinds": {
+  "fixture.hall_lamp": {
+   "color": [
+    1,
+    0.44,
+    0.12
+   ],
+   "energy": 0.575,
+   "range_m": 8,
+   "model_ref": "fixture.hall_lamp",
+   "source": "Настенная лампа зала 115 лм из набора узла"
+  },
+  "fixture.silver_lamp": {
+   "color": [
+    1,
+    0.735,
+    0.545
+   ],
+   "energy": 0.8,
+   "range_m": 9,
+   "housing": {
+    "size_m": [
+     0.9,
+     0.16,
+     0.05
+    ],
+    "frame_role": "market.steel",
+    "lens_role": "lamp.lens.silver"
+   },
+   "source": "Ровный свет серебра 4800 К [Р]; корпус заподлицо со стеной: стальная рамка и матовый рассеиватель"
+  },
+  "fixture.gold_lamp": {
+   "color": [
+    1,
+    0.62,
+    0.38
+   ],
+   "energy": 0.9,
+   "range_m": 10,
+   "housing": {
+    "size_m": [
+     0.6,
+     0.24,
+     0.06
+    ],
+    "frame_role": "market.steel",
+    "lens_role": "lamp.lens.gold"
+   },
+   "source": "Тёплый свет золота [Р]; корпус заподлицо со стеной: рамка и янтарный рассеиватель"
+  },
+  "fixture.duty_lamp": {
+   "color": [
+    1,
+    0.388,
+    0.103
+   ],
+   "energy": 0.3,
+   "range_m": 5,
+   "source": "Дежурная лампа 2700 К того же семейства, вполсилы"
+  }
+ },
+ "tiers": {
+  "copper": {
+   "marker_color": "#B48D74",
+   "light_gain": 8,
+   "lamp_range_m": 12,
+   "floor_role": "market.floor",
+   "steel_role": "market.steel",
+   "concrete_role": "concrete.copper",
+   "age": 0.82,
+   "wall_height_m": 3.2,
+   "wall_thickness_m": 0.25,
+   "near_cut_m": 1.2,
+   "lamp_aim_m": 3,
+   "lamp_kind": "fixture.hall_lamp",
+   "lamp_height_m": 2.6,
+   "lamp_step_m": 5,
+   "mode": [
+    1,
+    0.7,
+    0.4
+   ],
+   "duty_mode": [
+    0,
+    0.5,
+    1
+   ],
+   "environment": {
+    "tone_mapper": 4,
+    "ambient_color": [
+     0.19,
+     0.23,
+     0.3
+    ],
+    "ambient_energy": [
+     0.4,
+     0.25,
+     0.12
+    ],
+    "exposure": 1.7411011266,
+    "default_fill": false,
+    "provenance": "Тот же ambient, что у транспортного узла и станции; только отрисовка."
+   }
+  },
+  "bronze": {
+   "marker_color": "#C5AD77",
+   "wall_kit": "panel.v1",
+   "light_gain": 5,
+   "lamp_range_m": 12,
+   "floor_role": "market.floor",
+   "steel_role": "market.steel",
+   "concrete_role": "concrete.bronze",
+   "age": 0.7,
+   "wall_height_m": 3.2,
+   "wall_thickness_m": 0.25,
+   "near_cut_m": 1.2,
+   "lamp_aim_m": 3,
+   "lamp_kind": "fixture.hall_lamp",
+   "lamp_height_m": 2.6,
+   "lamp_step_m": 6,
+   "mode": [
+    1,
+    0.7,
+    0.4
+   ],
+   "duty_mode": [
+    0,
+    0.5,
+    1
+   ],
+   "environment": {
+    "tone_mapper": 4,
+    "ambient_color": [
+     0.19,
+     0.23,
+     0.3
+    ],
+    "ambient_energy": [
+     0.4,
+     0.25,
+     0.12
+    ],
+    "exposure": 1.7411011266,
+    "default_fill": false,
+    "provenance": "Тот же ambient, что у транспортного узла и станции; только отрисовка."
+   }
+  },
+  "silver": {
+   "marker_color": "#AFBCC4",
+   "floor_role": "market.floor",
+   "steel_role": "market.steel",
+   "concrete_role": "concrete.silver",
+   "age": 0.5,
+   "wall_height_m": 3.6,
+   "wall_thickness_m": 0.25,
+   "near_cut_m": 1.2,
+   "caries_strength": 0.18,
+   "enamel": true,
+   "lamp_standoff_m": 2,
+   "lamp_aim_m": 2,
+   "light_gain": 3.2,
+   "lamp_kind": "fixture.silver_lamp",
+   "lamp_height_m": 3.0,
+   "lamp_step_m": 4,
+   "mode": [
+    1,
+    1,
+    0.8
+   ],
+   "duty_mode": [
+    0,
+    0.6,
+    1
+   ],
+   "environment": {
+    "tone_mapper": 4,
+    "ambient_color": [
+     0.19,
+     0.23,
+     0.3
+    ],
+    "ambient_energy": [
+     0.4,
+     0.25,
+     0.12
+    ],
+    "exposure": 1.7411011266,
+    "default_fill": false,
+    "provenance": "Тот же ambient, что у транспортного узла и станции; только отрисовка."
+   }
+  },
+  "gold": {
+   "marker_color": "#D8B25A",
+   "floor_role": "market.floor",
+   "steel_role": "market.steel",
+   "concrete_role": "concrete.gold",
+   "age": 0.3,
+   "wall_height_m": 4.2,
+   "wall_thickness_m": 0.25,
+   "near_cut_m": 1.2,
+   "caries_strength": 0.1,
+   "lamp_standoff_m": 2,
+   "lamp_aim_m": 2,
+   "light_gain": 3.2,
+   "lamp_kind": "fixture.gold_lamp",
+   "lamp_height_m": 3.4,
+   "lamp_step_m": 4,
+   "mode": [
+    1,
+    1,
+    1
+   ],
+   "duty_mode": [
+    0.2,
+    0.8,
+    1
+   ],
+   "environment": {
+    "tone_mapper": 4,
+    "ambient_color": [
+     0.19,
+     0.23,
+     0.3
+    ],
+    "ambient_energy": [
+     0.4,
+     0.25,
+     0.12
+    ],
+    "exposure": 1.7411011266,
+    "default_fill": false,
+    "provenance": "Тот же ambient, что у транспортного узла и станции; только отрисовка."
+   }
+  }
+ },
+ "models": {
+  "fixture.hall_lamp": "res://hub-adapters/fixture.hall_lamp.finish-v1.tscn",
+  "kit.geo.counter": "res://kit/location-builder/kit.geo.counter.workbench.tscn",
+  "wall.panel.200a": "res://kit/location-builder/wall.panel.200a.tscn",
+  "wall.panel.200a.cut": "res://kit/location-builder/wall.panel.200a.cut.tscn",
+  "wall.panel.200a.lamp": "res://kit/location-builder/wall.panel.200a.lamp.tscn",
+  "wall.panel.200b.lamp": "res://kit/location-builder/wall.panel.200b.lamp.tscn",
+  "wall.panel.200b": "res://kit/location-builder/wall.panel.200b.tscn",
+  "wall.panel.200b.cut": "res://kit/location-builder/wall.panel.200b.cut.tscn",
+  "wall.panel.100": "res://kit/location-builder/wall.panel.100.tscn",
+  "wall.panel.100.cut": "res://kit/location-builder/wall.panel.100.cut.tscn",
+  "wall.panel.050": "res://kit/location-builder/wall.panel.050.tscn",
+  "wall.panel.050.cut": "res://kit/location-builder/wall.panel.050.cut.tscn"
+ },
+ "wall_kits": {
+  "panel.v1": {
+   "thickness_m": 0.25,
+   "height_m": 3.2,
+   "cut_height_m": 1.2,
+   "lamp_mount_m": 2.6,
+   "conduit_m": 2.95,
+   "concrete_material": "wall.panel.concrete",
+   "steel_material": "wall.panel.steel",
+   "panels": [
+    {
+     "length_m": 2,
+     "has_mount": true,
+     "full": [
+      "wall.panel.200a",
+      "wall.panel.200b"
+     ],
+     "lamp": [
+      "wall.panel.200a.lamp",
+      "wall.panel.200b.lamp"
+     ],
+     "cut": [
+      "wall.panel.200a.cut",
+      "wall.panel.200b.cut"
+     ]
+    },
+    {
+     "length_m": 1,
+     "full": [
+      "wall.panel.100"
+     ],
+     "cut": [
+      "wall.panel.100.cut"
+     ]
+    },
+    {
+     "length_m": 0.5,
+     "full": [
+      "wall.panel.050"
+     ],
+     "cut": [
+      "wall.panel.050.cut"
+     ]
+    }
+   ],
+   "triangles": {
+    "wall.panel.200a": 1328,
+    "wall.panel.200a.cut": 816,
+    "wall.panel.200a.lamp": 1340,
+    "wall.panel.200b": 1350,
+    "wall.panel.200b.cut": 830,
+    "wall.panel.200b.lamp": 1362,
+    "wall.panel.100": 826,
+    "wall.panel.100.cut": 518,
+    "wall.panel.050": 548,
+    "wall.panel.050.cut": 276
+   }
+  }
+ }
+}

@@ -1,0 +1,484 @@
+{
+ "unit_mm": 500,
+ "default_floor_surface": "surface.panel",
+ "surfaces": [
+  {
+   "id": "surface.panel",
+   "top_image": "LocationSDK/floor_graphite_v1",
+   "side_image": "LocationSDK/floor_graphite_v1",
+   "top_repeat_mm": {
+    "x": 2000,
+    "y": 2000
+   },
+   "side_repeat_mm": {
+    "x": 2000,
+    "y": 2000
+   }
+  },
+  {
+   "id": "surface.wall",
+   "top_image": "LocationSDK/floor_graphite_v1",
+   "side_image": "LocationSDK/wall_frame_v1",
+   "top_repeat_mm": {
+    "x": 2000,
+    "y": 2000
+   },
+   "side_repeat_mm": {
+    "x": 2000,
+    "y": 3000
+   }
+  }
+ ],
+ "geometries": [
+  {
+   "id": "geo.hub.cart_dock",
+   "sight_clear": false,
+   "sight_clear_cells": [
+    {
+     "x": 0,
+     "y": 0
+    },
+    {
+     "x": 1,
+     "y": 0
+    },
+    {
+     "x": 0,
+     "y": 1
+    },
+    {
+     "x": 1,
+     "y": 1
+    },
+    {
+     "x": 0,
+     "y": 2
+    },
+    {
+     "x": 1,
+     "y": 2
+    }
+   ],
+   "width": 2,
+   "depth": 3,
+   "height": 1,
+   "footprint": [
+    {
+     "x": 0,
+     "y": 0
+    },
+    {
+     "x": 1,
+     "y": 0
+    },
+    {
+     "x": 0,
+     "y": 1
+    },
+    {
+     "x": 1,
+     "y": 1
+    },
+    {
+     "x": 0,
+     "y": 2
+    },
+    {
+     "x": 1,
+     "y": 2
+    }
+   ],
+   "blocked": [
+    {
+     "x": 0,
+     "y": 0
+    },
+    {
+     "x": 1,
+     "y": 0
+    },
+    {
+     "x": 0,
+     "y": 1
+    },
+    {
+     "x": 1,
+     "y": 1
+    },
+    {
+     "x": 0,
+     "y": 2
+    },
+    {
+     "x": 1,
+     "y": 2
+    }
+   ],
+   "use_clearance": [
+    {
+     "x": 2,
+     "y": 1
+    },
+    {
+     "x": 3,
+     "y": 1
+    }
+   ],
+   "maintenance_clearance": [],
+   "ports": [
+    {
+     "id": "handle",
+     "kind": "use",
+     "at": {
+      "x": 2,
+      "y": 1
+     },
+     "side": "east",
+     "approach": [
+      {
+       "x": 2,
+       "y": 1
+      },
+      {
+       "x": 3,
+       "y": 1
+      }
+     ]
+    }
+   ],
+   "sockets": []
+  },
+  {
+   "id": "geo.counter",
+   "width": 4,
+   "depth": 2,
+   "height": 2,
+   "footprint": [
+    {
+     "x": 0,
+     "y": 0
+    },
+    {
+     "x": 1,
+     "y": 0
+    },
+    {
+     "x": 2,
+     "y": 0
+    },
+    {
+     "x": 3,
+     "y": 0
+    },
+    {
+     "x": 0,
+     "y": 1
+    },
+    {
+     "x": 1,
+     "y": 1
+    },
+    {
+     "x": 2,
+     "y": 1
+    },
+    {
+     "x": 3,
+     "y": 1
+    }
+   ],
+   "blocked": [
+    {
+     "x": 0,
+     "y": 0
+    },
+    {
+     "x": 1,
+     "y": 0
+    },
+    {
+     "x": 2,
+     "y": 0
+    },
+    {
+     "x": 3,
+     "y": 0
+    },
+    {
+     "x": 0,
+     "y": 1
+    },
+    {
+     "x": 1,
+     "y": 1
+    },
+    {
+     "x": 2,
+     "y": 1
+    },
+    {
+     "x": 3,
+     "y": 1
+    }
+   ],
+   "use_clearance": [
+    {
+     "x": 0,
+     "y": 2
+    },
+    {
+     "x": 1,
+     "y": 2
+    },
+    {
+     "x": 2,
+     "y": 2
+    },
+    {
+     "x": 3,
+     "y": 2
+    },
+    {
+     "x": 0,
+     "y": 3
+    },
+    {
+     "x": 1,
+     "y": 3
+    },
+    {
+     "x": 2,
+     "y": 3
+    },
+    {
+     "x": 3,
+     "y": 3
+    }
+   ],
+   "maintenance_clearance": [
+    {
+     "x": 0,
+     "y": -1
+    },
+    {
+     "x": 1,
+     "y": -1
+    },
+    {
+     "x": 2,
+     "y": -1
+    },
+    {
+     "x": 3,
+     "y": -1
+    }
+   ],
+   "ports": [
+    {
+     "id": "front",
+     "kind": "use",
+     "at": {
+      "x": 1,
+      "y": 2
+     },
+     "side": "south",
+     "approach": [
+      {
+       "x": 0,
+       "y": 2
+      },
+      {
+       "x": 1,
+       "y": 2
+      },
+      {
+       "x": 2,
+       "y": 2
+      },
+      {
+       "x": 3,
+       "y": 2
+      },
+      {
+       "x": 0,
+       "y": 3
+      },
+      {
+       "x": 1,
+       "y": 3
+      },
+      {
+       "x": 2,
+       "y": 3
+      },
+      {
+       "x": 3,
+       "y": 3
+      }
+     ]
+    }
+   ],
+   "sockets": []
+  },
+  {
+   "id": "geo.bench",
+   "width": 4,
+   "depth": 1,
+   "height": 1,
+   "footprint": [
+    {
+     "x": 0,
+     "y": 0
+    },
+    {
+     "x": 1,
+     "y": 0
+    },
+    {
+     "x": 2,
+     "y": 0
+    },
+    {
+     "x": 3,
+     "y": 0
+    }
+   ],
+   "blocked": [
+    {
+     "x": 0,
+     "y": 0
+    },
+    {
+     "x": 1,
+     "y": 0
+    },
+    {
+     "x": 2,
+     "y": 0
+    },
+    {
+     "x": 3,
+     "y": 0
+    }
+   ],
+   "use_clearance": [
+    {
+     "x": 0,
+     "y": 1
+    },
+    {
+     "x": 1,
+     "y": 1
+    },
+    {
+     "x": 2,
+     "y": 1
+    },
+    {
+     "x": 3,
+     "y": 1
+    },
+    {
+     "x": 0,
+     "y": 2
+    },
+    {
+     "x": 1,
+     "y": 2
+    },
+    {
+     "x": 2,
+     "y": 2
+    },
+    {
+     "x": 3,
+     "y": 2
+    }
+   ],
+   "maintenance_clearance": [],
+   "ports": [],
+   "sockets": []
+  }
+ ],
+ "modules": [
+  {
+   "id": "kit.geo.hub.cart_dock",
+   "geometry_id": "geo.hub.cart_dock",
+   "variants": [
+    {
+     "id": "neutral",
+     "geometry_id": "geo.hub.cart_dock",
+     "surface_id": "surface.panel"
+    },
+    {
+     "id": "maintained",
+     "geometry_id": "geo.hub.cart_dock",
+     "surface_id": "surface.panel"
+    }
+   ]
+  },
+  {
+   "id": "kit.geo.counter",
+   "geometry_id": "geo.counter",
+   "variants": [
+    {
+     "id": "neutral",
+     "geometry_id": "geo.counter",
+     "surface_id": "surface.panel"
+    },
+    {
+     "id": "maintained",
+     "geometry_id": "geo.counter",
+     "surface_id": "surface.panel"
+    }
+   ]
+  },
+  {
+   "id": "kit.geo.bench",
+   "geometry_id": "geo.bench",
+   "variants": [
+    {
+     "id": "neutral",
+     "geometry_id": "geo.bench",
+     "surface_id": "surface.panel"
+    },
+    {
+     "id": "maintained",
+     "geometry_id": "geo.bench",
+     "surface_id": "surface.panel"
+    }
+   ]
+  }
+ ],
+ "times": [
+  {
+   "id": "day",
+   "brightness": 1,
+   "activity_tags": [
+    "waking_hours"
+   ]
+  },
+  {
+   "id": "night",
+   "brightness": 0.64,
+   "activity_tags": [
+    "quiet_hours"
+   ]
+  }
+ ],
+ "events": [
+  {
+   "id": "ordinary",
+   "accent_color": "#B49E70",
+   "activity_tags": []
+  },
+  {
+   "id": "holiday",
+   "accent_color": "#D6A86C",
+   "activity_tags": [
+    "optional_gathering"
+   ]
+  }
+ ],
+ "decorations": []
+}

@@ -1,0 +1,497 @@
+{
+ "level.c7_copper_dock": {
+  "id": "level.c7_copper_dock",
+  "layout_id": "example.c7_copper_dock",
+  "short": "copper_dock",
+  "life_imports": {
+   "hub": "angelsdemons.local/world/transport_hub_sdk"
+  },
+  "area": "a.copper.dock",
+  "title": {
+   "key": "ui.deck.dock.name"
+  },
+  "setting": "dome_interior",
+  "tier": "copper",
+  "elevation_m": 0,
+  "wall_height_m": 4.5,
+  "unit_mm": 500,
+  "seed": 709,
+  "camera": {
+   "hero_view_height_m": 12
+  },
+  "zones": [
+   {
+    "id": "landing",
+    "rect_m": {
+     "x": 10,
+     "y": 0,
+     "w": 14,
+     "h": 10
+    },
+    "purpose": "Нижняя площадка платформы: рама 14×10 м, дека 12×8 м встаёт заподлицо; груз сходит на юг.",
+    "public": true
+   },
+   {
+    "id": "receiving",
+    "rect_m": {
+     "x": 0,
+     "y": 10,
+     "w": 14,
+     "h": 8
+    },
+    "purpose": "Приёмка: стол манифестов и весы, кассеты ждут проверки бронзы (док. 46).",
+    "public": true
+   },
+   {
+    "id": "yard",
+    "rect_m": {
+     "x": 14,
+     "y": 10,
+     "w": 10,
+     "h": 8
+    },
+    "purpose": "Манёвр тележек между декой, приёмкой и карманом возврата; пол пуст.",
+    "public": true
+   },
+   {
+    "id": "returns",
+    "rect_m": {
+     "x": 24,
+     "y": 10,
+     "w": 8,
+     "h": 8
+    },
+    "purpose": "Карман пустых кассет лавок на следующий рейс вниз.",
+    "public": true
+   },
+   {
+    "id": "aisle",
+    "rect_m": {
+     "x": 0,
+     "y": 18,
+     "w": 32,
+     "h": 4
+    },
+    "purpose": "Людской проход вдоль южной стены к медному кварталу; груз его пересекает только у приёмки.",
+    "public": true
+   }
+  ],
+  "solids": [
+   {
+    "id": "mass.north_west",
+    "rect_m": {
+     "x": 0,
+     "y": 0,
+     "w": 10,
+     "h": 10
+    },
+    "reason": "Глухой массив за приёмкой: кладовая и щит питания дока за служебной дверью, вне игры."
+   },
+   {
+    "id": "mass.north_east",
+    "rect_m": {
+     "x": 24,
+     "y": 0,
+     "w": 8,
+     "h": 10
+    },
+    "reason": "Глухой массив за рамой платформы: привод и ловители деки."
+   }
+  ],
+  "markers": [],
+  "inspections": [],
+  "exits": [
+   {
+    "id": "ward",
+    "to": "level.copper_ward",
+    "edge": "dock_copper_walk",
+    "reverse_edge": "copper_dock_walk",
+    "mode": "walk",
+    "wall": "west",
+    "zone": "aisle",
+    "width_m": 2,
+    "height_m": 2.2,
+    "travel_seconds": 60,
+    "seats": 8,
+    "status": "closed",
+    "closed_reason_key": "error.deck.ward_unbuilt",
+    "reverse_name": {
+     "key": "ui.deck.trip.dock"
+    },
+    "region_link": "walking.dock_copper_ward",
+    "region_node": "hd.copper_ward_b7",
+    "peer": {
+     "exit": "_actOneLevels[\"level.copper_ward\"].exits.copper_service_stair.at",
+     "entry": "_actOneLevels[\"level.copper_ward\"].exits.copper_service_stair.landing"
+    },
+    "name": {
+     "key": "ui.deck.trip.ward"
+    }
+   },
+   {
+    "id": "sump",
+    "to": "level.c7_sump",
+    "edge": "dock_sump_walk",
+    "reverse_edge": "sump_dock_walk",
+    "mode": "walk",
+    "wall": "east",
+    "zone": "aisle",
+    "width_m": 1.5,
+    "height_m": 2.2,
+    "travel_seconds": 30,
+    "seats": 8,
+    "status": "planned"
+   }
+  ],
+  "fixtures": [
+   {
+    "id": "manifest",
+    "kit": "kit.geo.counter",
+    "zone": "receiving",
+    "on": "north",
+    "align": "center",
+    "purpose": "Стол манифестов: номер и вес кассеты сверяют здесь; за медный груз отвечает бронза (док. 46).",
+    "owner": "bronze.dock",
+    "inspection": {
+     "key": "inspect.dock.manifest",
+     "ru": "Стол манифестов. Вес и номер кассеты сверяют здесь, прежде чем пустить её наверх.",
+     "en": "Manifest desk. Cassette weight and number are checked here before anything goes up.",
+     "context": "Осмотр стола приёмки нижнего дока.",
+     "name_ru": "Стол манифестов",
+     "name_en": "Manifest desk"
+    },
+    "marker": {
+     "number": 2,
+     "key": "wayfinding.dock.receiving",
+     "ru": "Приёмка",
+     "en": "Receiving",
+     "context": "Напольный указатель к столу манифестов."
+    }
+   },
+   {
+    "id": "scale",
+    "kit": "kit.geo.dock.scale",
+    "zone": "receiving",
+    "on": "west",
+    "align": "start",
+    "size_m": [
+     2,
+     2,
+     0.3
+    ],
+    "purpose": "Платформенные весы: настоящая масса кассеты с сервера (док. 102, квест 1).",
+    "owner": "bronze.dock"
+   },
+   {
+    "id": "returns.rack",
+    "kit": "kit.geo.hub.cart_dock",
+    "zone": "returns",
+    "on": "east",
+    "align": "center",
+    "purpose": "Причал пустых кассет и тележек на следующий рейс.",
+    "owner": "bronze.dock"
+   },
+   {
+    "id": "bench",
+    "kit": "kit.geo.bench",
+    "zone": "aisle",
+    "on": "south",
+    "align": "center",
+    "align_m": 20,
+    "purpose": "Скамья ожидающих рабочих у прохода; не загораживает ход.",
+    "owner": "unknown"
+   }
+  ],
+  "mechanisms": [
+   {
+    "id": "deck.big.lower",
+    "kind": "lifting_deck",
+    "zone": "landing",
+    "rect_m": {
+     "x": 11,
+     "y": 1,
+     "w": 12,
+     "h": 8
+    },
+    "edges": {
+     "out": "copper_hub_deck",
+     "in": "hub_copper_deck",
+     "to": "level.c7_transport_hub",
+     "travel_seconds": 250,
+     "seats": 32,
+     "name": {
+      "key": "ui.deck.trip.up"
+     },
+     "in_name": {
+      "key": "ui.deck.trip.down"
+     },
+     "region_link": "lift.hub_copper_dock",
+     "region_node": "hd.transport_hub",
+     "peer": {
+      "exit": "hub.catalog.anchors.copper_deck_center",
+      "entry": "hub.catalog.anchors.copper_gate"
+     }
+    },
+    "params": {
+     "kit": "transport.platform.big",
+     "role": "lower_landing",
+     "pair": "th.copper.platform",
+     "access": "open",
+     "closed_walkable": true
+    }
+   }
+  ],
+  "lights": [
+   {
+    "id": "aisle.wall",
+    "rule": "wall_every_m",
+    "zone": "aisle",
+    "on": "south",
+    "step_m": 6
+   },
+   {
+    "id": "receiving.wall",
+    "rule": "wall_every_m",
+    "zone": "receiving",
+    "on": "west"
+   },
+   {
+    "id": "landing.wall",
+    "rule": "wall_every_m",
+    "zone": "landing",
+    "on": "north",
+    "step_m": 4.5,
+    "height_m": 4.0,
+    "mode": [
+     1,
+     1,
+     0.4
+    ]
+   },
+   {
+    "id": "returns.wall",
+    "rule": "wall_every_m",
+    "zone": "returns",
+    "on": "east"
+   },
+   {
+    "id": "manifest.task",
+    "rule": "over_fixture",
+    "fixture": "manifest",
+    "mode": [
+     1,
+     1,
+     1
+    ]
+   },
+   {
+    "id": "yard.high",
+    "rule": "at",
+    "zone": "yard",
+    "at_m": [
+     5,
+     4
+    ],
+    "height_m": 4.0
+   },
+   {
+    "id": "duty",
+    "rule": "duty_night"
+   }
+  ],
+  "hidden": [
+   {
+    "id": "C2",
+    "ref": "doc102.C2",
+    "zone": "landing",
+    "volume_m": {
+     "x": 1,
+     "y": 1,
+     "z": -1.2,
+     "w": 3,
+     "h": 2.5,
+     "d": 0.9
+    },
+    "title_ru": "Приямок шахты"
+   }
+  ],
+  "people": [
+   {
+    "char": "char.dock_controller",
+    "post": "manifest",
+    "label": "activity.dock.manifest",
+    "hours": {
+     "from": "04:30",
+     "to": "22:00"
+    }
+   }
+  ],
+  "region": {
+   "deck": "deck.copper",
+   "knowledge": "unknown",
+   "neighbours": [
+    "hd.transport_hub",
+    "hd.copper_ward_b7"
+   ],
+   "node": "hd.copper_dock",
+   "kind": "freight",
+   "name": {
+    "ru": "Медный грузовой док",
+    "en": "Copper freight dock"
+   },
+   "description": {
+    "ru": "Нижняя площадка транспортной платформы под управлением бронзы.",
+    "en": "The lower landing of the transport deck, under Bronze freight control."
+   },
+   "box": {
+    "x": 542,
+    "y": 343,
+    "width": 116,
+    "height": 84
+   }
+  }
+ },
+ "level.intent_bronze_room": {
+  "id": "level.intent_bronze_room",
+  "area": "a.intent.bronze_room",
+  "title": {
+   "key": "loc.intent_bronze_room.title",
+   "ru": "Бронзовая комната ожидания",
+   "en": "Bronze waiting room",
+   "context": "Проверочная комната слоя намерений."
+  },
+  "setting": "dome_interior",
+  "tier": "bronze",
+  "elevation_m": 18,
+  "unit_mm": 500,
+  "seed": 41,
+  "camera": {
+   "hero_view_height_m": 12
+  },
+  "zones": [
+   {
+    "id": "hall",
+    "rect_m": {
+     "x": 0,
+     "y": 0,
+     "w": 12,
+     "h": 8
+    },
+    "purpose": "Зал ожидания: скамьи вдоль северной стены, пол пуст.",
+    "public": true
+   },
+   {
+    "id": "lobby",
+    "rect_m": {
+     "x": 12,
+     "y": 2,
+     "w": 4,
+     "h": 4
+    },
+    "purpose": "Тамбур у выхода.",
+    "public": true
+   }
+  ],
+  "solids": [
+   {
+    "id": "pier.north",
+    "rect_m": {
+     "x": 12,
+     "y": 0,
+     "w": 4,
+     "h": 2
+    },
+    "reason": "Толща кольцевой стены севернее тамбура."
+   },
+   {
+    "id": "pier.south",
+    "rect_m": {
+     "x": 12,
+     "y": 6,
+     "w": 4,
+     "h": 2
+    },
+    "reason": "Толща кольцевой стены южнее тамбура."
+   }
+  ],
+  "markers": [],
+  "inspections": [],
+  "exits": [
+   {
+    "id": "corridor",
+    "to": "level.poc_monorail",
+    "edge": "room_station_walk",
+    "reverse_edge": "station_room_walk",
+    "mode": "walk",
+    "wall": "east",
+    "zone": "lobby",
+    "width_m": 1.5,
+    "height_m": 2.2,
+    "travel_seconds": 45,
+    "seats": 8,
+    "status": "live"
+   }
+  ],
+  "fixtures": [
+   {
+    "id": "bench.a",
+    "kit": "kit.geo.bench",
+    "zone": "hall",
+    "on": "north",
+    "align": "start",
+    "purpose": "Скамья ожидающих.",
+    "owner": "unknown"
+   },
+   {
+    "id": "bench.b",
+    "kit": "kit.geo.bench",
+    "zone": "hall",
+    "on": "north",
+    "align": "end",
+    "purpose": "Скамья ожидающих.",
+    "owner": "unknown"
+   },
+   {
+    "id": "reader",
+    "kit": "kit.geo.station.fare_reader",
+    "zone": "lobby",
+    "on": "north",
+    "align": "center",
+    "size_m": [
+     0.5,
+     0.5,
+     1.5
+    ],
+    "purpose": "Считыватель у выхода: модели ещё нет.",
+    "owner": "unknown",
+    "inspection": {
+     "key": "inspect.intent_bronze_room.reader",
+     "ru": "Считыватель у выхода.",
+     "en": "A reader by the exit.",
+     "context": "Осмотр считывателя в проверочной комнате.",
+     "name_ru": "Считыватель",
+     "name_en": "Reader"
+    }
+   }
+  ],
+  "mechanisms": [],
+  "lights": [],
+  "hidden": [],
+  "people": [],
+  "region": {
+   "deck": "deck.neighbourhood",
+   "knowledge": "known",
+   "neighbours": [
+    "hd.station"
+   ],
+   "name": {
+    "ru": "Комната ожидания",
+    "en": "Waiting room"
+   },
+   "description": {
+    "ru": "Проверочная комната.",
+    "en": "A test room."
+   }
+  }
+ }
+}

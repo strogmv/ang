@@ -58,6 +58,11 @@ func main() {
 			fmt.Fprintln(os.Stderr, "godot:", err)
 			os.Exit(1)
 		}
+	case "location":
+		if err := runLocation(os.Args[2:], os.Stdout, os.Stderr); err != nil {
+			fmt.Fprintln(os.Stderr, "location:", err)
+			os.Exit(1)
+		}
 	case "location-sdk":
 		if err := runLocationSDK(os.Args[2:], os.Stdout, os.Stderr); err != nil {
 			fmt.Fprintln(os.Stderr, "location-sdk:", err)
