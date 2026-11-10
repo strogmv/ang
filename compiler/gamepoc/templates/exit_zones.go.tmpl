@@ -69,12 +69,12 @@ func(r *Runtime)exitZoneRefusal(e behavior.LifeEdge,z exitZoneDefinition,locale 
 }
 // The forecast advances a copy through the same server machine, with the current
 // physical/calendar ratio. An occupied pre-opening floor has no promised ETA.
-func(r *Runtime)exitDeckDeparture(d liftingDeckDefinition)float64{
+func(r *Runtime)exitDeckDeparture(d liftingDeckDefinition,target string)float64{
  g,ok:=r.state.LiftingDecks[d.ID];if !ok||g.Cause!=""{return -1}
  if r.liftingDeckPresent(d)&&(g.Phase=="rest"||g.Phase=="signal_up"||g.Phase=="barrier_up"||g.Phase=="barrier_return"){return -1}
  now:=r.simNS();at:=now;rate:=r.exitClockRate();if rate<=0{return -1}
  for step:=0;step<96;step++{
-  if g.Phase=="descending"{return math.Max(0,float64(g.StartNS-now)/1e9)}
+  if g.Phase==target{return math.Max(0,float64(g.StartNS-now)/1e9)}
   if g.Phase=="rest"{
    if d.Manual&&!g.CycleRequested{return -1};if g.NextRunSecond>r.state.Life.Seconds{wait:=float64(g.NextRunSecond-r.state.Life.Seconds)/rate;at=max(at,now+int64(math.Ceil(wait*1e9)))}
   }else if g.DurationNS>0{at=max(at,g.StartNS+g.DurationNS)}else{return -1}
@@ -84,7 +84,7 @@ func(r *Runtime)exitDeckDeparture(d liftingDeckDefinition)float64{
  return -1
 }
 func(r *Runtime)exitDeparture(e behavior.LifeEdge,z exitZoneDefinition,locale string)(float64,string){
- if z.Kind=="deck"{if d:=r.liftingDeckForEdge(e.ID);d!=nil{g:=r.state.LiftingDecks[d.ID];phase:=r.localText(locale,"ui.deck.phase."+g.Phase,g.Phase);eta:=r.exitDeckDeparture(*d);if eta>=0{return eta,phase+" · "+r.screenText(locale,"ui.exit.zone.next","time",exitTime(eta))};return -1,phase+" · "+r.localText(locale,"ui.exit.zone.no_departure","")};return -1,r.localText(locale,"ui.exit.zone.no_departure","")}
+ if z.Kind=="deck"{if d:=r.liftingDeckForEdge(e.ID);d!=nil{g:=r.state.LiftingDecks[d.ID];name,target:=g.Phase,"descending";if d.Lower!=nil&&e.ID==d.ReturnEdge{name,target=g.lowerPhase(*d),"opening";if g.LowerAway{target=""}};phase:=r.localText(locale,"ui.deck.phase."+name,name);eta:=-1.0;if target!=""{eta=r.exitDeckDeparture(*d,target)};if eta>=0{return eta,phase+" · "+r.screenText(locale,"ui.exit.zone.next","time",exitTime(eta))};return -1,phase+" · "+r.localText(locale,"ui.exit.zone.no_departure","")};return -1,r.localText(locale,"ui.exit.zone.no_departure","")}
  if z.Kind!="train"{return -1,""}
  if r.isVisibleRailEdge(e){
   c:=r.world.TrainMotion;s:=r.state.TrainDispatch;ns:=r.simNS();distance,_,phase,doors:=c.dispatchPose(s,ns)

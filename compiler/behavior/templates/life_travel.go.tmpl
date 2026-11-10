@@ -39,7 +39,10 @@ func(s *LifeState)SettleControlledArrival(){
 // frame. Complete it at the already elapsed time rather than adding a fake second.
 func(s *LifeState)TryCompleteControlledArrival(m LifeModel)bool{a:=s.Actor(s.ControlledActorID);return a!=nil&&a.Trip!=nil&&s.tryLifeArrival(m,a,m.MotionTick(s.Tick,s.Seconds))}
 func(s *LifeState)tryLifeArrival(m LifeModel,a *LifeActor,tick int64)bool{
- e:=m.Edge(a.Trip.Edge);if e==nil||s.Seconds<a.Trip.Arrival{return false};entry,free:=s.lifeArrivalCell(m,*e,a.ID);if !free{return false};a.Level=e.To;a.Position=entry;a.Goal=entry
+ e:=m.Edge(a.Trip.Edge);if e==nil||s.Seconds<a.Trip.Arrival{return false}
+ // A vehicle that carries its riders (a lifting deck) lets them off only once it has really arrived.
+ if m.ArrivalHold!=nil&&m.ArrivalHold(a.ID,*e){return false}
+ entry,free:=s.lifeArrivalCell(m,*e,a.ID);if !free{return false};a.Level=e.To;a.Position=entry;a.Goal=entry
  if a.OverrideLevel==e.To&&a.OverrideAt==e.Entry{a.OverrideAt=entry;a.OverrideEdge=""};a.Trip=nil;a.Path=nil;a.PendingPath=nil;a.MoveStartTick=tick;a.WaitingDeparture=0;a.Visits[e.To]++;s.note(m.Person(a.ID).Name+": прибыл — "+m.Locations[e.To].Name);return true
 }
 

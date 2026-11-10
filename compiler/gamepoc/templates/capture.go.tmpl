@@ -675,7 +675,7 @@ func (r *Runtime) appendDemo(msg *pb.PocGameState) {
 }
 func (r *Runtime) snapshotState() state {
 	s := r.state
- s.LiftingDecks=cloneLiftingDecks(r.state.LiftingDecks)
+ s.LiftingDecks=cloneLiftingDecks(r.state.LiftingDecks);s.CargoConvoys=cloneCargoConvoys(r.state.CargoConvoys)
  s.TrainPassengers=cloneTrainPassengers(r.state.TrainPassengers)
  s.Medical=r.state.Medical.clone()
  s.Sanitary=r.state.Sanitary.clone()

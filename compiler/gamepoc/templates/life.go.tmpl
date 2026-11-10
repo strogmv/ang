@@ -33,6 +33,7 @@ func (r *Runtime) initLifeState(life behavior.LifeState) {
  r.state.Medical=medicalState{}
  r.state.Sanitary=sanitaryState{}
  r.initLiftingDecks()
+ r.initCargoConvoys()
  r.state.TrainDispatch=trainDispatchState{}
  r.state.TrainPassengers=nil
 	r.applyGateTerrain()
@@ -93,6 +94,7 @@ func (r *Runtime) advanceLifeFrameBy(delta int64) error {
  previousTrainGame:=r.state.Life.Seconds
  r.advanceTrainPassengers(delta)
  r.advanceLiftingDecks(r.state.Life.Seconds+delta)
+ if err:=r.advanceCargoConvoys(r.state.Life.Seconds+delta,delta);err!=nil{return err}
  r.medicalHoldPatients()
  r.sanitaryNPCRequests()
  r.sanitaryHoldUsers()
@@ -304,6 +306,7 @@ func (r *Runtime) sendLifeState(c *connection) {
 	r.appendInventory(msg, c.locale)
 	v.appendPerceptionFor(msg,c)
  r.appendLiftingDecks(msg,hero,c.locale)
+ r.appendCargoConvoys(view,hero)
  r.appendMedicalCapsules(msg,hero,c.locale)
  r.appendSanitaryServices(msg,hero,c.locale)
  r.appendPlayableScene(view,hero,msg.PlayerView,c.locale)
@@ -616,6 +619,7 @@ func (r *Runtime) validateLifeSave(s state) error {
  if err:=r.validateTrainDispatch(s);err!=nil{return err}
  if err:=r.validateTrainPassengers(s);err!=nil{return err}
  if err:=r.validateLiftingDecks(s);err!=nil{return err}
+ if err:=r.validateCargoConvoys(s);err!=nil{return err}
 	if !s.Active || s.Tick < 0 || s.Speed != 1 || s.PhaseNS < 0 || s.PhaseNS >= r.tickNS() {
 		return errors.New("invalid life clock")
 	}

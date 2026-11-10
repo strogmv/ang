@@ -596,8 +596,43 @@ func Derive(in Intent, catalog locationsdk.Catalog, def Defaults) (*Derived, []D
 		d.Fixtures = append(d.Fixtures, df)
 		fixtureByID[f.ID] = df
 	}
-	// A mechanism is not an SDK instance: its model, motion and navigation come
-	// from its own kit (lifting_deck_kit). Here it is a place with an outline.
+	// Fixed parts of a mechanism (rails, posts, masts) stand on floor that stays floor
+	// but is not walked: each guard is an unseen blocking object of its own size.
+	for _, m := range in.Mechanisms {
+		for k, guard := range m.Guards {
+			r, ok := s.rect(fmt.Sprintf("%s.guard.%d", m.ID, k), guard)
+			if !ok {
+				continue
+			}
+			r = shift(r)
+			module := fmt.Sprintf("kit.geo.%s.%s.guard.%d", s.short, m.ID, k)
+			g := locationsdk.Geometry{ID: strings.TrimPrefix(module, "kit."), Width: r.W, Depth: r.H, Height: 2, SightClear: true, Footprint: []cell{}, Blocked: []cell{}, UseClearance: []cell{}, MaintenanceClearance: []cell{}, Ports: []locationsdk.Port{}}
+			free := true
+			for y := 0; y < r.H; y++ {
+				for x := 0; x < r.W; x++ {
+					g.Footprint = append(g.Footprint, cell{X: x, Y: y})
+					g.Blocked = append(g.Blocked, cell{X: x, Y: y})
+					at := cell{X: r.X + x, Y: r.Y + y}
+					if s.floor[at] == "" || s.blocked[at] != "" {
+						free = false
+						s.fail("guard_outside_floor", m.ID, &at, "a mechanism guard must stand on free floor", "move the guard or the object that already stands there")
+					}
+				}
+			}
+			if !free {
+				continue
+			}
+			for _, c := range cellsOf(r) {
+				s.blocked[c] = m.ID
+			}
+			addPassport(module, g)
+			moduleModels[module] = ""
+			instances = append(instances, locationsdk.Instance{ID: fmt.Sprintf("%s.guard.%d", m.ID, k), ModuleID: module, At: cell{X: r.X, Y: r.Y}, Reason: "Fixed parts of mechanism " + m.ID + " stand here; drawn by its model.", OwnerRef: "system", Fate: locationsdk.ItemFate{Policy: "keep"}})
+		}
+	}
+	// A mechanism is not an SDK instance: its motion and navigation come from its
+	// own kit (lifting_deck_kit). Here it is a place with an outline; params.model
+	// names the scene that the mechanism adapter animates (bound by params.instance).
 	d.Extra = extras
 
 	// --- floor, walls, lintels ---------------------------------------------
@@ -947,6 +982,25 @@ func Derive(in Intent, catalog locationsdk.Catalog, def Defaults) (*Derived, []D
 		cut := massCut(r)
 		wallDraw(s.short+".mass."+m.ID, "wall", tier.ConcreteRole, float64(r.X)*unitM, float64(r.Y)*unitM, float64(r.X+r.W)*unitM, float64(r.Y+r.H)*unitM, 0, top, cut, "Declared mass, capped at the wall top: "+m.Reason)
 	}
+	for _, m := range in.Mechanisms {
+		ref, _ := m.Params["model"].(string)
+		if ref == "" {
+			continue
+		}
+		if def.Models[ref] == "" {
+			s.fail("unknown_model", m.ID, nil, "mechanism model "+ref+" has no scene in defaults.models", "add the model row or remove params.model")
+			continue
+		}
+		instance, _ := m.Params["instance"].(string)
+		if instance == "" {
+			instance = m.ID
+		}
+		r, _ := s.rect(m.ID, m.Rect)
+		r = shift(r)
+		d.Models[ref] = def.Models[ref]
+		extrasPlacement = append(extrasPlacement, placement.Extra{InstanceID: instance, ModelRef: ref, SourceKind: "authored_fixture", PositionPlanM: placement.Vec3{(float64(r.X) + float64(r.W)/2) * unitM, in.ElevationM, (float64(r.Y) + float64(r.H)/2) * unitM},
+			Reason: "Model of mechanism " + m.ID + "; its moving parts follow the server."})
+	}
 	// Mechanisms get the worn floor outline of their frame.
 	if def.MarkRole != "" {
 		for _, m := range d.Mechanisms {
@@ -1119,6 +1173,25 @@ func Derive(in Intent, catalog locationsdk.Catalog, def Defaults) (*Derived, []D
 	finishing := &godot.Finishing{Environment: tier.Environment, Materials: map[string]godot.Material{}, SurfaceRoles: map[string]string{"floor": tier.FloorRole, "wall": tier.ConcreteRole, "steel": tier.SteelRole}, ObjectRoles: map[string]string{}}
 	for k, m := range def.Materials {
 		finishing.Materials[k] = m
+	}
+	// The mechanism's model supplies its own frame: the rendered slab is cut there, navigation is not.
+	for _, m := range in.Mechanisms {
+		ref, _ := m.Params["model"].(string)
+		if m.Frame == nil || ref == "" || def.Models[ref] == "" {
+			continue
+		}
+		r, ok := s.rect(m.ID+".frame", *m.Frame)
+		if !ok {
+			continue
+		}
+		r = shift(r)
+		instance, _ := m.Params["instance"].(string)
+		if instance == "" {
+			instance = m.ID
+		}
+		finishing.FloorOpenings = append(finishing.FloorOpenings, godot.FloorOpening{ID: m.ID + ".aperture", SurfaceID: s.short + "." + m.Zone, OwnerInstance: instance, CornerCutM: m.CornerCutM,
+			Rect:   [4]float64{float64(r.X) * unitM, float64(r.Y) * unitM, float64(r.X+r.W) * unitM, float64(r.Y+r.H) * unitM},
+			Reason: "The model of mechanism " + m.ID + " supplies the visible frame and deck; the server owns walking on it."})
 	}
 	if kit != nil && d.WallPanels > 0 {
 		finishing.MaterialBindings = map[string]string{kit.ConcreteMaterial: tier.ConcreteRole, kit.SteelMaterial: tier.SteelRole}

@@ -19,7 +19,7 @@ type liftingDeckCatalog struct { Decks []liftingDeckDefinition `json:"decks"` }
 
 type liftingDeckFreightDefinition struct {
  Resource string `json:"resource"`; YawDegrees float64 `json:"yaw_degrees"`
- FirstSecond int64 `json:"first_second"`; PeriodSeconds int64 `json:"period_seconds"`; UnloadAfterS int64 `json:"unload_after_s"`; ReceivingDwellS int64 `json:"receiving_dwell_s"`
+ FirstSecond int64 `json:"first_second"`; PeriodSeconds int64 `json:"period_seconds"`; UnloadAfterS int64 `json:"unload_after_s"`; ReceivingDwellS int64 `json:"receiving_dwell_s"`; ConvoyID string `json:"convoy_id,omitempty"`
  Routes []struct {DeliveryID string `json:"delivery_id"`; CopperStore string `json:"copper_store"`; DeckStore string `json:"deck_store"`; ReceivingStore string `json:"receiving_store"`; Quantity int64 `json:"quantity"`; DeckPlan []float64 `json:"deck_plan_m"`; ReceivingPlan []float64 `json:"receiving_plan_m"`} `json:"routes"`
 }
 
@@ -34,6 +34,14 @@ type liftingDeckDefinition struct {
  Timing struct {Unlock int64 `json:"unlock"`;Unseat int64 `json:"unseat"`;Reseat int64 `json:"reseat"`;Lock int64 `json:"lock"`;BeaconPeriod int64 `json:"beacon_period"`;Equalise int64 `json:"equalise"`;Barrier int64 `json:"barrier"`;Open int64 `json:"open"`;Loading int64 `json:"loading"`;Close int64 `json:"close"`;LockdownWarning int64 `json:"lockdown_warning"`;LockdownBarrier int64 `json:"lockdown_barrier"`;LockdownClose int64 `json:"lockdown_close"`;Retry int64 `json:"retry"`} `json:"timing_ms"`
  Sounds []liftingDeckSound `json:"sounds"`
  Nodes []liftingDeckNode `json:"nodes"`; TextSlots []liftingDeckTextSlot `json:"text_slots"`
+ OpenSide string `json:"open_side"`; Lower *liftingDeckLower `json:"lower,omitempty"`
+}
+// The second landing of a pass-through deck. It has no leaves: the deck itself is its floor.
+type liftingDeckLower struct {
+ LevelID string `json:"level_id"`; InstanceID string `json:"instance_id"`; NameKey string `json:"name_key"`; OpenSide string `json:"open_side"`
+ Rect struct {X,Y,W,H int} `json:"rect"`; BarrierRect struct {X,Y,W,H int} `json:"barrier_rect"`; BarrierFloor []string `json:"barrier_floor"`; Approach struct {X,Y int} `json:"approach"`; Plan []float64 `json:"plan_m"`; ControlPlan []float64 `json:"control_plan_m"`
+ ClearHeightM float64 `json:"clear_height_m"`; SettleMS int64 `json:"settle_ms"`
+ Sounds []liftingDeckSound `json:"sounds"`; Nodes []liftingDeckNode `json:"nodes"`
 }
 type liftingDeckNode struct {Name string `json:"name"`;Channel string `json:"channel"`;Axis string `json:"axis"`;Min float64 `json:"min"`;Max float64 `json:"max"`;Rotation bool `json:"rotation"`}
 
@@ -49,6 +57,34 @@ type liftingDeckState struct {
  NextRunSecond int64 `json:"next_run_second"`; LastGameSecond int64 `json:"last_game_second"`; Runs int64 `json:"runs"`; Skipped int64 `json:"skipped"`; Stops int64 `json:"stops"`
  ClearSinceNS int64 `json:"clear_since_ns"`
  CycleRequested bool `json:"cycle_requested,omitempty"`; PendingRiders []string `json:"pending_riders,omitempty"`
+ // Pass-through deck only. Away: the deck has left the lower landing. ArriveSecond: the game second
+ // it stands there again (0 while it is still going up or working above). SettleNS: when it began to settle.
+ LowerAway bool `json:"lower_away,omitempty"`; LowerArriveSecond int64 `json:"lower_arrive_second,omitempty"`; LowerSettleNS int64 `json:"lower_settle_ns,omitempty"`
+}
+// Lower landing pose derived from the one saved machine: deck (0 = flush below, full = gone up),
+// barrier, and whether the landing is open for walking and driving.
+func(g liftingDeckState)lowerPose(d liftingDeckDefinition)(deck,barrier int64,open bool){
+ l:=d.Lower;if l==nil{return 0,0,false};p:=g.pose(g.UpdatedNS)
+ if g.LowerAway{if g.LowerArriveSecond==0&&g.Phase=="opening"{return p.Leaves,liftingDeckFull,false};return liftingDeckFull,liftingDeckFull,false}
+ if g.LowerSettleNS>0{
+  t:=g.UpdatedNS-g.LowerSettleNS;settle:=l.SettleMS*1000000;lower:=d.Timing.Barrier*1000000
+  if t<settle{return liftingDeckFull-liftingDeckFull*t/settle,liftingDeckFull,false}
+  if t<settle+lower{return 0,liftingDeckFull-liftingDeckFull*(t-settle)/lower,false}
+ }
+ switch g.Phase{case "barrier_up","unlocking","unseating","opening","barrier_return":return 0,p.Barrier,p.Barrier==0}
+ return 0,0,true
+}
+func(g liftingDeckState)lowerPhase(d liftingDeckDefinition)string{
+ deck,barrier,open:=g.lowerPose(d)
+ switch{
+ case g.LowerAway&&deck<liftingDeckFull:return "lower_leaving"
+ case g.LowerAway:return "lower_away"
+ case deck>0:return "lower_arriving"
+ case g.Cause!="":return "lower_sealed"
+ case g.Phase=="equalising"||g.Phase=="signal_up"||g.Phase=="safe_reseating"||g.Phase=="safe_locking":return "lower_signal"
+ case barrier>0||!open:return "lower_barrier"
+ }
+ return "lower_open"
 }
 const liftingDeckFull=behavior.GateFull
 func cloneLiftingDecks(in map[string]liftingDeckState)map[string]liftingDeckState{if in==nil{return nil};out:=make(map[string]liftingDeckState,len(in));for k,v:=range in{v.PendingRiders=append([]string(nil),v.PendingRiders...);out[k]=v};return out}
@@ -76,6 +112,8 @@ func(d liftingDeckDefinition)nextRun(seconds int64)int64{
 }
 func(d liftingDeckDefinition)nextFreight(seconds int64)int64{if d.Freight==nil{return 0};f:=d.Freight;if seconds<=f.FirstSecond{return f.FirstSecond};return f.FirstSecond+((seconds-f.FirstSecond+f.PeriodSeconds-1)/f.PeriodSeconds)*f.PeriodSeconds}
 func(d liftingDeckDefinition)contains(at behavior.Cell)bool{return at.X>=d.Rect.X&&at.X<d.Rect.X+d.Rect.W&&at.Y>=d.Rect.Y&&at.Y<d.Rect.Y+d.Rect.H}
+func(l liftingDeckLower)contains(at behavior.Cell)bool{return at.X>=l.Rect.X&&at.X<l.Rect.X+l.Rect.W&&at.Y>=l.Rect.Y&&at.Y<l.Rect.Y+l.Rect.H}
+func(l liftingDeckLower)onBarrier(at behavior.Cell)bool{return at.X>=l.BarrierRect.X&&at.X<l.BarrierRect.X+l.BarrierRect.W&&at.Y>=l.BarrierRect.Y&&at.Y<l.BarrierRect.Y+l.BarrierRect.H}
 func(r *Runtime)initLiftingDecks(){r.state.LiftingDecks=nil;if r.world.LiftingDecks==nil{return};r.state.LiftingDecks=map[string]liftingDeckState{};for _,d:=range r.world.LiftingDecks.Decks{r.state.LiftingDecks[d.ID]=liftingDeckState{Phase:"rest",NextRunSecond:d.nextRun(r.state.Life.Seconds),LastGameSecond:r.state.Life.Seconds,ClearSinceNS:-1,FreightNextSecond:d.nextFreight(r.state.Life.Seconds)}}}
 func(r *Runtime)liftingDeckPresent(d liftingDeckDefinition)bool{
  for _,a:=range r.state.Life.Actors{if a.Level!=d.LevelID||!a.OnFloor(){continue};if d.contains(a.Position){return true};if a.Body!=nil{for _,at:=range a.Body.Cells{if d.contains(at){return true}}}}
@@ -161,13 +199,32 @@ func(g *liftingDeckState)advance(d liftingDeckDefinition,now,seconds int64,prese
 }
 func(r *Runtime)advanceLiftingDecks(seconds int64){
  if r.world.LiftingDecks==nil||!r.state.Life.Enabled{return};now:=r.state.Tick*r.tickNS()
- for _,d:=range r.world.LiftingDecks.Decks{g,ok:=r.state.LiftingDecks[d.ID];if !ok{continue};before:=g.Phase;g.advance(d,now,seconds,r.liftingDeckPresent(d),r.state.Life.LocationLockdown[d.LevelID],r.state.Life.LocationPowerLost[d.LevelID]);r.state.LiftingDecks[d.ID]=g
+ for _,d:=range r.world.LiftingDecks.Decks{g,ok:=r.state.LiftingDecks[d.ID];if !ok{continue};before:=g.Phase
+  // Nobody may stand on the lower barrier line while the deck is about to leave that landing.
+  present:=r.liftingDeckPresent(d)||(!g.LowerAway&&r.liftingDeckLowerEdgeBusy(d))
+  g.advance(d,now,seconds,present,r.state.Life.LocationLockdown[d.LevelID],r.state.Life.LocationPowerLost[d.LevelID]);r.state.LiftingDecks[d.ID]=g
   if g.Phase=="loading"&&g.pose(g.UpdatedNS).Barrier==0{r.applyLiftingDeckTerrain();r.routeQueuedLiftingDeckRiders(d)}
-  if before!=g.Phase&&(g.Phase=="descending"||g.Phase=="lockdown_descending"&&g.pose(g.UpdatedNS).Deck>0){r.liftingDeckDepartRiders(d,seconds)}
+  if before!=g.Phase&&(g.Phase=="descending"||g.Phase=="lockdown_descending"&&g.pose(g.UpdatedNS).Deck>0){
+   r.liftingDeckDepartRiders(d,seconds)
+   if d.Lower!=nil{g=r.state.LiftingDecks[d.ID];g.LowerAway=true;g.LowerSettleNS=0;g.LowerArriveSecond=seconds+r.liftingDeckShaftSeconds(d);r.state.LiftingDecks[d.ID]=g}
+  }
+  if d.Lower!=nil{
+   g=r.state.LiftingDecks[d.ID]
+   // The leaves have started to move: no safe abort remains, the deck has left the lower landing.
+   if !g.LowerAway&&g.Phase=="opening"&&g.pose(g.UpdatedNS).Leaves>0{g.LowerAway=true;g.LowerArriveSecond=0;g.LowerSettleNS=0;r.state.LiftingDecks[d.ID]=g;r.liftingDeckDepartLower(d,seconds);g=r.state.LiftingDecks[d.ID]}
+   // A cycle that ended without a normal descent (alarm, power) still returns the deck below.
+   if g.LowerAway&&g.LowerArriveSecond==0&&(g.Phase=="rest"||g.Phase=="sealed"){g.LowerArriveSecond=seconds+r.liftingDeckShaftSeconds(d)}
+   if g.LowerAway&&g.LowerArriveSecond>0&&seconds>=g.LowerArriveSecond{g.LowerAway=false;g.LowerArriveSecond=0;g.LowerSettleNS=max(int64(1),g.UpdatedNS)}
+   r.state.LiftingDecks[d.ID]=g
+   if _,_,open:=g.lowerPose(d);open&&len(g.PendingRiders)>0{r.applyLiftingDeckTerrain();r.routeQueuedLowerLiftingDeckRiders(d)}
+  }
  }
  r.applyLiftingDeckTerrain()
 }
-func(g liftingDeckState)walkable()bool{p:=g.pose(g.UpdatedNS);return p.Leaves==0 || ((g.Phase=="loading"||g.Phase=="signal_down")&&p.Deck==liftingDeckFull&&p.Barrier==0)}
+// The deck is floor while it stands flush with the hall. Riders wait on it while the departure barrier
+// rises; the raised barrier line, not the deck, keeps newcomers out, and the deck stops being floor
+// the moment it starts down and its riders leave with it.
+func(g liftingDeckState)walkable()bool{p:=g.pose(g.UpdatedNS);return p.Leaves==0 || ((g.Phase=="loading"||g.Phase=="signal_down")&&p.Deck==liftingDeckFull&&p.Barrier==0) || (g.Phase=="departure_barrier"&&p.Deck==liftingDeckFull)}
 func(r *Runtime)liftingDeckLifeModel(s state,m behavior.LifeModel)behavior.LifeModel{
  if r.world.LiftingDecks==nil{return m}
  locations:=make(map[string]behavior.LifeLocation,len(m.Locations));for id,l:=range m.Locations{locations[id]=l}
@@ -177,6 +234,14 @@ func(r *Runtime)liftingDeckLifeModel(s state,m behavior.LifeModel)behavior.LifeM
   for y:=d.Rect.Y;y<d.Rect.Y+d.Rect.H;y++{row:=[]byte(rows[y]);for x:=d.Rect.X;x<d.Rect.X+d.Rect.W;x++{row[x]=glyph};rows[y]=string(row)}
   for y:=0;y<d.BarrierRect.H;y++{row:=[]byte(rows[d.BarrierRect.Y+y]);for x:=0;x<d.BarrierRect.W;x++{row[d.BarrierRect.X+x]=g.barrierGlyph(d,x,y)};rows[d.BarrierRect.Y+y]=string(row)}
   l.Terrain=rows;locations[d.LevelID]=l
+  if lower:=d.Lower;lower!=nil{
+   l=locations[lower.LevelID];rows=append([]string(nil),l.Terrain...);deck,barrier,_:=g.lowerPose(d)
+   glyph=byte('+');if deck==0{glyph='.'}
+   for y:=lower.Rect.Y;y<lower.Rect.Y+lower.Rect.H;y++{row:=[]byte(rows[y]);for x:=lower.Rect.X;x<lower.Rect.X+lower.Rect.W;x++{row[x]=glyph};rows[y]=string(row)}
+   if len(lower.BarrierFloor)!=lower.BarrierRect.H{panic("missing authored lower lifting-deck barrier floor")}
+   for y:=0;y<lower.BarrierRect.H;y++{row:=[]byte(rows[lower.BarrierRect.Y+y]);for x:=0;x<lower.BarrierRect.W;x++{c:=byte('+');if barrier==0{c=lower.BarrierFloor[y][x]};row[lower.BarrierRect.X+x]=c};rows[lower.BarrierRect.Y+y]=string(row)}
+   l.Terrain=rows;locations[lower.LevelID]=l
+  }
  }
  m.Locations=locations;return m
 }
@@ -191,23 +256,48 @@ func(r *Runtime)requestLiftingDeckRide(actorID,edgeID string)error{
  r.cancelQueuedLiftingDeckRide(actorID)
  g:=r.state.LiftingDecks[d.ID];found:=false;for _,id:=range g.PendingRiders{if id==actorID{found=true}};if !found{g.PendingRiders=append(g.PendingRiders,actorID)};r.state.LiftingDecks[d.ID]=g
  target:=edge.Exit;if a.Level==d.LevelID&&g.Phase!="loading"{target=behavior.Cell{X:d.Approach.X,Y:d.Approach.Y}}
+ if l:=d.Lower;l!=nil&&a.Level==l.LevelID{if _,_,open:=g.lowerPose(*d);!open{target=behavior.Cell{X:l.Approach.X,Y:l.Approach.Y}}}
  r.routeLiftingDeckRider(a,target)
 
  return nil
 }
-func(r *Runtime)liftingDeckDepartRiders(d liftingDeckDefinition,seconds int64){
- g:=r.state.LiftingDecks[d.ID];for _,a:=range r.state.Life.Actors{if a.Level==d.LevelID&&a.OnFloor()&&d.contains(a.Position){found:=false;for _,id:=range g.PendingRiders{if id==a.ID{found=true}};if !found{g.PendingRiders=append(g.PendingRiders,a.ID)}}};pending:=g.PendingRiders[:0]
- for _,id:=range g.PendingRiders{a:=r.state.Life.Actor(id);if a==nil||!a.OnFloor(){continue};edgeID:=d.TravelEdge;if a.Level!=d.LevelID{edgeID=d.ReturnEdge};edge:=r.world.Life.Edge(edgeID);if edge==nil||a.Level!=edge.From||(a.Position!=edge.Exit&&!(a.Level==d.LevelID&&d.contains(a.Position))){pending=append(pending,id);continue};a.Body=nil;a.Path=nil;a.PendingPath=nil;a.Position=edge.Exit;a.Goal=edge.Exit;a.Trip=&behavior.LifeTrip{Edge:edge.ID,Departure:seconds,Arrival:seconds+edge.TravelSeconds};a.OverrideLevel=edge.To;a.OverrideAt=edge.Entry;a.OverrideEdge=edge.ID;a.Activity="transit";a.Arrived=false}
+func(r *Runtime)liftingDeckShaftSeconds(d liftingDeckDefinition)int64{return int64(d.ShaftDepthM/d.ShaftSpeedMPS)}
+func(r *Runtime)liftingDeckLowerEdgeBusy(d liftingDeckDefinition)bool{
+ l:=d.Lower;if l==nil{return false}
+ for _,a:=range r.state.Life.Actors{if a.Level!=l.LevelID||!a.OnFloor(){continue};if l.onBarrier(a.Position){return true};if a.Body!=nil{for _,at:=range a.Body.Cells{if l.onBarrier(at){return true}}}}
+ for _,a:=range r.state.Life.Population.Actors{if a.Level==l.LevelID&&a.Materialized&&a.Trip==nil&&l.onBarrier(a.Position){return true}}
+ return false
+}
+// Everybody standing on the deck leaves with it; a queued rider must already stand at the edge exit.
+// A one-landing deck keeps its old rule: riders queued at the far end of its edge leave at the same moment.
+func(r *Runtime)liftingDeckDepartSide(d liftingDeckDefinition,seconds int64,level,edgeID string,on func(behavior.Cell)bool,other bool){
+ g:=r.state.LiftingDecks[d.ID];for _,a:=range r.state.Life.Actors{if a.Level==level&&a.OnFloor()&&on(a.Position){found:=false;for _,id:=range g.PendingRiders{if id==a.ID{found=true}};if !found{g.PendingRiders=append(g.PendingRiders,a.ID)}}};pending:=g.PendingRiders[:0]
+ for _,id:=range g.PendingRiders{a:=r.state.Life.Actor(id);if a==nil||!a.OnFloor(){continue};use:=edgeID;if a.Level!=level{if !other{pending=append(pending,id);continue};use=d.ReturnEdge};edge:=r.world.Life.Edge(use);if edge==nil||a.Level!=edge.From||(a.Position!=edge.Exit&&!(a.Level==level&&on(a.Position))){pending=append(pending,id);continue}
+  a.Body=nil;a.Path=nil;a.PendingPath=nil;a.Position=edge.Exit;a.Goal=edge.Exit;a.Trip=&behavior.LifeTrip{Edge:edge.ID,Departure:seconds,Arrival:seconds+edge.TravelSeconds};a.Activity="transit";a.Arrived=false
+  // Only a commanded body carries a travel order; a routine NPC keeps its own routine target.
+  if a.Manual||a.ID==playerActorID{a.OverrideLevel=edge.To;a.OverrideAt=edge.Entry;a.OverrideEdge=edge.ID}
+ }
  g.PendingRiders=pending;r.state.LiftingDecks[d.ID]=g
+}
+func(r *Runtime)liftingDeckDepartRiders(d liftingDeckDefinition,seconds int64){r.liftingDeckDepartSide(d,seconds,d.LevelID,d.TravelEdge,d.contains,d.Lower==nil)}
+func(r *Runtime)liftingDeckDepartLower(d liftingDeckDefinition,seconds int64){if d.Lower!=nil{r.liftingDeckDepartSide(d,seconds,d.Lower.LevelID,d.ReturnEdge,d.Lower.contains,false)}}
+// A rider of a pass-through deck steps off only when the deck stands open at the other landing.
+func(r *Runtime)liftingDeckArrivalHeld(actorID string,edge behavior.LifeEdge)bool{
+ d:=r.liftingDeckForEdge(edge.ID);if d==nil||d.Lower==nil{return false};g:=r.state.LiftingDecks[d.ID]
+ if edge.ID==d.TravelEdge{_,_,open:=g.lowerPose(*d);return !open}
+ if !g.LowerAway||g.LowerArriveSecond>0{return false}
+ p:=g.pose(g.UpdatedNS);return !((g.Phase=="loading"||g.Phase=="signal_down")&&p.Deck==liftingDeckFull&&p.Barrier==0)
 }
 func(r *Runtime)liftingDeckTravelAllowed(actorID string,edge behavior.LifeEdge)bool{d:=r.liftingDeckForEdge(edge.ID);if d==nil{return true};return r.liftingDeckAccessError(edge.ID)==nil}
 func(r *Runtime)appendLiftingDecks(msg *pb.PocGameState,hero *behavior.LifeActor,locale string){
  if r.world.LiftingDecks==nil||hero==nil||msg.Life==nil{return};view:=msg.Life
- for _,d:=range r.world.LiftingDecks.Decks{if d.LevelID!=hero.Level{continue};g:=r.state.LiftingDecks[d.ID];p:=g.pose(g.UpdatedNS)
+ for _,d:=range r.world.LiftingDecks.Decks{if l:=d.Lower;l!=nil&&l.LevelID==hero.Level{r.appendLowerLiftingDeck(msg,d,locale)};if d.LevelID!=hero.Level{continue};g:=r.state.LiftingDecks[d.ID];p:=g.pose(g.UpdatedNS)
   access:=r.screenAccess(msg,behavior.Cell{X:d.Approach.X,Y:d.Approach.Y},[]behavior.Cell{{X:d.Approach.X,Y:d.Approach.Y}});access.UseWorld=true;access.WorldX=d.ControlPlan[0];access.WorldY=d.ControlPlan[1];access.WorldZ=d.ControlPlan[2]
   st:=&pb.PocLiftingDeckState{Id:d.ID,InstanceId:d.InstanceID,Name:r.localText(locale,d.NameKey,d.ID),Phase:g.Phase,Cause:g.Cause,LeavesPpm:p.Leaves,DeckPpm:p.Deck,BarrierPpm:p.Barrier,UnlockPpm:p.Unlock,DamperPpm:p.Damper,ReleasePpm:p.Release,SampleNs:g.UpdatedNS,Run:g.Runs,Skipped:g.Skipped,Stops:g.Stops,Passable:d.ClosedWalkable&&g.walkable(),PhaseText:r.localText(locale,"ui.deck.phase."+g.Phase,g.Phase),SignalRed:g.Phase!="rest"&&g.Phase!="loading",SignalGreen:g.Phase=="loading"&&p.Barrier==0,Beacon:g.Phase!="rest"&&g.Phase!="loading"&&(g.UpdatedNS/max(int64(1),d.Timing.BeaconPeriod*500000))%2==0,Horn:g.Phase=="equalising"||g.Phase=="signal_up"||g.Phase=="signal_down"||g.Phase=="departure_barrier"||g.Phase=="lockdown_warning",RideAvailable:d.TravelEdge!="",TravelEdge:d.TravelEdge,NextRunSecond:g.NextRunSecond,Access:access}
   st.WeightText=r.localText(locale,"ui.deck.weight.unknown","—")
-  if d.Freight!=nil{st.Cargo=r.liftingDeckCargo(d,g);weight:=int64(0);known:=true;for _,cargo:=range st.Cargo{if cargo.Stage!="deck"{continue};if cargo.MassG<0{known=false}else{weight+=cargo.MassG}};if known{st.WeightText=strings.ReplaceAll(strconv.FormatFloat(float64(weight)/1000,'f',2,64),".",r.localText(locale,"ui.format.decimal_separator","."))}}
+  if d.Freight!=nil{st.Cargo=r.liftingDeckCargo(d,g);weight:=int64(0);known:=true;for _,cargo:=range st.Cargo{if cargo.Stage!="deck"{continue};if cargo.MassG<0{known=false}else{weight+=cargo.MassG}};if known{st.WeightText=strings.ReplaceAll(strconv.FormatFloat(float64(weight)/1000,'f',2,64),".",r.localText(locale,"ui.format.decimal_separator","."))}
+   // Inside a trailer nothing stands loose on the deck: the scale still weighs it, the trailer shows it.
+   if r.liftingDeckFreightWithConvoy(d){kept:=st.Cargo[:0];for _,cargo:=range st.Cargo{if cargo.Stage!="deck"{kept=append(kept,cargo)}};st.Cargo=kept}}
   depth:=strconv.FormatFloat(-d.DepthM*(1-float64(p.Deck)/float64(liftingDeckFull)),'f',2,64);st.DepthText=strings.ReplaceAll(depth,".",r.localText(locale,"ui.format.decimal_separator","."))
   if err:=r.liftingDeckAccessError(d.TravelEdge);err!=nil{if e,ok:=err.(textError);ok{st.Refusal=r.localText(locale,e.Key,e.Key)}}
   view.LiftingDecks=append(view.LiftingDecks,st)
@@ -217,8 +307,22 @@ func(r *Runtime)appendLiftingDecks(msg *pb.PocGameState,hero *behavior.LifeActor
  }
  raw,_:=json.Marshal(view.LiftingDeckSpecs);h:=fnv.New64a();h.Write(raw);view.LiftingDeckSpecsRevision=h.Sum64()
 }
+// The lower landing is published as its own mechanism view: same message, own model nodes.
+func(r *Runtime)appendLowerLiftingDeck(msg *pb.PocGameState,d liftingDeckDefinition,locale string){
+ l:=d.Lower;g:=r.state.LiftingDecks[d.ID];deck,barrier,open:=g.lowerPose(d);phase:=g.lowerPhase(d);view:=msg.Life
+ access:=r.screenAccess(msg,behavior.Cell{X:l.Approach.X,Y:l.Approach.Y},[]behavior.Cell{{X:l.Approach.X,Y:l.Approach.Y}});access.UseWorld=true;access.WorldX=l.ControlPlan[0];access.WorldY=l.ControlPlan[1];access.WorldZ=l.ControlPlan[2]
+ warning:=phase=="lower_signal"||phase=="lower_barrier"
+ st:=&pb.PocLiftingDeckState{Id:d.ID+".lower",InstanceId:l.InstanceID,Name:r.localText(locale,l.NameKey,d.ID),Phase:phase,Cause:g.Cause,DeckPpm:deck,BarrierPpm:barrier,SampleNs:g.UpdatedNS,Run:g.Runs,Skipped:g.Skipped,Stops:g.Stops,Passable:open,PhaseText:r.localText(locale,"ui.deck.phase."+phase,phase),SignalRed:phase!="lower_open",SignalGreen:phase=="lower_open",Beacon:phase!="lower_open"&&(g.UpdatedNS/max(int64(1),d.Timing.BeaconPeriod*500000))%2==0,Horn:warning&&g.Cause=="",RideAvailable:d.ReturnEdge!="",TravelEdge:d.ReturnEdge,NextRunSecond:g.NextRunSecond,Access:access}
+ st.WeightText=r.localText(locale,"ui.deck.weight.unknown","—");st.DepthText=""
+ if err:=r.liftingDeckAccessError(d.ReturnEdge);err!=nil{if e,ok:=err.(textError);ok{st.Refusal=r.localText(locale,e.Key,e.Key)}}
+ view.LiftingDecks=append(view.LiftingDecks,st)
+ spec:=&pb.PocLiftingDeckSpec{Id:d.ID+".lower",InstanceId:l.InstanceID}
+ for _,sound:=range l.Sounds{spec.Sounds=append(spec.Sounds,&pb.PocLiftingDeckSound{Node:sound.Node,Channel:sound.Channel,Resource:sound.Resource,OffsetM:sound.Offset,VolumeDb:sound.VolumeDB,Loop:sound.Loop})}
+ for _,n:=range l.Nodes{spec.Nodes=append(spec.Nodes,&pb.PocLiftingDeckNode{Name:n.Name,Channel:n.Channel,Axis:n.Axis,Minimum:n.Min,Maximum:n.Max,Rotation:n.Rotation})}
+ view.LiftingDeckSpecs=append(view.LiftingDeckSpecs,spec)
+}
 func(r *Runtime)validateLiftingDecks(s state)error{
- count:=0;if r.world.LiftingDecks!=nil{for _,d:=range r.world.LiftingDecks.Decks{count++;g,ok:=s.LiftingDecks[d.ID];if !ok{return fmt.Errorf("missing lifting deck %s",d.ID)};if g.UpdatedNS<0||g.StartNS<0||g.StartNS>g.UpdatedNS||g.DurationNS<0||g.NextRunSecond<0||g.Runs<0||g.Stops<0||g.RunSlotSecond<0||g.FreightRun<0||g.FreightRun>g.Runs||g.FreightNextSecond<0||g.FreightLandedSecond<0||g.FreightLandedSecond>s.Life.Seconds{return fmt.Errorf("invalid lifting deck state %s",d.ID)};p:=g.pose(g.UpdatedNS);for _,n:=range []int64{p.Leaves,p.Deck,p.Barrier,p.Unlock,p.Damper,p.Release}{if n<0||n>liftingDeckFull{return fmt.Errorf("lifting deck pose out of range %s",d.ID)}};if p.Deck>0&&p.Leaves<liftingDeckFull{return fmt.Errorf("lifting deck interlock %s",d.ID)}}};if len(s.LiftingDecks)!=count{return fmt.Errorf("lifting deck catalog/state mismatch")};return nil
+ count:=0;if r.world.LiftingDecks!=nil{for _,d:=range r.world.LiftingDecks.Decks{count++;g,ok:=s.LiftingDecks[d.ID];if !ok{return fmt.Errorf("missing lifting deck %s",d.ID)};if g.UpdatedNS<0||g.StartNS<0||g.StartNS>g.UpdatedNS||g.DurationNS<0||g.NextRunSecond<0||g.Runs<0||g.Stops<0||g.RunSlotSecond<0||g.FreightRun<0||g.FreightRun>g.Runs||g.FreightNextSecond<0||g.FreightLandedSecond<0||g.FreightLandedSecond>s.Life.Seconds||g.LowerArriveSecond<0||g.LowerSettleNS<0||g.LowerSettleNS>g.UpdatedNS||(d.Lower==nil&&(g.LowerAway||g.LowerArriveSecond!=0||g.LowerSettleNS!=0))||(!g.LowerAway&&g.LowerArriveSecond!=0){return fmt.Errorf("invalid lifting deck state %s",d.ID)};p:=g.pose(g.UpdatedNS);for _,n:=range []int64{p.Leaves,p.Deck,p.Barrier,p.Unlock,p.Damper,p.Release}{if n<0||n>liftingDeckFull{return fmt.Errorf("lifting deck pose out of range %s",d.ID)}};if p.Deck>0&&p.Leaves<liftingDeckFull{return fmt.Errorf("lifting deck interlock %s",d.ID)}}};if len(s.LiftingDecks)!=count{return fmt.Errorf("lifting deck catalog/state mismatch")};return nil
 }
 
 // This existing input-style Life command is for native mechanism proofs only;
@@ -232,6 +336,10 @@ func(r *Runtime)routeLiftingDeckRider(a *behavior.LifeActor,target behavior.Cell
  a.Manual=true;a.OverrideLevel="";a.OverrideEdge="";a.Goal=target;a.Arrived=false
  model:=r.state.Life.GateModel(r.world.Life);r.state.Life.EnsureHeroBody(model)
  if a.Body!=nil{r.state.Life.HeroBodyRouteTo(model,target)}else{a.Path=model.Space(a.Level,r.state.Life.BlockedCells(a.Level,a.ID)).Path(a.Position,target,behavior.Cell{},0);a.MoveStartTick=r.lifeMotionTick()}
+}
+func(r *Runtime)routeQueuedLowerLiftingDeckRiders(d liftingDeckDefinition){
+ edge:=r.world.Life.Edge(d.ReturnEdge);if edge==nil||d.Lower==nil{return};g:=r.state.LiftingDecks[d.ID]
+ for _,id:=range g.PendingRiders{a:=r.state.Life.Actor(id);if a==nil||!a.OnFloor()||a.Level!=d.Lower.LevelID||a.Position==edge.Exit||!a.Manual{continue};if a.Goal!=edge.Exit{r.routeLiftingDeckRider(a,edge.Exit)}}
 }
 func(r *Runtime)routeQueuedLiftingDeckRiders(d liftingDeckDefinition){
  edge:=r.world.Life.Edge(d.TravelEdge);if edge==nil{return};g:=r.state.LiftingDecks[d.ID]
@@ -250,6 +358,11 @@ func(r *Runtime)liftingDeckCargo(d liftingDeckDefinition,g liftingDeckState)[]*p
   if row.Quantity==0{continue};sort.Strings(row.ItemIds);if !known{row.MassG=-1};rows=append(rows,row)
  }};return rows
 }
+func(r *Runtime)liftingDeckFreightWithConvoy(d liftingDeckDefinition)bool{
+ if d.Freight==nil||d.Freight.ConvoyID==""||r.world.CargoConvoys==nil{return false}
+ for _,v:=range r.world.CargoConvoys.Convoys{if v.ID==d.Freight.ConvoyID{c:=r.state.CargoConvoys[v.ID];return r.cargoConvoyCarries(v,c)||(c.Phase=="lower_on_deck"&&r.state.LiftingDecks[d.ID].FreightRun==r.state.LiftingDecks[d.ID].Runs)}}
+ return false
+}
 func(r *Runtime)advanceLiftingDeckFreight()error{
  if r.world.LiftingDecks==nil{return nil}
  model:=r.inventoryModelFor(true)
@@ -261,7 +374,8 @@ func(r *Runtime)advanceLiftingDeckFreight()error{
    }
    r.state.Inventory=work;g.FreightRun=g.Runs;g.FreightNextSecond=f.FirstSecond+((g.RunSlotSecond-f.FirstSecond)/f.PeriodSeconds+1)*f.PeriodSeconds
   }
-  if g.Phase=="loading"&&g.UpdatedNS-g.StartNS>=f.UnloadAfterS*1000000000{
+  // Freight inside a convoy trailer waits for its crew; loose freight lands by the old machine rule.
+  if g.Phase=="loading"&&g.UpdatedNS-g.StartNS>=f.UnloadAfterS*1000000000&&!r.liftingDeckFreightWithConvoy(d){
    work:=r.state.Inventory.Clone();landed:=false
    for _,route:=range f.Routes{var delivery *inv.Delivery;for i:=range model.Deliveries{if model.Deliveries[i].ID==route.DeliveryID{delivery=&model.Deliveries[i];break}};if delivery==nil{return fmt.Errorf("unknown incoming delivery %s",route.DeliveryID)}
     cargo,err:=work.MoveMachineConsignment(model,delivery.Carrier,route.DeckStore,route.ReceivingStore,delivery.Definition,route.Quantity,fmt.Sprintf("%s/unload/%d",d.ID,g.Runs));if err!=nil{return err};landed=landed||len(cargo)>0

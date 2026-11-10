@@ -86,6 +86,7 @@ type worldData struct {
  SanitaryServices *sanitaryCatalog `json:"sanitary_services"`
  TrainMotion *trainMotionCatalog `json:"train_motion"`
  CartParking *cartParkingCatalog `json:"cart_parking"`
+ CargoConvoys *cargoConvoyCatalog `json:"cargo_convoys,omitempty"`
  PlayableScenes map[string]playableSceneDefinition `json:"playable_scenes"`
  PlayableID string `json:"-"`
 	CombatRuntime           combatCatalog                   `json:"combat_runtime"`
@@ -126,6 +127,7 @@ type worldData struct {
 }
 type state struct {
  LiftingDecks map[string]liftingDeckState
+ CargoConvoys map[string]cargoConvoyState `json:",omitempty"`
 
  TrainDispatch trainDispatchState
  TrainPassengers map[string]trainPassenger

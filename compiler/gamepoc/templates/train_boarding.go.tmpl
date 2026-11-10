@@ -9,7 +9,7 @@ import (
 type trainPassenger struct {Edge string; Run int64; BoardNS,DepartNS int64; Paid bool}
 func cloneTrainPassengers(in map[string]trainPassenger)map[string]trainPassenger{if in==nil{return nil};out:=make(map[string]trainPassenger,len(in));for k,v:=range in{out[k]=v};return out}
 func(r *Runtime)isVisibleRailEdge(e behavior.LifeEdge)bool{c:=r.world.TrainMotion;return c!=nil&&c.BerthEdgeID!=""&&e.ID==c.BerthEdgeID&&e.From==c.BerthLevelID&&e.Mode=="rail"}
-func(r *Runtime)lifeTravelModel()behavior.LifeModel{m:=r.world.Life;m.TravelOverride=r.observedRailTravel;return m}
+func(r *Runtime)lifeTravelModel()behavior.LifeModel{m:=r.world.Life;m.TravelOverride=r.observedRailTravel;m.ArrivalHold=r.liftingDeckArrivalHeld;return m}
 func(r *Runtime)populationTrainActor(id string)*behavior.PopulationActor{for i:=range r.state.Life.Population.Actors{a:=&r.state.Life.Population.Actors[i];if a.ID==id{return a}};return nil}
 func(r *Runtime)observingRailLevel(level string)bool{h:=r.state.Life.Actor(playerActorID);return r.client!=nil&&h!=nil&&h.Trip==nil&&h.Level==level}
 // The behavior kernel calls this at the real exit, before its timetable branch.

@@ -97,6 +97,10 @@ func (s *state) world(d *Derived, fixtures map[string]DerivedFixture) {
 		if s.floor[port] != "" && s.blocked[port] == "" {
 			found = true
 		}
+		// A deck carries its riders: they stand on it, in its middle.
+		if ride, _ := m.Params["ride"].(string); ride == "on_deck" {
+			port, found = cell{X: rect.X + rect.W/2, Y: rect.Y + rect.H/2}, true
+		}
 		for _, c := range cellsOf(locationsdk.Rect{X: rect.X - 1, Y: rect.Y - 1, W: rect.W + 2, H: rect.H + 2}) {
 			inside := c.X >= rect.X && c.Y >= rect.Y && c.X < rect.X+rect.W && c.Y < rect.Y+rect.H
 			if !found && !inside && s.floor[c] != "" && s.blocked[c] == "" {
@@ -121,13 +125,33 @@ func (s *state) world(d *Derived, fixtures map[string]DerivedFixture) {
 			text(m.Edges.InName)
 		}
 		p := port
+		// Riders leave from the deck but step off beyond its barrier line, on the open side:
+		// that cell is floor at every moment, also while the deck is away.
+		arrive := port
+		if ride, _ := m.Params["ride"].(string); ride == "on_deck" {
+			side, _ := m.Params["open_side"].(string)
+			switch side {
+			case "north":
+				arrive = cell{X: rect.X + rect.W/2, Y: rect.Y - 2}
+			case "south":
+				arrive = cell{X: rect.X + rect.W/2, Y: rect.Y + rect.H + 1}
+			default:
+				s.fail("exit_unbound", m.ID, &port, "a deck that carries its riders needs params.open_side north or south", "name the side the landing is loaded from")
+				continue
+			}
+			if s.floor[arrive] == "" || s.blocked[arrive] != "" {
+				at := arrive
+				s.fail("exit_unbound", m.ID, &at, "no free floor cell beyond the barrier line on the open side", "clear the cell or move the mechanism")
+				continue
+			}
+		}
 		peerExit, peerEntry := "", ""
 		if m.Edges.Peer != nil {
 			peerExit, peerEntry = m.Edges.Peer.Exit, m.Edges.Peer.Entry
 		}
 		w.LifeEdges = append(w.LifeEdges,
 			LifeEdge{ID: m.Edges.Out, From: in.ID, To: m.Edges.To, Exit: &p, PeerEntry: m.Edges.To + "#" + m.Edges.In, Mode: "walk", TravelSeconds: m.Edges.TravelSeconds, Seats: seats, NameKey: nameKey, ExitZone: []cell{p}, PeerCUE: peerEntry},
-			LifeEdge{ID: m.Edges.In, From: m.Edges.To, To: in.ID, PeerExit: m.Edges.To + "#" + m.Edges.In, Entry: &p, Mode: "walk", TravelSeconds: m.Edges.TravelSeconds, Seats: seats, NameKey: inKey, PeerCUE: peerExit})
+			LifeEdge{ID: m.Edges.In, From: m.Edges.To, To: in.ID, PeerExit: m.Edges.To + "#" + m.Edges.In, Entry: &arrive, Mode: "walk", TravelSeconds: m.Edges.TravelSeconds, Seats: seats, NameKey: inKey, PeerCUE: peerExit})
 		link("lift", m.ID, m.Edges.To, m.Edges.RegionLink, m.Edges.RegionNode, []string{m.Edges.Out, m.Edges.In})
 		d.Layout.Entries = append(d.Layout.Entries, port)
 	}

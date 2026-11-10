@@ -47,7 +47,7 @@ func TestExitZoneDeckForecastMatchesPhysicalFrames(t *testing.T){
   r:=lifeRuntimeFixture(t);if r.world.LiftingDecks==nil{t.Skip("no deck")};d:=r.world.LiftingDecks.Decks[0];r.state.Life.SecondsPerTick=rate
   start:=r.simNS();g:=liftingDeckState{Phase:"rest",UpdatedNS:start,StartNS:start,NextRunSecond:r.state.Life.Seconds,LastGameSecond:r.state.Life.Seconds,ClearSinceNS:-1,CycleRequested:true}
   r.state.LiftingDecks[d.ID]=g
-  forecast:=r.exitDeckDeparture(d);if forecast<0{t.Fatal("accepted immediate cycle has no forecast")}
+  forecast:=r.exitDeckDeparture(d,"descending");if forecast<0{t.Fatal("accepted immediate cycle has no forecast")}
   g.advance(d,start,r.state.Life.Seconds,false,false,false)
   found:=false
   for n:=int64(1);n<=30000;n++{now:=start+n*10000000;seconds:=r.state.Life.Seconds+int64(float64(now-start)/1e9*r.exitClockRate());g.advance(d,now,seconds,false,false,false);if g.Phase=="descending"{actual:=float64(g.StartNS-start)/1e9;if math.Abs(actual-forecast)>.01{t.Fatalf("forecast %.9f differs from real frame-stepped departure %.9f at rate%d",forecast,actual,rate)};found=true;break}}

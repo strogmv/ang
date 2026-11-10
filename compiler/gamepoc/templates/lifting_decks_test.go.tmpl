@@ -185,7 +185,11 @@ func TestLiftingDeckNPCRiderCountsBelowAndTransitSaveRestores(t *testing.T){
  connection:=&connection{out:make(chan *pb.ServerMessage,16),stop:make(chan struct{})};r.sendState(connection);packet:=(<-connection.out).GetGameState();for _,agent:=range packet.SceneAgents{if agent.Id==rider.ID{t.Fatal("transit rider was published as a hub body")}}
  snapshot:=r.snapshotState();slot:=r.world.Config.SaveSlots[0];if err:=r.writeSave(slot,snapshot);err!=nil{t.Fatal(err)};restored,_,err:=r.readSave(slot);if err!=nil{t.Fatal(err)}
  second:=lifeRuntimeFixture(t);second.state=restored;second.applyGateTerrain()
- for tick:=0;tick<260;tick++{
+ // The shaft takes 250 game seconds; at a pass-through deck the rider then waits for the deck to settle
+ // and its barrier to go down before stepping off, and never steps off earlier.
+ steps:=260;if d.Lower!=nil{steps+=int((d.Lower.SettleMS+d.Timing.Barrier)*1000000/r.tickNS())+5}
+ for tick:=0;tick<steps;tick++{
+  if tick<249&&r.state.Life.Actor(rider.ID).Trip==nil{t.Fatal("rider stepped off before the shaft time")}
   if r.state.Life.Actor(rider.ID).Trip!=nil&&r.state.Life.Actor(rider.ID).OnFloor(){t.Fatal("transit rider rendered on the hub")}
   r.step();second.step()
   if !reflect.DeepEqual(r.snapshotState(),second.snapshotState()){t.Fatalf("saved rider/deck diverged at step %d",tick)}

@@ -200,6 +200,7 @@ type Compiled struct {
 	WebSocket        bool                   `json:"-"`
 	ViewDelivery     bool                   `json:"-"`
 	CartParking      *CartParkingCatalog    `json:"cart_parking,omitempty"`
+	CargoConvoys     *CargoConvoyCatalog    `json:"cargo_convoys,omitempty"`
 	MedicalCapsules  *MedicalCapsuleCatalog `json:"medical_capsules,omitempty"`
 	SanitaryServices *SanitaryCatalog       `json:"sanitary_services,omitempty"`
 	TrainMotion      *TrainMotionCatalog    `json:"train_motion,omitempty"`
@@ -813,6 +814,9 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	if out.CartParking, err = readCartParking(world, out); err != nil {
 		return out, nil, err
 	}
+	if out.CargoConvoys, err = readCargoConvoys(world, out); err != nil {
+		return out, nil, err
+	}
 	if out.MedicalCapsules, err = readMedicalCapsules(world, out); err != nil {
 		return out, nil, err
 	}
@@ -1210,6 +1214,8 @@ func generatePOC(project string, legacyUnity bool) error {
 		"vending.cs.tmpl":                       filepath.Join(unity, "Assets/Generated/Poc/PocVending.cs"),
 		"peddlers.go.tmpl":                      filepath.Join(project, "internal/poc/peddlers.gen.go"),
 		"cart_parking.go.tmpl":                  filepath.Join(project, "internal/poc/cart_parking.gen.go"),
+		"cargo_convoys.go.tmpl":                 filepath.Join(project, "internal/poc/cargo_convoys.gen.go"),
+		"cargo_convoys_test.go.tmpl":            filepath.Join(project, "internal/poc/cargo_convoys_generated_test.go"),
 		"cart_parking_test.go.tmpl":             filepath.Join(project, "internal/poc/cart_parking_generated_test.go"),
 		"peddlers_test.go.tmpl":                 filepath.Join(project, "internal/poc/peddlers_generated_test.go"),
 		"calendar_encounter.go.tmpl":            filepath.Join(project, "internal/poc/calendar_encounter.gen.go"),

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"strings"
 )
 
 type CartPose struct {
@@ -64,7 +65,7 @@ func readCartParking(world cue.Value, c Compiled) (*CartParkingCatalog, error) {
 }
 func (c CartParkingCatalog) validate(w Compiled) error {
 	finite := func(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) && math.Abs(v) < 1e5 }
-	if c.CartID == "" || c.OwnerActorID != "char.market_peddler_akim" || c.StoreID != "peddler/peddler.akim/tray" || c.LevelID != "level.c7_market" || !locationSDKSurfaceResourceKey.MatchString(c.PrefabResource) || len(c.PrefabResource) > 256 || len(c.Bays) != 2 {
+	if c.CartID == "" || c.OwnerActorID != "char.market_peddler_akim" || c.StoreID != "peddler/peddler.akim/tray" || c.LevelID != "level.c7_market" || !cartParkingResource(c.PrefabResource) || len(c.PrefabResource) > 256 || len(c.Bays) != 2 {
 		return fmt.Errorf("invalid identity/resource/bays")
 	}
 	for _, v := range []float64{c.CouplingForwardM, c.CouplingRightM, c.GripYM, c.ReleaseSeconds, c.PickupSeconds, c.TurnSeconds, c.HalfWidthM, c.FrontM, c.BackM} {
@@ -148,4 +149,12 @@ func (c CartParkingCatalog) validate(w Compiled) error {
 		}
 	}
 	return nil
+}
+
+// A cart is drawn from a legacy prefab key or from a registered Godot kit scene.
+func cartParkingResource(v string) bool {
+	if locationSDKSurfaceResourceKey.MatchString(v) {
+		return true
+	}
+	return strings.HasPrefix(v, "res://location-kit/") && strings.HasSuffix(v, ".tscn") && !strings.Contains(v, "..") && !strings.ContainsAny(v, " \t\n\\")
 }

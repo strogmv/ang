@@ -145,6 +145,11 @@ type Mechanism struct {
 	Void   *Void           `json:"void,omitempty"`
 	Edges  *MechanismEdges `json:"edges,omitempty"`
 	Params map[string]any  `json:"params"`
+	// Guards: floor that the mechanism's fixed parts stand on (rails, posts); nobody walks there.
+	Guards []RectM `json:"guards_m,omitempty"`
+	// Frame: the part of the floor slab that the mechanism's own model replaces.
+	Frame      *RectM  `json:"frame_m,omitempty"`
+	CornerCutM float64 `json:"corner_cut_m,omitempty"`
 }
 
 type LightRule struct {

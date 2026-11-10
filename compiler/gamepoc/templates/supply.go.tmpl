@@ -53,6 +53,7 @@ func(r *Runtime)storefrontOpen(id string)bool{
 // Existing cart approaches retain their previous priority and behavior.
 func(r *Runtime)commerceRouteDetour(a *behavior.LifeActor,wanted behavior.LifeStep)(behavior.LifeStep,bool){
  if step,on:=r.cartRouteDetour(a,wanted);on{return step,true}
+ if step,on:=r.cargoCrewDetour(a,wanted);on{return step,true}
  // Preserve the existing need/safety choices; only the proprietor duty waits.
  if !wanted.Obligation&&wanted.Activity!="service"&&wanted.Activity!="work"&&wanted.Activity!="post"{return wanted,false}
  if r.world.LiftingDecks==nil{return wanted,false}

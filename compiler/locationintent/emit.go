@@ -36,6 +36,11 @@ func Files(d *Derived) (map[string][]byte, error) {
 	for _, f := range d.Layout.Floor {
 		pipeline.Instances[f.ID] = blender.ArtSpec{Greybox: true, Reason: "Floor slab is drawn by the common floor renderer from the derived zones."}
 	}
+	for _, m := range d.Intent.Mechanisms {
+		for n := range m.Guards {
+			pipeline.Instances[fmt.Sprintf("%s.guard.%d", m.ID, n)] = blender.ArtSpec{Greybox: true, Reason: "Unseen blocking cells: the fixed parts standing here are drawn by the model of mechanism " + m.ID + "."}
+		}
+	}
 	for _, f := range d.Fixtures {
 		if f.ModelRef == "" {
 			pipeline.Instances[f.ID] = blender.ArtSpec{Greybox: true, Reason: "No model with ang_id " + f.Kit + " yet; the greybox placeholder carries the ID."}

@@ -21,6 +21,7 @@ type LiftingDeckFreightDefinition struct {
 	PeriodSeconds   int64   `json:"period_seconds"`
 	UnloadAfterS    int64   `json:"unload_after_s"`
 	ReceivingDwellS int64   `json:"receiving_dwell_s"`
+	ConvoyID        string  `json:"convoy_id,omitempty"`
 	Routes          []struct {
 		DeliveryID     string    `json:"delivery_id"`
 		CopperStore    string    `json:"copper_store"`
@@ -82,7 +83,43 @@ type LiftingDeckDefinition struct {
 	Sounds    []LiftingDeckSound    `json:"sounds,omitempty"`
 	Nodes     []LiftingDeckNode     `json:"nodes"`
 	TextSlots []LiftingDeckTextSlot `json:"text_slots"`
+	OpenSide  string                `json:"open_side"`
+	Lower     *LiftingDeckLower     `json:"lower,omitempty"`
 }
+
+// LiftingDeckLower is the second landing of a pass-through deck.
+type LiftingDeckLower struct {
+	LevelID      string                   `json:"level_id"`
+	InstanceID   string                   `json:"instance_id"`
+	NameKey      string                   `json:"name_key"`
+	OpenSide     string                   `json:"open_side"`
+	Rect         struct{ X, Y, W, H int } `json:"rect"`
+	BarrierRect  struct{ X, Y, W, H int } `json:"barrier_rect"`
+	BarrierFloor []string                 `json:"barrier_floor,omitempty"`
+	Approach     struct{ X, Y int }       `json:"approach"`
+	Plan         []float64                `json:"plan_m"`
+	ControlPlan  []float64                `json:"control_plan_m"`
+	ClearHeightM float64                  `json:"clear_height_m"`
+	SettleMS     int64                    `json:"settle_ms"`
+	Sounds       []LiftingDeckSound       `json:"sounds,omitempty"`
+	Nodes        []LiftingDeckNode        `json:"nodes"`
+}
+
+// liftingDeckSide checks that a barrier strip lies along the named long side of
+// its aperture and that the waiting approach is beyond it on the same side.
+func liftingDeckSide(side string, rect, barrier struct{ X, Y, W, H int }, approachY int) bool {
+	if barrier.X != rect.X || barrier.W != rect.W {
+		return false
+	}
+	switch side {
+	case "south":
+		return barrier.Y == rect.Y+rect.H && approachY >= barrier.Y+barrier.H
+	case "north":
+		return barrier.Y+barrier.H == rect.Y && approachY < barrier.Y
+	}
+	return false
+}
+
 type LiftingDeckSound struct {
 	Node     string    `json:"node"`
 	Channel  string    `json:"channel"`
@@ -189,6 +226,12 @@ func readLiftingDecks(world cue.Value, life json.RawMessage) (*LiftingDeckCatalo
 		for y := range d.BarrierFloor {
 			d.BarrierFloor[y] = base.Locations[d.LevelID].Terrain[d.BarrierRect.Y+y][d.BarrierRect.X : d.BarrierRect.X+d.BarrierRect.W]
 		}
+		if l := d.Lower; l != nil {
+			l.BarrierFloor = make([]string, l.BarrierRect.H)
+			for y := range l.BarrierFloor {
+				l.BarrierFloor[y] = base.Locations[l.LevelID].Terrain[l.BarrierRect.Y+y][l.BarrierRect.X : l.BarrierRect.X+l.BarrierRect.W]
+			}
+		}
 	}
 	var translations LocalizationCatalog
 	if err = world.LookupPath(cue.ParsePath("localization")).Decode(&translations); err != nil {
@@ -204,6 +247,13 @@ func readLiftingDecks(world cue.Value, life json.RawMessage) (*LiftingDeckCatalo
 		if !keys[deck.NameKey] {
 			return nil, fmt.Errorf("lifting deck %s: missing RU/EN/context for %s", deck.ID, deck.NameKey)
 		}
+		if deck.Lower != nil {
+			for _, key := range []string{deck.Lower.NameKey, "ui.deck.phase.lower_open", "ui.deck.phase.lower_signal", "ui.deck.phase.lower_barrier", "ui.deck.phase.lower_leaving", "ui.deck.phase.lower_away", "ui.deck.phase.lower_arriving", "ui.deck.phase.lower_sealed"} {
+				if !keys[key] {
+					return nil, fmt.Errorf("lifting deck %s: missing RU/EN/context for %s", deck.ID, key)
+				}
+			}
+		}
 		for _, slot := range deck.TextSlots {
 			if !keys[slot.Key] {
 				return nil, fmt.Errorf("lifting deck %s: missing RU/EN/context for text slot %s", deck.ID, slot.Key)
@@ -217,6 +267,7 @@ func (c LiftingDeckCatalog) validate(life json.RawMessage) error {
 		Locations map[string]struct{ Terrain []string }
 		Edges     []struct {
 			ID, From, To  string
+			Exit, Entry   struct{ X, Y int }
 			TravelSeconds int64 `json:"travel_seconds"`
 		}
 	}
@@ -243,6 +294,79 @@ func (c LiftingDeckCatalog) validate(life json.RawMessage) error {
 		}
 		if d.Rect.X < d.BarrierRect.X+d.BarrierRect.W && d.BarrierRect.X < d.Rect.X+d.Rect.W && d.Rect.Y < d.BarrierRect.Y+d.BarrierRect.H && d.BarrierRect.Y < d.Rect.Y+d.Rect.H {
 			return fmt.Errorf("%s: barrier floor must not overlap the lifting aperture", d.ID)
+		}
+		// Data written before sides existed opens south, as the schema default says.
+		if d.OpenSide == "" {
+			d.OpenSide = "south"
+		}
+		if d.OpenSide != "south" && d.OpenSide != "north" {
+			return fmt.Errorf("%s: open_side must be south or north", d.ID)
+		}
+		if d.Lower != nil && !liftingDeckSide(d.OpenSide, d.Rect, d.BarrierRect, d.Approach.Y) {
+			return fmt.Errorf("%s: barrier and approach must lie on the %s side", d.ID, d.OpenSide)
+		}
+		if lw := d.Lower; lw != nil {
+			lower, ok := l.Locations[lw.LevelID]
+			if !ok || len(lower.Terrain) == 0 || lw.LevelID == d.LevelID || lw.InstanceID == "" || !strings.HasPrefix(lw.NameKey, "ui.") {
+				return fmt.Errorf("%s: lower landing needs its own level and identity", d.ID)
+			}
+			if lw.OpenSide == d.OpenSide || (lw.OpenSide != "south" && lw.OpenSide != "north") {
+				return fmt.Errorf("%s: a pass-through deck opens on opposite sides (%s above, %s below)", d.ID, d.OpenSide, lw.OpenSide)
+			}
+			if lw.Rect.W != d.Rect.W || lw.Rect.H != d.Rect.H {
+				return fmt.Errorf("%s: the same deck must fit both landings", d.ID)
+			}
+			if lw.Rect.X < 0 || lw.Rect.Y < 0 || lw.Rect.X+lw.Rect.W > len(lower.Terrain[0]) || lw.Rect.Y+lw.Rect.H > len(lower.Terrain) || lw.BarrierRect.X < 0 || lw.BarrierRect.Y < 0 || lw.BarrierRect.H <= 0 || lw.BarrierRect.X+lw.BarrierRect.W > len(lower.Terrain[0]) || lw.BarrierRect.Y+lw.BarrierRect.H > len(lower.Terrain) {
+				return fmt.Errorf("%s: lower landing outside level", d.ID)
+			}
+			if !liftingDeckSide(lw.OpenSide, lw.Rect, lw.BarrierRect, lw.Approach.Y) {
+				return fmt.Errorf("%s: lower barrier and approach must lie on the %s side", d.ID, lw.OpenSide)
+			}
+			if lw.Approach.X < 0 || lw.Approach.Y < 0 || lw.Approach.Y >= len(lower.Terrain) || lw.Approach.X >= len(lower.Terrain[0]) || lower.Terrain[lw.Approach.Y][lw.Approach.X] != '.' {
+				return fmt.Errorf("%s: clear supported lower approach required", d.ID)
+			}
+			for y := lw.Rect.Y; y < lw.Rect.Y+lw.Rect.H; y++ {
+				for x := lw.Rect.X; x < lw.Rect.X+lw.Rect.W; x++ {
+					if lower.Terrain[y][x] != '.' {
+						return fmt.Errorf("%s: lower deck needs clear floor at (%d,%d)", d.ID, x, y)
+					}
+				}
+			}
+			for y := lw.BarrierRect.Y; y < lw.BarrierRect.Y+lw.BarrierRect.H; y++ {
+				for x := lw.BarrierRect.X; x < lw.BarrierRect.X+lw.BarrierRect.W; x++ {
+					if lower.Terrain[y][x] != '.' {
+						return fmt.Errorf("%s: lower barrier line needs clear floor at (%d,%d)", d.ID, x, y)
+					}
+				}
+			}
+			if len(lw.Plan) != 3 || len(lw.ControlPlan) != 3 || lw.ClearHeightM <= 0 || lw.ClearHeightM > 100 || lw.SettleMS <= 0 || lw.SettleMS > 3600000 || len(lw.Nodes) == 0 {
+				return fmt.Errorf("%s: invalid lower landing geometry or timing", d.ID)
+			}
+			lowerNames := map[string]bool{}
+			for _, n := range lw.Nodes {
+				if n.Name == "" || lowerNames[n.Name] || n.Axis != "y" || (n.Channel != "deck" && n.Channel != "barrier") || n.Rotation {
+					return fmt.Errorf("%s: invalid lower motion node %s", d.ID, n.Name)
+				}
+				lowerNames[n.Name] = true
+			}
+			for _, sound := range lw.Sounds {
+				if sound.Node == "" || sound.Channel != "horn" || !strings.HasPrefix(sound.Resource, "res://assets/audio/") || !strings.HasSuffix(sound.Resource, ".wav") || strings.Contains(sound.Resource, "..") || len(sound.Offset) != 3 || sound.VolumeDB < -80 || sound.VolumeDB > 0 {
+					return fmt.Errorf("%s: invalid lower sound binding", d.ID)
+				}
+			}
+			if d.TravelEdge == "" || d.ReturnEdge == "" {
+				return fmt.Errorf("%s: a pass-through deck needs both Life edges", d.ID)
+			}
+			for _, e := range l.Edges {
+				// Riders leave standing on the deck and step off beyond the barrier line of the other
+				// landing: that cell stays floor while the deck is away, so a saved trip always has a real destination.
+				if e.ID == d.TravelEdge && (e.From != d.LevelID || e.To != lw.LevelID || !inRect(e.Exit, d.Rect) || inRect(e.Entry, lw.Rect) || inRect(e.Entry, lw.BarrierRect) || !liftingDeckSide(lw.OpenSide, lw.Rect, lw.BarrierRect, e.Entry.Y)) {
+					return fmt.Errorf("%s: edge %s must run from the upper deck to the open side of the lower landing", d.ID, e.ID)
+				}
+				if e.ID == d.ReturnEdge && (e.From != lw.LevelID || e.To != d.LevelID || !inRect(e.Exit, lw.Rect) || inRect(e.Entry, d.Rect) || inRect(e.Entry, d.BarrierRect) || !liftingDeckSide(d.OpenSide, d.Rect, d.BarrierRect, e.Entry.Y)) {
+					return fmt.Errorf("%s: edge %s must run from the lower deck to the open side of the upper landing", d.ID, e.ID)
+				}
+			}
 		}
 		if d.Approach.X < 0 || d.Approach.Y < 0 || d.Approach.Y >= len(level.Terrain) || d.Approach.X >= len(level.Terrain[0]) || level.Terrain[d.Approach.Y][d.Approach.X] != '.' {
 			return fmt.Errorf("%s: clear supported approach required", d.ID)
@@ -382,6 +506,10 @@ func filterLiftingDeckPopulationAnchors(life json.RawMessage, c *LiftingDeckCata
 					excluded = true
 					break
 				}
+				if l := d.Lower; l != nil && l.LevelID == level && ((at.X >= l.Rect.X && at.Y >= l.Rect.Y && at.X < l.Rect.X+l.Rect.W && at.Y < l.Rect.Y+l.Rect.H) || (at.X >= l.BarrierRect.X && at.Y >= l.BarrierRect.Y && at.X < l.BarrierRect.X+l.BarrierRect.W && at.Y < l.BarrierRect.Y+l.BarrierRect.H)) {
+					excluded = true
+					break
+				}
 			}
 			if excluded {
 				changed = true
@@ -405,4 +533,8 @@ func filterLiftingDeckPopulationAnchors(life json.RawMessage, c *LiftingDeckCata
 	}
 	root["population"] = raw
 	return json.Marshal(root)
+}
+
+func inRect(at struct{ X, Y int }, r struct{ X, Y, W, H int }) bool {
+	return at.X >= r.X && at.X < r.X+r.W && at.Y >= r.Y && at.Y < r.Y+r.H
 }
