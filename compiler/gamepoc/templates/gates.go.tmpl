@@ -10,7 +10,7 @@ import (
 // applyGateTerrain overlays the live gate glyphs on the session's Life model:
 // MoveTo planning, crowd steps and hero sight between frames see the opening
 // exactly as the last frame moved bodies against it. Base worlds stay intact.
-func(r *Runtime)applyGateTerrain(){if len(r.state.Life.Gates)==0{return};r.world.Life=r.state.Life.GateModel(r.world.Life)}
+func(r *Runtime)applyGateTerrain(){r.world.Life=r.state.Life.GateModel(r.world.Life);r.applyLiftingDeckTerrain()}
 
 // appendGates projects the gates of the hero's level whose opening the hero
 // sees now. Unseen gates are not published; Unity keeps their last drawn pose.
@@ -35,7 +35,7 @@ func(r *Runtime)appendGates(view *pb.PocLifeView,hero *behavior.LifeActor,percep
 // the story the alarm and the mains come from the security system and the
 // power network, never from a player button.
 func(r *Runtime)gateCommand(action,id string)error{
- if r.state.SDKLayout==""{return errors.New("Команда ворот доступна только на стенде")}
+ if r.state.SDKLayout==""{allowed:=false;if r.world.LiftingDecks!=nil&&id==r.currentLevel(){for _,d:=range r.world.LiftingDecks.Decks{if d.LevelID==id{allowed=true}}};if !allowed{return errors.New("Команда ворот доступна только на стенде")}}
  switch action{
  case "gate_lockdown":return r.state.Life.SetGateLockdown(r.world.Life,id,true)
  case "gate_release":return r.state.Life.SetGateLockdown(r.world.Life,id,false)

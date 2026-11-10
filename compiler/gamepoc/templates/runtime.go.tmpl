@@ -80,6 +80,7 @@ type worldModular struct {
 	LayoutID string `json:"layout_id"`
 }
 type worldData struct {
+ LiftingDecks *liftingDeckCatalog `json:"lifting_decks,omitempty"`
  MedicalCapsules *medicalCatalog `json:"medical_capsules"`
  SanitaryServices *sanitaryCatalog `json:"sanitary_services"`
  TrainMotion *trainMotionCatalog `json:"train_motion"`
@@ -123,6 +124,11 @@ type worldData struct {
 	Entities                []actor                         `json:"entities"`
 }
 type state struct {
+ LiftingDecks map[string]liftingDeckState
+
+ TrainDispatch trainDispatchState
+ TrainPassengers map[string]trainPassenger
+
  Medical medicalState `json:"medical,omitempty"`
  Sanitary sanitaryState `json:"sanitary,omitempty"`
  Playable playableSceneState

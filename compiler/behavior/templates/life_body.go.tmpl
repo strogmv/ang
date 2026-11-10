@@ -505,6 +505,7 @@ func (s *LifeState) integrateBody(m LifeModel, a *LifeActor, until int64) {
 	case "follow":
 		dx, dy := b.TX-b.X, b.TY-b.Y
 		d := math.Hypot(dx, dy) - m.HeroBody.FollowStopMM*.5
+		if d <= 1 { b.Mode = "" }
 		if d > 1 {
 			expected = math.Min(v*dt, d)
 			moved = g.move(b, dx/math.Hypot(dx, dy)*expected, dy/math.Hypot(dx, dy)*expected, r, others)
@@ -545,7 +546,7 @@ func (s *LifeState) integrateBody(m LifeModel, a *LifeActor, until int64) {
 		}
 	}
 	a.WalkedMM += moved
-	b.Moving = moved > .5
+	b.Moving = math.Hypot(b.X-x0, b.Y-y0) > .5
 	if b.Mode == "route" {
 		if moved < expected*.2 {
 			b.Stalled += expected - moved
@@ -659,7 +660,7 @@ func (s *LifeState) EnsureHeroBody(m LifeModel) {
 		return
 	}
 	g, ok := m.bodyGeom(a.Level)
-	if !ok || !a.Manual || a.Trip != nil || a.ResidenceID != "" || a.ServiceAttachment != "" || a.CombatHold {
+	if !ok || !a.Manual || a.Trip != nil || a.BoardedEdge != "" || a.ResidenceID != "" || a.ServiceAttachment != "" || a.CombatHold {
 		a.Body = nil
 		return
 	}
@@ -770,6 +771,7 @@ func (s *LifeState) SteerHeroBody(m LifeModel, mode string, x, y float64, run bo
 		return fmt.Errorf("unknown steering mode")
 	}
 	b.Mode, b.Run, b.Route, b.Seq, b.Stalled, b.Replans = mode, run, nil, seq, 0, 0
+ if mode == "" { b.Moving = false }
 	a.Goal = a.Position
 	s.bodyIntent(m, g, a)
 	s.bodyLabels(a)
@@ -991,7 +993,7 @@ func (s *LifeState) heroBodyGoal(m LifeModel, a *LifeActor, destination Cell) {
 func (s LifeState) validateBody(m LifeModel, a LifeActor) error {
 	b := a.Body
 	g, ok := m.bodyGeom(a.Level)
-	if !ok || a.ID != s.ControlledActorID || !a.Manual || a.Trip != nil || a.ResidenceID != "" {
+	if !ok || a.ID != s.ControlledActorID || !a.Manual || a.Trip != nil || a.BoardedEdge != "" || a.ResidenceID != "" {
 		return fmt.Errorf("invalid hero body owner")
 	}
 	finite := func(v ...float64) bool {

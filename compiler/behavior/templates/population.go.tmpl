@@ -81,6 +81,7 @@ func(e PopulationEnvironment) landingTraffic(a PopulationActor,level string,entr
 }
 
 type PopulationActor struct {
+ BoardedEdge string `json:"boarded_edge,omitempty"`
  WoundPaceMMS int64 `json:"-"`
  CombatHold bool `json:"combat_hold,omitempty"`
  Safety *LifeSafetyOverride `json:"safety,omitempty"`
@@ -411,6 +412,7 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
 			a.Queued = false
 			a.QueueReason = ""
 		}
+        if a.BoardedEdge!=""{continue}
         if a.CombatHold{a.Safety=nil;a.Path=nil;a.Goal=a.Position;a.Arrived=true;a.MoveStartTick=tick;a.YieldRequester="";a.YieldUntil=0;a.YieldHoldUntil=0;a.Queued=false;a.QueueReason="";continue}
         if a.Safety!=nil&&a.Safety.Until<=seconds{a.Safety=nil;a.Arrived=false;a.Path=nil;a.Brain.NextDecision=0}
         safety:=a.Safety!=nil
@@ -599,6 +601,8 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
 			}
 			// Reaching a waiting pocket is never permission to board remotely.
 			if a.Position!=edge.Exit{a.Activity="waiting_platform";continue}
+            if edge.ClosedReasonKey!=""{a.Activity="waiting_route";continue}
+            if l.TravelOverride!=nil{if handled,_:=l.TravelOverride(a.ID,*edge);handled{if a.BoardedEdge!=""&&a.Materialized{populationUnreserve(occupied,a.Level,a.Position,a.ID);populationUnreserve(claims,a.Level,a.Goal,a.ID);a.Materialized=false;active--};continue}}
 			a.WaitingDeparture=edge.boardingDeparture(a.WaitingDeparture,seconds,previousSeconds)
 			if seconds < a.WaitingDeparture-edge.BoardingWindowSeconds {
 				a.Activity = "waiting_departure"

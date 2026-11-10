@@ -84,7 +84,7 @@ func TestTrainFleetEveningFixture(t *testing.T) {
 	if err = os.WriteFile(filepath.Join(dir, "slot3.json"), raw, 0600); err != nil {
 		t.Fatal(err)
 	}
-	report := map[string]any{"source": "canonical NewGame Life + authoritative rate + ordinary Runtime.step", "start_seconds": start, "evening_seconds": target, "tick": r.state.Tick, "sim_ns": r.simNS(), "brain_enabled": r.world.Life.Brain.Enabled, "hero_body_enabled": r.world.Life.HeroBody.RadiusMM > 0, "paused": saved.Paused, "observation_cell": []int{101, 70}, "trains": len(r.world.TrainMotion.snapshots(float64(r.simNS()) / 1e9))}
+	report := map[string]any{"source": "canonical NewGame Life + authoritative rate + ordinary Runtime.step", "start_seconds": start, "evening_seconds": target, "tick": r.state.Tick, "sim_ns": r.simNS(), "brain_enabled": r.world.Life.Brain.Enabled, "hero_body_enabled": r.world.Life.HeroBody.RadiusMM > 0, "paused": saved.Paused, "observation_cell": []int{101, 70}, "trains": len(r.trainMotionSnapshot().Trains)}
 	raw, _ = json.MarshalIndent(report, "", "  ")
 	if err = os.WriteFile(filepath.Join(dir, "provenance.json"), append(raw, '\n'), 0644); err != nil {
 		t.Fatal(err)

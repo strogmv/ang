@@ -10,7 +10,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"text/template"
 
 	"github.com/strogmv/ang/compiler/locationsdk"
 	"github.com/strogmv/ang/compiler/placement"
@@ -33,6 +32,7 @@ type Options struct {
 type resource struct{ ID, Path string }
 type node struct{ Name, InstanceID, ModelRef, ResourceID, Transform string }
 type box struct{ Name, SourceID, Position, Size, Material string }
+type floorWedge struct{ Name, SourceID, Transform, Material string }
 type scene struct {
 	ToneMapper                                 int
 	FinishHeader, FinishBindings, FinishLights string
@@ -45,14 +45,15 @@ type scene struct {
 	Attachments                                []attachmentNode
 	Nodes                                      []node
 	Boxes                                      []box
+	FloorWedges                                []floorWedge
 	CameraSize, Elevation, Azimuth             float64
 }
 
 // Render validates all model bindings before rendering any output. No asset or
 // path is inferred from a Unity registry or from an instance's spelling.
 func Render(level locationsdk.CompiledLevel, manifest placement.Manifest, options Options) ([]byte, error) {
-	if manifest.Schema != placement.Schema || manifest.WorldFrame != placement.WorldFrame || manifest.LayoutID != level.ID || manifest.StructuralHash != level.StructuralHash {
-		return nil, fmt.Errorf("godot: manifest does not match compiled level")
+	if err := validateSceneManifest(level, manifest); err != nil {
+		return nil, err
 	}
 	var architectureErr error
 	options.Finishing, architectureErr = ResolveArchitectureForLevel(options.Finishing, level)
@@ -190,8 +191,24 @@ func Render(level locationsdk.CompiledLevel, manifest placement.Manifest, option
 	if err != nil {
 		return nil, err
 	}
-	s.Boxes = boxes
-	t, err := template.New("location").Funcs(template.FuncMap{"quote": strconv.Quote}).Parse(sceneTemplate)
+	s.Boxes = applyArchitectureNearCuts(boxes, options.Finishing)
+	floorDraws, err := ResolveFloorDraws(level, manifest, options.Finishing)
+	if err != nil {
+		return nil, err
+	}
+	for _, draw := range floorDraws {
+		if draw.Triangle != nil {
+			ref := roles["object:"+draw.SourceID]
+			if ref == "" {
+				ref = roles["floor"]
+			}
+			if ref == "" {
+				ref = "SubResource(\"floor\")"
+			}
+			s.FloorWedges = append(s.FloorWedges, floorWedge{fmt.Sprintf("FloorCorner_%03d", len(s.FloorWedges)), draw.SourceID, draw.GodotTransform, ref})
+		}
+	}
+	t, err := parseGeometryTemplate("location", sceneTemplate)
 	if err != nil {
 		return nil, err
 	}

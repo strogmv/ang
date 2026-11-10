@@ -63,12 +63,13 @@ type Budget struct {
 }
 
 type ArtSpec struct {
-	Derived      bool   `json:"derived,omitempty"`
-	Reason       string `json:"reason,omitempty"`
-	AssetBasis   string `json:"asset_basis,omitempty"`
-	Greybox      bool   `json:"greybox,omitempty"`
-	Asset        string `json:"asset,omitempty"`
-	MaterialRole string `json:"material_role,omitempty"`
+	PreserveNodes bool   `json:"preserve_nodes,omitempty"`
+	Derived       bool   `json:"derived,omitempty"`
+	Reason        string `json:"reason,omitempty"`
+	AssetBasis    string `json:"asset_basis,omitempty"`
+	Greybox       bool   `json:"greybox,omitempty"`
+	Asset         string `json:"asset,omitempty"`
+	MaterialRole  string `json:"material_role,omitempty"`
 }
 
 type Locator struct {
@@ -94,7 +95,15 @@ type PortLocator struct {
 	Kind       string `json:"kind"`
 }
 
+type HiddenReserve struct {
+	ID     string     `json:"id"`
+	Min    [3]float64 `json:"min_m"`
+	Max    [3]float64 `json:"max_m"`
+	Reason string     `json:"reason"`
+}
+
 type Pipeline struct {
+	ReservedHidden []HiddenReserve    `json:"reserved_hidden,omitempty"`
 	PortLocators   []PortLocator      `json:"port_locators,omitempty"`
 	Legacy         bool               `json:"legacy,omitempty"`
 	KnownConflicts []KnownConflict    `json:"known_conflicts,omitempty"`
@@ -106,6 +115,7 @@ type Pipeline struct {
 }
 
 type Identity struct {
+	PreserveNodes      bool   `json:"preserve_nodes,omitempty"`
 	RenderedBy         string `json:"rendered_by,omitempty"`
 	Floor              bool   `json:"floor,omitempty"`
 	Layer              string `json:"layer,omitempty"`
@@ -141,6 +151,7 @@ type WalkCell struct {
 }
 
 type Contract struct {
+	ReservedHidden      []HiddenReserve           `json:"reserved_hidden,omitempty"`
 	SceneGeometry       godot.ProceduralGeometry  `json:"scene_geometry"`
 	PoseSource          string                    `json:"pose_source"`
 	Schema              string                    `json:"schema"`
@@ -273,6 +284,32 @@ func Build(level locationsdk.CompiledLevel, layout locationsdk.Layout, manifest 
 			}
 		}
 		c.Locators = append(c.Locators, pipeline.Locators...)
+		proceduralSolids := []godot.ProceduralSolid{}
+		if len(pipeline.ReservedHidden) > 0 {
+			var err error
+			proceduralSolids, err = godot.ResolveProceduralSolids(level, manifest, finishing)
+			if err != nil {
+				return c, err
+			}
+		}
+		hiddenIDs := map[string]bool{}
+		for _, h := range pipeline.ReservedHidden {
+			if h.ID == "" || hiddenIDs[h.ID] || strings.TrimSpace(h.Reason) == "" {
+				return c, fmt.Errorf("pipeline.reserved_hidden: unique ID and reason required")
+			}
+			for axis := range 3 {
+				if !finite(h.Min[axis]) || !finite(h.Max[axis]) || h.Min[axis] >= h.Max[axis] {
+					return c, fmt.Errorf("pipeline.reserved_hidden[%q]: finite non-empty metre volume required", h.ID)
+				}
+			}
+			for _, solid := range proceduralSolids {
+				if solid.IntersectsBox(h.Min, h.Max) {
+					return c, fmt.Errorf("procedural draw %q: solid occupies empty reserved_hidden volume %q", solid.SourceID, h.ID)
+				}
+			}
+			hiddenIDs[h.ID] = true
+			c.ReservedHidden = append(c.ReservedHidden, h)
+		}
 	}
 	for id, i := range manifest.Instances {
 		c.Identities[id] = Identity{ModelRef: i.ModelRef, Kind: i.SourceKind, ModuleID: i.ModuleID, World: transformMatrix(i.WorldTransform), Required: true, Blockout: []Box{}}
@@ -409,6 +446,7 @@ func Build(level locationsdk.CompiledLevel, layout locationsdk.Layout, manifest 
 			spec = pipeline.Instances[id]
 		}
 		q.DeclaredAssetBasis = spec.AssetBasis
+		q.PreserveNodes = spec.PreserveNodes
 		source := spec.Asset
 		if source == "" {
 			source = models[q.ModelRef]

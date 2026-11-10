@@ -360,3 +360,145 @@ func TestCoveredBodyObstacleKeepsBoundOwnerObligation(t *testing.T) {
 		t.Fatal("missing render owner hid a collision volume")
 	}
 }
+
+func TestMechanismPreserveNodesIsAuthoredAndPortable(t *testing.T) {
+	level, layout, manifest, pipeline := testSource()
+	pipeline.Instances["model.test"] = ArtSpec{PreserveNodes: true}
+	c, err := Build(level, layout, manifest, pipeline, nil, map[string]string{"model.test": "res://mechanism.glb"}, nil, "", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.Identities["model.test"].PreserveNodes {
+		t.Fatal("mechanism export policy lost")
+	}
+	pipeline.Instances["model.test"] = ArtSpec{}
+	static, err := Build(level, layout, manifest, pipeline, nil, map[string]string{"model.test": "res://mechanism.glb"}, nil, "", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if static.Identities["model.test"].PreserveNodes || c.GeometryContractSHA == static.GeometryContractSHA {
+		t.Fatal("node policy must invalidate the cached exporter contract")
+	}
+}
+
+func TestReservedHiddenVolumesAreStrictAndInvalidateArt(t *testing.T) {
+	level, layout, manifest, pipeline := testSource()
+	pipeline.ReservedHidden = []HiddenReserve{{ID: "cavity", Min: [3]float64{1, 2, -.5}, Max: [3]float64{2, 3, -.4}, Reason: "empty reserved cable trough"}}
+	c, err := Build(level, layout, manifest, pipeline, nil, nil, nil, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.ReservedHidden) != 1 {
+		t.Fatal("reserved cavity lost")
+	}
+	pipeline.ReservedHidden[0].Max[2] = -.6
+	if _, err = Build(level, layout, manifest, pipeline, nil, nil, nil, "", ""); err == nil {
+		t.Fatal("inverted hidden cavity accepted")
+	}
+}
+
+func TestReservedHiddenChecksActualTriangles(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 unavailable")
+	}
+	path := filepath.Join(t.TempDir(), "runtime.py")
+	if err = os.WriteFile(path, []byte(runtime), 0600); err != nil {
+		t.Fatal(err)
+	}
+	script := `import runpy,sys
+from types import SimpleNamespace as N
+r=runpy.run_path(sys.argv[1])
+class I:
+ def __matmul__(self,v):return v
+class O:
+ name='fixture';hide_render=False;matrix_world=I()
+ def __init__(self,tri):self.tri=tri
+ def get(self,k,d=None):return d
+ def evaluated_get(self,d):return self
+ def to_mesh(self):return N(vertices=[N(co=p) for p in self.tri],loop_triangles=[N(vertices=[0,1,2])],calc_loop_triangles=lambda:None)
+ def to_mesh_clear(self):pass
+contract={'unit_m':.5,'tolerance_m':.02,'walkable':[],'locators':[],'reserved_hidden':[{'id':'empty','min_m':[0,0,0],'max_m':[1,1,1]}]}
+errors=[];rows=r['validate_geometry'](contract,[O([(.2,.2,-.2),(.8,.2,-.2),(.2,.8,-.2)])],I(),None,errors)
+assert errors and rows[0]['kind']=='reserved_hidden' and 'empty' in errors[0]
+contract['reserved_hidden'][0].update(min_m=[.05,.05,1.5],max_m=[.1,.1,1.7])
+errors=[];rows=r['validate_geometry'](contract,[O([(0,0,0),(2,2,0),(0,2,-2)])],I(),None,errors)
+assert not errors and not rows, 'AABB overlap alone is not occupation'
+print('Reserved cavity triangle occupancy and sloped AABB false-positive PASS')`
+	if out, err := exec.Command(python, "-B", "-c", script, path).CombinedOutput(); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+}
+
+func TestReservedHiddenRejectsEnclosedSolidAndProceduralDraw(t *testing.T) {
+	level, layout, manifest, pipeline := testSource()
+	pipeline.ReservedHidden = []HiddenReserve{{ID: "empty", Min: [3]float64{-.1, -.1, -.1}, Max: [3]float64{.1, .1, .1}, Reason: "reserved cavity"}}
+	finish := &godot.Finishing{Materials: map[string]godot.Material{"fixture.steel": {Resource: "res://fixture-steel.tres", Provenance: "Valid material for the reserved-volume negative fixture."}}, Architecture: &godot.Architecture{Setting: "exterior", Draws: []godot.ArchitectureDraw{{ID: "solid", Kind: "trim", MaterialRole: "fixture.steel", Reason: "Actual procedural solid for reserved-volume rejection.", Position: [3]float64{0, 0, 0}, Size: [3]float64{2, 2, 2}}}}}
+	if _, err := Build(level, layout, manifest, pipeline, finish, nil, nil, "", ""); err == nil || !strings.Contains(err.Error(), "reserved_hidden") {
+		t.Fatalf("solid procedural draw swallowed cavity: %v", err)
+	}
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "runtime.py")
+	if err = os.WriteFile(path, []byte(runtime), 0600); err != nil {
+		t.Fatal(err)
+	}
+	script := `import runpy,sys
+from types import SimpleNamespace as N
+r=runpy.run_path(sys.argv[1]);vertices=[(-1,-1,-1),(1,-1,-1),(1,1,-1),(-1,1,-1),(-1,-1,1),(1,-1,1),(1,1,1),(-1,1,1)]
+indices=[0,2,1,0,3,2,4,5,6,4,6,7,0,1,5,0,5,4,1,2,6,1,6,5,2,3,7,2,7,6,3,0,4,3,4,7];triangles=[[vertices[i] for i in indices[n:n+3]] for n in range(0,len(indices),3)]
+assert all(not r['triangle_box'](tri,(-.1,-.1,-.1),(.1,.1,.1)) for tri in triangles), 'fixture must miss every surface'
+assert r['closed_mesh_contains'](triangles,(0,0,0))
+assert not r['closed_mesh_contains'](triangles,(3,0,0))
+class I:
+ def __matmul__(self,v):return v
+class O:
+ name='solid';hide_render=False;matrix_world=I()
+ def get(self,k,d=None):return d
+ def evaluated_get(self,d):return self
+ def to_mesh(self):return N(vertices=[N(co=p) for p in vertices],loop_triangles=[N(vertices=indices[n:n+3]) for n in range(0,len(indices),3)],calc_loop_triangles=lambda:None)
+ def to_mesh_clear(self):pass
+contract={'unit_m':.5,'tolerance_m':.02,'walkable':[],'locators':[],'reserved_hidden':[{'id':'empty','min_m':[-.1,-.1,-.1],'max_m':[.1,.1,.1]}]}
+errors=[];conflicts=r['validate_geometry'](contract,[O()],I(),None,errors)
+assert errors and 'encloses' in errors[0] and conflicts[0].get('containment_witness_plan_m')==[0,0,0]
+print('Closed solid containment without triangle crossing rejected; procedural solid rejected')`
+	if raw, err := exec.Command(python, "-B", "-c", script, path).CombinedOutput(); err != nil {
+		t.Fatalf("%v\n%s", err, raw)
+	}
+}
+
+func TestReservedHiddenRejectsFinalFloorAndCornerPrisms(t *testing.T) {
+	level, layout, manifest, pipeline := testSource()
+	level.Navigation = &locationsdk.Navigation{BaseSurface: "floor.test", Surfaces: []locationsdk.NavSurface{{ID: "floor.test", ElevationMM: 3000, SlabMM: 250, Slab: []locationsdk.Rect{{W: 4, H: 4}}}}}
+	// The original dock mistake: the reserve overlaps only50mm at the bottom
+	// of an ordinary slab, so no model mesh or architecture.draws can catch it.
+	pipeline.ReservedHidden = []HiddenReserve{{ID: "floor-negative", Min: [3]float64{.6, .6, 2.76}, Max: [3]float64{.7, .7, 2.8}, Reason: "Must not contain the bottom of a250mm floor slab."}}
+	if _, err := Build(level, layout, manifest, pipeline, nil, nil, nil, "", ""); err == nil || !strings.Contains(err.Error(), "reserved_hidden") {
+		t.Fatalf("floor slab swallowed hidden reserve: %v", err)
+	}
+	// Inspect the final roof rather than the original slab: real clearance works.
+	roof := &godot.Finishing{FloorRecesses: []godot.FloorRecess{{ID: "roof", SurfaceID: "floor.test", OwnerInstance: "a", Rect: [4]float64{0, 0, 2, 2}, CoverThicknessM: .03, Reason: "Actual thin roof clears the hidden volume."}}}
+	if _, err := Build(level, layout, manifest, pipeline, roof, nil, nil, "", ""); err != nil {
+		t.Fatalf("final roof was ignored: %v", err)
+	}
+	corner := &godot.Finishing{FloorOpenings: []godot.FloorOpening{{ID: "octagonal-frame", SurfaceID: "floor.test", OwnerInstance: "a", Rect: [4]float64{.5, .5, 1.5, 1.5}, CornerCutM: .2, Reason: "Actual chamfered frame."}}}
+	pipeline.ReservedHidden[0] = HiddenReserve{ID: "corner-negative", Min: [3]float64{.51, .51, 2.8}, Max: [3]float64{.54, .54, 2.9}, Reason: "Must not contain the retained triangular floor corner."}
+	if _, err := Build(level, layout, manifest, pipeline, corner, nil, nil, "", ""); err == nil || !strings.Contains(err.Error(), "reserved_hidden") {
+		t.Fatalf("floor corner swallowed hidden reserve: %v", err)
+	}
+	// The same corner AABB also covers part of the aperture; that empty region
+	// must remain clear instead of receiving a false-positive box intersection.
+	pipeline.ReservedHidden[0].Min = [3]float64{.65, .65, 2.8}
+	pipeline.ReservedHidden[0].Max = [3]float64{.68, .68, 2.9}
+	if _, err := Build(level, layout, manifest, pipeline, corner, nil, nil, "", ""); err != nil {
+		t.Fatalf("corner AABB treated as occupied triangle: %v", err)
+	}
+	// Ordinary SDK obstacles are emitted solids too, not just architecture draws.
+	level.Navigation.Obstacles = []locationsdk.NavObstacle{{ID: "fixture.obstacle", Rect: locationsdk.Rect{W: 1, H: 1}, BottomMM: 3000, TopMM: 4000, BlocksMovement: true, BlocksSight: true, Style: "panel", Reason: "Actual procedural obstacle."}}
+	pipeline.ReservedHidden[0] = HiddenReserve{ID: "obstacle-negative", Min: [3]float64{.1, .1, 3.1}, Max: [3]float64{.2, .2, 3.2}, Reason: "Must not contain the generated obstacle."}
+	if _, err := Build(level, layout, manifest, pipeline, nil, nil, nil, "", ""); err == nil || !strings.Contains(err.Error(), "reserved_hidden") {
+		t.Fatalf("SDK obstacle swallowed hidden reserve: %v", err)
+	}
+}

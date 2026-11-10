@@ -19,6 +19,8 @@ func(e LifeEdge)boardingDeparture(selected,now,previousSeconds int64)int64{
 }
 func(s *LifeState)beginLifeTrip(m LifeModel,a *LifeActor,edge *LifeEdge,admit LifeAdmission,elapsedFrom ...int64)bool{
  defer s.ObserveDecisions()
+ if edge.ClosedReasonKey!=""{a.Activity="waiting";a.Label=edge.ClosedReasonKey;return false}
+ if m.TravelOverride!=nil{if handled,depart:=m.TravelOverride(a.ID,*edge);handled{if !depart{return false};a.Trip=&LifeTrip{Edge:edge.ID,Departure:s.Seconds,Arrival:s.Seconds+edge.TravelSeconds};a.Activity="transit";return true}}
    if a.AdmissionDeniedEdge==edge.ID{a.Activity="waiting";a.Label="transit.fare_denied";return false}
    previousSeconds:=s.Seconds;if len(elapsedFrom)>0{previousSeconds=elapsedFrom[0]}
    a.WaitingDeparture=edge.boardingDeparture(a.WaitingDeparture,s.Seconds,previousSeconds)

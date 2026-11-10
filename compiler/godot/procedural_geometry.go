@@ -44,6 +44,18 @@ func PlanProceduralGeometry(level locationsdk.CompiledLevel, manifest placement.
 		plan.Primitives = append(plan.Primitives, PrimitiveDraw{draw.Name, draw.SourceID, topology, triangles})
 		plan.Triangles += triangles
 	}
+	floorDraws, err := ResolveFloorDraws(level, manifest, resolved)
+	if err != nil {
+		return plan, err
+	}
+	cornerIndex := 0
+	for _, draw := range floorDraws {
+		if draw.Triangle != nil {
+			plan.Primitives = append(plan.Primitives, PrimitiveDraw{fmt.Sprintf("FloorCorner_%03d", cornerIndex), draw.SourceID, "PrismMesh", 8})
+			plan.Triangles += 8
+			cornerIndex++
+		}
+	}
 	return plan, nil
 }
 
@@ -70,9 +82,36 @@ func proceduralSurfaces(level locationsdk.CompiledLevel, finishing *Finishing) m
 
 func proceduralBoxes(level locationsdk.CompiledLevel, manifest placement.Manifest, finishing *Finishing, roles map[string]string, replaced map[string]bool, floorOnly bool) ([]box, error) {
 	unit := float64(level.UnitMM) / 1000
+	openings, err := validateFloorOpenings(level, manifest, finishing)
+	if err != nil {
+		return nil, err
+	}
+	recesses, err := validateFloorRecesses(level, manifest, finishing)
+	if err != nil {
+		return nil, err
+	}
 	boxes := []box{}
 	addBox := func(id string, r locationsdk.Rect, bottom, top int, material string) {
 		if top <= bottom || replaced[id] {
+			return
+		}
+		if material == "floor" && (len(openings[id]) > 0 || len(recesses[id]) > 0) {
+			rect := [4]float64{float64(r.X) * unit, float64(r.Y) * unit, float64(r.X+r.W) * unit, float64(r.Y+r.H) * unit}
+			ref := roles["object:"+id]
+			if ref == "" {
+				ref = roles[material]
+			}
+			if ref == "" {
+				ref = "SubResource(" + strconv.Quote(material) + ")"
+			}
+			for _, slab := range floorSlabParts(rect, float64(top)/1000, float64(top-bottom)/1000, openings[id], recesses[id]) {
+				part := slab.Rect
+				p := placement.FromPlan(placement.Vec3{(part[0] + part[2]) / 2, slab.Top - slab.Thickness/2, (part[1] + part[3]) / 2})
+				if floorOnly {
+					p[1] = float64(top) / 1000
+				}
+				boxes = append(boxes, box{fmt.Sprintf("Structure_%03d", len(boxes)), id, vector(p), vector(placement.Vec3{part[2] - part[0], slab.Thickness, part[3] - part[1]}), ref})
+			}
 			return
 		}
 		p := placement.FromPlan(placement.Vec3{(float64(r.X) + float64(r.W)/2) * unit, float64(bottom+top) / 2000, (float64(r.Y) + float64(r.H)/2) * unit})
@@ -127,6 +166,11 @@ func proceduralBoxes(level locationsdk.CompiledLevel, manifest placement.Manifes
 				return nil, fmt.Errorf("architecture.draws: unique ID, kind wall/steel/trim and source reason required: %q", d.ID)
 			}
 			seen[d.ID] = true
+			if cut := d.NearCut; cut != nil {
+				if d.Kind != "wall" || !finite(cut.HeightM) || cut.HeightM < .3 || cut.HeightM >= d.Size[1] || cut.Reason == "" {
+					return nil, fmt.Errorf("architecture.draws[%q].near_cut: wall requires a height of at least 0.3 m strictly below its full height and a written reason", d.ID)
+				}
+			}
 			for _, v := range append(d.Position[:], d.Size[:]...) {
 				if !finite(v) {
 					return nil, fmt.Errorf("architecture.draws[%q]: nonfinite metric geometry", d.ID)

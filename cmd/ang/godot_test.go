@@ -98,6 +98,14 @@ func TestGodotMarketMatchesIndependentOracle(t *testing.T) {
 	if strings.Count(string(firstScene), "[ext_resource ") != 58 || strings.Count(string(firstScene), " instance=ExtResource(") != 70 {
 		t.Fatal("oracle kit composition changed")
 	}
+	firstFinish, err := os.ReadFile(filepath.Join(out, "finishing-bindings.tscn"))
+	if err != nil || !strings.Contains(string(firstFinish), `[node name="Finish" type="Node"]`) {
+		t.Fatalf("common materialsubscene missing from ordinary generation: %v", err)
+	}
+	firstArchitecture, err := os.ReadFile(filepath.Join(out, "architecture-geometry.tscn"))
+	if err != nil || !strings.Contains(string(firstArchitecture), `[node name="ArchitectureGeometry" type="Node3D"]`) {
+		t.Fatalf("common architecture subscene missing from ordinary generation: %v", err)
+	}
 	if err = runGodot(args, &stdout, &stderr); err != nil {
 		t.Fatal(err)
 	}
@@ -105,6 +113,14 @@ func TestGodotMarketMatchesIndependentOracle(t *testing.T) {
 	secondManifest, _ := os.ReadFile(filepath.Join(out, "placements.json"))
 	if !bytes.Equal(firstScene, secondScene) || !bytes.Equal(data, secondManifest) {
 		t.Fatal("regeneration changed output")
+	}
+	secondArchitecture, err := os.ReadFile(filepath.Join(out, "architecture-geometry.tscn"))
+	if err != nil || !bytes.Equal(firstArchitecture, secondArchitecture) {
+		t.Fatal("architecture subscene regeneration changed output", err)
+	}
+	secondFinish, err := os.ReadFile(filepath.Join(out, "finishing-bindings.tscn"))
+	if err != nil || !bytes.Equal(firstFinish, secondFinish) {
+		t.Fatal("materialsubscene regeneration changed output", err)
 	}
 }
 

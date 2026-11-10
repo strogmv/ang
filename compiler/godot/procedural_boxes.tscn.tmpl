@@ -1,0 +1,8 @@
+{{define "procedural_box_nodes"}}{{range .Boxes}}
+[node name={{quote .Name}} type="MeshInstance3D" parent="Structure"]
+position = {{.Position}}
+scale = {{.Size}}
+mesh = SubResource("box")
+material_override = {{.Material}}
+metadata/source_id = {{quote .SourceID}}
+{{end}}{{end}}

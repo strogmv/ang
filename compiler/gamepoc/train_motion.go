@@ -10,35 +10,53 @@ import (
 	"cuelang.org/go/cue"
 )
 
-// TrainMotionCatalog is independent of the legacy C7 passenger timetable.
+// TrainMotionCatalog projects one persistent route; its dispatch uses the shared Life timetable.
 // Distances are metres on one closed, ordered path; bindings only project it.
 type TrainMotionCatalog struct {
-	NameKey          string             `json:"name_key,omitempty"`
-	AdditionalFleet  []TrainMotionStock `json:"additional_fleet,omitempty"`
-	PrefabResource   string             `json:"prefab_resource"`
-	ClockDomain      string             `json:"clock_domain"`
-	TrainID          string             `json:"train_id"`
-	StockID          string             `json:"stock_id"`
-	RouteID          string             `json:"route_id"`
-	RouteVersion     int                `json:"route_version"`
-	EpochSeconds     int64              `json:"epoch_seconds"`
-	InitialDistanceM float64            `json:"initial_distance_m"`
-	SpeedMPS         float64            `json:"speed_mps"`
-	DwellSeconds     float64            `json:"dwell_seconds"`
-	Points           []TrainRoutePoint  `json:"points"`
-	Modules          []TrainModule      `json:"modules"`
-	Bindings         []TrainBinding     `json:"bindings"`
+	BerthDwellSeconds float64            `json:"berth_dwell_seconds"`
+	BerthEdgeID       string             `json:"berth_edge_id"`
+	BoardingDoorGroup string             `json:"boarding_door_group"`
+	DoorTravelM       float64            `json:"door_travel_m"`
+	BerthLevelID      string             `json:"berth_level_id"`
+	Timetable         *TrainTimetable    `json:"timetable,omitempty"`
+	AccelerationMPS2  float64            `json:"acceleration_mps2"`
+	BrakingMPS2       float64            `json:"braking_mps2"`
+	BerthDistanceM    float64            `json:"berth_distance_m"`
+	DoorCloseSeconds  float64            `json:"door_close_seconds"`
+	NameKey           string             `json:"name_key,omitempty"`
+	AdditionalFleet   []TrainMotionStock `json:"additional_fleet,omitempty"`
+	PrefabResource    string             `json:"prefab_resource"`
+	ClockDomain       string             `json:"clock_domain"`
+	TrainID           string             `json:"train_id"`
+	StockID           string             `json:"stock_id"`
+	RouteID           string             `json:"route_id"`
+	RouteVersion      int                `json:"route_version"`
+	SpeedMPS          float64            `json:"speed_mps"`
+	Points            []TrainRoutePoint  `json:"points"`
+	Modules           []TrainModule      `json:"modules"`
+	Bindings          []TrainBinding     `json:"bindings"`
+}
+
+// Timetable data is copied from transit.c7_loop by CUE, never assigned here.
+type TrainTimetable struct {
+	PeriodSeconds             int64 `json:"period_seconds"`
+	NightPeriodSeconds        int64 `json:"night_period_seconds"`
+	DayStartSecond            int64 `json:"day_start_second"`
+	DayEndSecond              int64 `json:"day_end_second"`
+	OffsetSeconds             int64 `json:"offset_seconds"`
+	BoardingWindowSeconds     int64 `json:"boarding_window_seconds"`
+	FreightOffsetSeconds      int64 `json:"freight_offset_seconds"`
+	FreightNightOffsetSeconds int64 `json:"freight_night_offset_seconds"`
 }
 
 // Additional stock shares the route, module geometry and physical speed; only
 // persistent identity, resource and initial phase differ. Legacy single stock
 // catalogues omit this list and retain their original behavior.
 type TrainMotionStock struct {
-	NameKey          string  `json:"name_key,omitempty"`
-	PrefabResource   string  `json:"prefab_resource"`
-	TrainID          string  `json:"train_id"`
-	StockID          string  `json:"stock_id"`
-	InitialDistanceM float64 `json:"initial_distance_m"`
+	NameKey        string `json:"name_key,omitempty"`
+	PrefabResource string `json:"prefab_resource"`
+	TrainID        string `json:"train_id"`
+	StockID        string `json:"stock_id"`
 }
 
 type TrainRoutePoint struct {
@@ -120,11 +138,31 @@ func (c TrainMotionCatalog) validate(life json.RawMessage) error {
 			return fmt.Errorf("invalid train approach cue")
 		}
 	}
+	if c.BerthDwellSeconds <= 0 || c.BerthDwellSeconds > 300 || math.IsNaN(c.BerthDwellSeconds) || math.IsInf(c.BerthDwellSeconds, 0) {
+		return fmt.Errorf("physical berth dwell required")
+	}
+	if c.Timetable == nil {
+		return fmt.Errorf("operational train timetable required")
+	}
+	if c.BoardingDoorGroup == "" || len(c.BoardingDoorGroup) > 96 || strings.IndexFunc(c.BoardingDoorGroup, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_')
+	}) >= 0 {
+		return fmt.Errorf("boarding_door_group: explicit authored door group required")
+	}
+	if c.Timetable != nil {
+		t := c.Timetable
+		if t.PeriodSeconds <= 0 || t.NightPeriodSeconds <= 0 || t.DayStartSecond < 0 || t.DayEndSecond <= t.DayStartSecond || t.DayEndSecond >= 86400 || t.OffsetSeconds < 0 || t.OffsetSeconds >= t.PeriodSeconds || t.OffsetSeconds >= t.NightPeriodSeconds || t.BoardingWindowSeconds <= 0 || t.FreightOffsetSeconds < 0 || t.FreightOffsetSeconds >= t.PeriodSeconds || t.FreightOffsetSeconds >= t.NightPeriodSeconds {
+			return fmt.Errorf("invalid operational train timetable")
+		}
+		if (math.IsNaN(c.DoorTravelM) || math.IsInf(c.DoorTravelM, 0)) || c.DoorTravelM <= 0 || c.DoorTravelM > 3 || c.AccelerationMPS2 <= 0 || c.AccelerationMPS2 > 10 || math.IsNaN(c.AccelerationMPS2) || c.BrakingMPS2 <= 0 || c.BrakingMPS2 > 10 || math.IsNaN(c.BrakingMPS2) || c.BerthDistanceM <= c.SpeedMPS*c.SpeedMPS/(2*c.BrakingMPS2) || c.DoorCloseSeconds <= 0 || c.DoorCloseSeconds > 10 {
+			return fmt.Errorf("invalid berth or acceleration/braking/door timing")
+		}
+	}
 	if len(c.PrefabResource) > 256 || !locationSDKSurfaceResourceKey.MatchString(c.PrefabResource) {
 		return fmt.Errorf("unsafe extensionless train prefab Resources path")
 	}
 	finite := func(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) && math.Abs(v) <= 1e6 }
-	if c.ClockDomain != "simulation" || c.TrainID == "" || c.StockID == "" || c.RouteID == "" || c.RouteVersion < 1 || c.EpochSeconds < 0 || !finite(c.SpeedMPS) || c.SpeedMPS <= 0 || c.SpeedMPS > 30 || !finite(c.DwellSeconds) || c.DwellSeconds < 0 || c.DwellSeconds > 3600 {
+	if c.ClockDomain != "simulation" || c.TrainID == "" || c.StockID == "" || c.RouteID == "" || c.RouteVersion < 1 || !finite(c.SpeedMPS) || c.SpeedMPS <= 0 || c.SpeedMPS > 30 {
 		return fmt.Errorf("invalid identity, epoch or motion")
 	}
 	if len(c.Points) < 4 || len(c.Points) > 256 || c.Points[0] != c.Points[len(c.Points)-1] {
@@ -175,46 +213,46 @@ func (c TrainMotionCatalog) validate(life json.RawMessage) error {
 		}
 		tail = math.Max(tail, -m.OffsetM+m.LengthM/2)
 	}
-	if !finite(c.InitialDistanceM) || c.InitialDistanceM < 0 || c.InitialDistanceM >= length {
-		return fmt.Errorf("invalid initial route distance")
+	if len(c.AdditionalFleet) > 1 {
+		return fmt.Errorf("one passenger stock and at most one freight stock per occupied route")
 	}
-	if len(c.AdditionalFleet) > 7 {
-		return fmt.Errorf("at most eight persistent trains per shared route")
-	}
-	fleet := append([]TrainMotionStock{{PrefabResource: c.PrefabResource, TrainID: c.TrainID, StockID: c.StockID, InitialDistanceM: c.InitialDistanceM}}, c.AdditionalFleet...)
+	fleet := append([]TrainMotionStock{{PrefabResource: c.PrefabResource, TrainID: c.TrainID, StockID: c.StockID}}, c.AdditionalFleet...)
 	trainIDs, stockIDs := map[string]bool{}, map[string]bool{}
-	period := length/c.SpeedMPS + c.DwellSeconds
-	envelope := tail + c.Modules[0].LengthM/2
-	for i, stock := range fleet {
+	for _, stock := range fleet {
 		if stock.TrainID == "" || stock.StockID == "" || trainIDs[stock.TrainID] || stockIDs[stock.StockID] {
 			return fmt.Errorf("duplicate or empty persistent train/stock identity")
 		}
 		if len(stock.PrefabResource) > 256 || !locationSDKSurfaceResourceKey.MatchString(stock.PrefabResource) {
 			return fmt.Errorf("unsafe fleet prefab Resources path")
 		}
-		if !finite(stock.InitialDistanceM) || stock.InitialDistanceM < 0 || stock.InitialDistanceM >= length {
-			return fmt.Errorf("invalid fleet initial route distance")
-		}
 		trainIDs[stock.TrainID] = true
 		stockIDs[stock.StockID] = true
-		for _, other := range fleet[:i] {
-			phase := math.Abs(stock.InitialDistanceM-other.InitialDistanceM) / c.SpeedMPS
-			gapSeconds := math.Min(phase, period-phase)
-			// A pair can close the gap by at most one hidden dwell. This bound
-			// covers every point in the loop, including either train stopped at zero.
-			if c.SpeedMPS*math.Max(0, gapSeconds-c.DwellSeconds) <= envelope {
-				return fmt.Errorf("fleet phases allow overlapping train envelopes")
-			}
-		}
+
 	}
 	if tail*3 >= length {
 		return fmt.Errorf("train is too long for route")
 	}
 	var l struct {
 		Locations map[string]json.RawMessage `json:"locations"`
+		Edges     []struct {
+			ID   string `json:"id"`
+			From string `json:"from"`
+			Mode string `json:"mode"`
+		} `json:"edges"`
 	}
 	if err := json.Unmarshal(life, &l); err != nil {
 		return fmt.Errorf("Life locations required: %w", err)
+	}
+	if c.BerthEdgeID != "" {
+		found := false
+		for _, e := range l.Edges {
+			if e.ID == c.BerthEdgeID && e.From == c.BerthLevelID && e.Mode == "rail" {
+				found = true
+			}
+		}
+		if !found {
+			return fmt.Errorf("berth edge must be an existing rail exit of its level")
+		}
 	}
 	levels := map[string]bool{}
 	for i, b := range c.Bindings {
@@ -234,6 +272,15 @@ func (c TrainMotionCatalog) validate(life json.RawMessage) error {
 				return fmt.Errorf("visible binding crosses route corner")
 			}
 		}
+	}
+	berth := false
+	for _, b := range c.Bindings {
+		if b.LevelID == c.BerthLevelID {
+			berth = c.BerthDistanceM-tail >= b.StartM && c.BerthDistanceM+c.Modules[0].LengthM/2 <= b.EndM
+		}
+	}
+	if !berth {
+		return fmt.Errorf("stopped consist must fit its authored berth binding")
 	}
 	if len(levels) < 3 {
 		return fmt.Errorf("at least three distinct level bindings required")

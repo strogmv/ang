@@ -17,6 +17,10 @@ roughness = 0.7
 size = Vector2(1, 1){{else}}[sub_resource type="BoxMesh" id="box"]
 size = Vector3(1, 1, 1){{end}}
 
+{{if .FloorWedges}}[sub_resource type="PrismMesh" id="floor_corner"]
+size = Vector3(1, 1, 1)
+left_to_right = 0.0
+{{end}}
 [sub_resource type="Environment" id="environment"]
 tonemap_mode = {{.ToneMapper}}
 background_mode = 1
@@ -41,11 +45,11 @@ material_bindings = {
 {{.FinishBindings}}}
 {{end}}
 [node name="Structure" type="Node3D" parent="."]
-{{range .Boxes}}
+{{template "procedural_box_nodes" .}}
+{{range .FloorWedges}}
 [node name={{quote .Name}} type="MeshInstance3D" parent="Structure"]
-position = {{.Position}}
-scale = {{.Size}}
-mesh = SubResource("box")
+transform = {{.Transform}}
+mesh = SubResource("floor_corner")
 material_override = {{.Material}}
 metadata/source_id = {{quote .SourceID}}
 {{end}}

@@ -125,6 +125,11 @@ def import_asset(scene, contract, key, asset, mapping=None, collection=None):
     from mathutils import Matrix
     if key not in contract['identities']:
         fail(f'import_assets[{key!r}]: ID absent from CUE')
+    if str(asset) == '@cue':
+        row = contract['identities'][key]
+        asset = row.get('source_asset') or row.get('asset') or ''
+        if not asset:
+            fail(f'import_assets[{key!r}]: @cue needs a bound model source in the current contract')
     asset = Path(asset).resolve()
     if not asset.is_file() or asset.suffix not in ('.glb', '.gltf'):
         fail(f'import_assets[{key!r}]: expected existing glTF source {str(asset)!r}')
@@ -385,6 +390,49 @@ def check_known_conflicts(contract, conflicts, errors, warnings):
     return {'baseline_count': len(known), 'actual_count': len(actual), 'accepted_count': len(accepted), 'new_count': len(fresh), 'grown_count': len(grown), 'stale_count': len(stale), 'growth_tolerance_m': .01}
 
 
+
+def closed_mesh_contains(triangles, point):
+    """Parity inside each watertight connected solid, not its bounding box.
+
+    A reserved cavity enclosed in a solid can miss every triangle. Disconnected
+    solids are tested separately so overlapping boxes do not cancel by parity.
+    """
+    def sub(a,b):return tuple(x-y for x,y in zip(a,b))
+    def dot(a,b):return sum(x*y for x,y in zip(a,b))
+    def cross(a,b):return (a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0])
+    if not triangles or any(point[a]<min(v[a] for tri in triangles for v in tri) or point[a]>max(v[a] for tri in triangles for v in tri) for a in range(3)):return False
+    parents=list(range(len(triangles)));edges={}
+    def find(i):
+        while parents[i]!=i:parents[i]=parents[parents[i]];i=parents[i]
+        return i
+    for index,tri in enumerate(triangles):
+        keys=[tuple(round(float(v),6) for v in p) for p in tri]
+        for a,b in zip(keys,keys[1:]+keys[:1]):
+            if a==b:continue
+            edge=tuple(sorted((a,b)));owners=edges.setdefault(edge,[])
+            for other in owners:parents[find(index)]=find(other)
+            owners.append(index)
+    groups={};closed={}
+    for i,tri in enumerate(triangles):groups.setdefault(find(i),[]).append(tri)
+    for owners in edges.values():
+        root=find(owners[0]);closed[root]=closed.get(root,True) and len(owners)==2
+    direction=(1.,.38491271,.29173413)
+    for root,faces in groups.items():
+        if not closed.get(root):continue
+        if any(point[a]<min(v[a] for tri in faces for v in tri) or point[a]>max(v[a] for tri in faces for v in tri) for a in range(3)):continue
+        hits=[]
+        for a,b,c in faces:
+            e1,e2=sub(b,a),sub(c,a);h=cross(direction,e2);det=dot(e1,h)
+            if abs(det)<1e-12:continue
+            inv=1/det;s=sub(point,a);u=inv*dot(s,h)
+            if u<0 or u>1:continue
+            q=cross(s,e1);v=inv*dot(direction,q)
+            if v<0 or u+v>1:continue
+            distance=inv*dot(e2,q)
+            if distance>1e-9 and not any(abs(distance-old)<1e-7 for old in hits):hits.append(distance)
+        if len(hits)%2:return True
+    return False
+
 def validate_geometry(contract, objects, source_to_world, depsgraph, errors, instance_id=''):
     """All actual object/cell/layer conflicts, never only the first per object."""
     unit, tol = contract['unit_m'], contract['tolerance_m']
@@ -401,6 +449,8 @@ def validate_geometry(contract, objects, source_to_world, depsgraph, errors, ins
         mesh.calc_loop_triangles()
         matrix = source_to_world @ ev.matrix_world
         object_id = str(obj.get('ang_object_id', obj.name))
+        hidden_triangles=[]
+        hidden_surface_hits=set()
         for triangle in mesh.loop_triangles:
             points = [matrix @ mesh.vertices[i].co for i in triangle.vertices]
             if not all(math.isfinite(float(value)) for point in points for value in point):
@@ -408,6 +458,7 @@ def validate_geometry(contract, objects, source_to_world, depsgraph, errors, ins
                 break
             zlo, zhi = min(p[1] for p in points), max(p[1] for p in points)
             prism_triangle = [(p[0], -p[2], p[1]) for p in points]
+            if contract.get('reserved_hidden'):hidden_triangles.append(prism_triangle)
             xmin, xmax = min(p[0] for p in prism_triangle), max(p[0] for p in prism_triangle)
             ymin, ymax = min(p[1] for p in prism_triangle), max(p[1] for p in prism_triangle)
             for x in range(math.floor(xmin/unit), math.floor(xmax/unit)+1):
@@ -424,6 +475,20 @@ def validate_geometry(contract, objects, source_to_world, depsgraph, errors, ins
                         key = (object_id, x, y, cell['surface'])
                         if key not in conflicts or intrusion > conflicts[key]['max_intrusion_m']:
                             conflicts[key] = {'object_id': object_id, 'instance_id': instance_id, 'cell': {'x': x, 'y': y}, 'layer': cell['surface'], 'max_intrusion_m': intrusion, 'kind': 'walkable', 'witness_triangle_world_m': [list(p) for p in points]}
+            for reserve in contract.get('reserved_hidden', []):
+                low,high=reserve['min_m'],reserve['max_m']
+                if xmax<low[0] or xmin>high[0] or ymax<low[1] or ymin>high[1] or zhi<low[2] or zlo>high[2]:
+                    continue
+                if triangle_box(prism_triangle, reserve['min_m'], reserve['max_m']):
+                    hidden_surface_hits.add(reserve['id'])
+                    key = (object_id, 'reserved_hidden', reserve['id'], '')
+                    if key not in conflicts:
+                        low=reserve['min_m']
+                        conflicts[key]={'object_id':object_id,'instance_id':instance_id,
+                                        'cell':{'x':math.floor(low[0]/unit),'y':math.floor(low[1]/unit)},
+                                        'layer':'reserved:'+reserve['id'],'kind':'reserved_hidden',
+                                        'max_intrusion_m':0,'witness_triangle_world_m':[list(p) for p in points]}
+                        errors.append(f'object {object_id!r}: occupies empty reserved_hidden volume {reserve["id"]!r}; clear the authored cavity')
             for locator in protected:
                 x, floor, y = locator['position_plan_m']
                 radius = max(.05, unit/2-tol)
@@ -432,6 +497,13 @@ def validate_geometry(contract, objects, source_to_world, depsgraph, errors, ins
                     if key not in conflicts:
                         conflicts[key] = {'object_id': object_id, 'instance_id': instance_id, 'cell': {'x': math.floor(x/unit), 'y': math.floor(y/unit)}, 'layer': 'pose:'+locator['kind']+':'+locator['name'], 'max_intrusion_m': projected_intrusion(clip_polygon_box(prism_triangle, (x-radius,y-radius,floor+tol), (x+radius,y+radius,floor+1.85)), (x-radius,y-radius,x+radius,y+radius)), 'kind': locator['kind'], 'locator': locator['name'], 'witness_triangle_world_m': [list(p) for p in points]}
                         errors.append(f'object {object_id!r}: blocks {locator["kind"]} pose {locator["name"]!r}, tolerance {tol:g} m; clear this CUE approach')
+        for reserve in contract.get('reserved_hidden', []):
+            if reserve['id'] in hidden_surface_hits or not hidden_triangles:continue
+            centre=tuple((lo+hi)/2 for lo,hi in zip(reserve['min_m'],reserve['max_m']))
+            if closed_mesh_contains(hidden_triangles,centre):
+                low=reserve['min_m'];key=(object_id,'reserved_hidden',reserve['id'],'')
+                conflicts[key]={'object_id':object_id,'instance_id':instance_id,'cell':{'x':math.floor(low[0]/unit),'y':math.floor(low[1]/unit)},'layer':'reserved:'+reserve['id'],'kind':'reserved_hidden','max_intrusion_m':0,'containment_witness_plan_m':list(centre)}
+                errors.append(f'object {object_id!r}: closed solid encloses empty reserved_hidden volume {reserve["id"]!r}; clear the authored cavity')
         ev.to_mesh_clear()
     return sorted(conflicts.values(), key=lambda row: (row['object_id'], row['layer'], row['cell']['x'], row['cell']['y']))
 

@@ -170,3 +170,13 @@ func TestGateRequestRejectsAutomaticOrMissingGateWithoutMutation(t *testing.T){
  m=manualGateFixture();l:=m.Locations["g"];l.Gates[0].LockAtNight=false;m.Locations["g"]=l;s=m.Start()
  if g:=s.Gates["gate"];g.State!="closed"||g.From!=0{t.Fatalf("manual placement without lock_at_night did not start closed: %+v",g)}
 }
+
+// A transit record has no floor body. Its departure cell can close behind it;
+// the exact edge and arrival checks still reject fabricated transit positions.
+func TestTransitAnchorCanCloseAfterDeparture(t *testing.T){
+ m:=lifeFixture();s:=m.Start();a:=&s.Actors[0];a.Manual=true;a.Arrived=false;a.Position=m.Edges[0].Exit;a.Goal=a.Position;a.Trip=&LifeTrip{Edge:m.Edges[0].ID,Departure:0,Arrival:20};s.Seconds=1;s.Tick=1
+ l:=m.Locations["a"];l.Terrain=append([]string(nil),l.Terrain...);row:=[]byte(l.Terrain[a.Position.Y]);row[a.Position.X]='#';l.Terrain[a.Position.Y]=string(row);m.Locations["a"]=l
+ if err:=s.Validate(m,1);err!=nil{t.Fatal("closed departure anchor invalidated an absent rider",err)}
+ a.Trip=nil;if s.Validate(m,1)==nil{t.Fatal("standing person accepted inside a closed opening")}
+ a.Trip=&LifeTrip{Edge:m.Edges[0].ID,Departure:0,Arrival:20};a.Position=Cell{3,1};if s.Validate(m,1)==nil{t.Fatal("false transit position accepted")}
+}

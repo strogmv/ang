@@ -15,11 +15,13 @@ func(r *Runtime)completeHeroTravel()error{
  r.state.Life.ControlledActorID=playerActorID;edge:=r.state.Life.ControlledTravelEdge(r.world.Life);if edge==nil{return nil}
  key:=edge.From+"|"+edge.ID;if r.instantTravelEpoch==r.state.Epoch&&r.instantTravelStalled==key{return nil}
  hero:=r.state.Life.Actor(playerActorID);origin:=hero.Level
+ if hero.BoardedEdge!=""{return nil}
  if hero.Trip!=nil&&r.state.Life.TryCompleteControlledArrival(r.world.Life){r.syncLifeHero();r.syncRegionKnowledge();r.learnRegionTraversal(edge.ID);r.state.Epoch=newEpoch();r.openStore="";if err:=r.state.Life.AdvancePopulation(r.world.Life,playerActorID);err!=nil{return err};r.state.Life.SettleControlledArrival();r.syncLifeHero();r.updateLifeExploration();r.resetInstantTravel();return nil}
  // Cheap refusal avoids spending a simulated hour just to discover an already
  // unaffordable fare. The only debit remains the real boarding callback.
  if hero.Trip==nil&&edge.Fare!=nil&&!r.lifeFareAvailable(playerActorID,*edge){hero.AdmissionDeniedEdge=edge.ID;hero.Activity="waiting";hero.Label="transit.fare_denied";r.state.Life.ObserveDecisions();return nil}
- r.state.Life.BeginControlledTravel(r.world.Life,r.admitLifeTravel)
+ r.state.Life.BeginControlledTravel(r.lifeTravelModel(),r.admitLifeTravel)
+ if hero.Trip==nil&&r.isVisibleRailEdge(*edge){return nil}
  if err:=r.state.Life.AdvancePopulation(r.world.Life,playerActorID);err!=nil{return err}
  // Publish the actual trip before the bounded authoritative fast-forward.
  // No local countdown or artificial wall-clock delay is introduced.

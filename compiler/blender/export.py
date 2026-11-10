@@ -280,6 +280,62 @@ def material(name, fallback):
     return mat
 
 
+
+def export_named_hierarchy(base, objects, transform, file):
+    """Keep CUE-declared mechanism nodes; evaluated geometry stays at its pivot.
+
+    Material batching is valid for static art, but merging a leaf and its frame
+    destroys the motion contract. Copies isolate the export from the source.
+    The normal ANG adapter still owns its one basis reflection.
+    """
+    members = set(objects)
+    members.update(obj for obj in scene.objects if obj.type == 'EMPTY' and memberships.get(obj.name)==base and not obj.get('ang_ignore_reason'))
+    for obj in objects:
+        ancestor = obj.parent
+        while ancestor is not None and memberships.get(ancestor.name) == base:
+            members.add(ancestor)
+            ancestor = ancestor.parent
+    originals = sorted(members, key=lambda obj: obj.name)
+    names = {obj: obj.name for obj in originals}
+    copies = {}
+    temporary = bpy.data.collections.new('ANG_NAMED_EXPORT')
+    scene.collection.children.link(temporary)
+    bpy.ops.object.select_all(action='DESELECT')
+    try:
+        for original in originals:
+            original.name = 'ANG_SOURCE_' + names[original]
+        for original in originals:
+            if original.type == 'MESH':
+                evaluated = original.evaluated_get(depsgraph)
+                mesh = bpy.data.meshes.new_from_object(evaluated, depsgraph=depsgraph)
+                duplicate = bpy.data.objects.new(names[original], mesh)
+                if names[original] in object_roles:
+                    role = object_roles[names[original]]
+                    for index in range(len(mesh.materials)):
+                        mesh.materials[index] = material('ANG_ROLE__'+role, mesh.materials[index])
+            else:
+                duplicate = bpy.data.objects.new(names[original], None)
+            temporary.objects.link(duplicate)
+            duplicate['ang_source_node'] = names[original]
+            duplicate.matrix_world = transform @ original.matrix_world
+            copies[original] = duplicate
+        for original, duplicate in copies.items():
+            world = duplicate.matrix_world.copy()
+            if original.parent in copies:
+                duplicate.parent = copies[original.parent]
+                duplicate.matrix_world = world
+            duplicate.select_set(True)
+        bpy.ops.export_scene.gltf(filepath=str(file), export_format='GLB', use_selection=True,
+                                  export_yup=True, export_animations=False, export_lights=False,
+                                  export_cameras=False, export_extras=True)
+        return [names[obj] for obj in originals]
+    finally:
+        for duplicate in copies.values():
+            bpy.data.objects.remove(duplicate, do_unlink=True)
+        bpy.data.collections.remove(temporary)
+        for original in originals:
+            original.name = names[original]
+
 sources = source_assets
 models = {}
 ref_signatures = {}
@@ -314,6 +370,15 @@ for base,lod,objects in lod_groups:
         else:
             resource = prefix + file.name
         component.update({'file': file.name, 'sha256': digest(file), 'unchanged_source': str(asset), 'unchanged_source_sha256': digest(asset)})
+    elif row.get('preserve_nodes', False):
+        file = out / (key + '.glb')
+        preserved = export_named_hierarchy(base, objects, transform, file)
+        adapter = out / (key + '.tscn')
+        adapter.write_text('[gd_scene format=3]\n[ext_resource type="PackedScene" path=' + json.dumps(prefix + file.name) + ' id="asset"]\n[node name="Art" type="Node3D"]\n[node name="Source" parent="." instance=ExtResource("asset")]\nscale = Vector3(1, 1, -1)\n')
+        resource = prefix + adapter.name
+        component.update({'file':file.name, 'sha256':digest(file), 'adapter':adapter.name,
+                          'adapter_sha256':digest(adapter), 'preserved_nodes':preserved,
+                          'motion_policy':'server poses named nodes; animations are not exported'})
     else:
         batches = {}
         for obj in objects:

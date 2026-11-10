@@ -124,6 +124,9 @@ func Build(catalog Catalog, layout Layout) (CompiledLevel, error) {
 			}
 		}
 	}
+	if err := validateInterior(layout, support); err != nil {
+		return CompiledLevel{}, err
+	}
 	out := CompiledLevel{Camera: camera, Daylight: daylight, ID: layout.ID, UnitMM: UnitMM, Width: layout.Width, Depth: layout.Depth, Elevation: layout.Elevation, Grounded: layout.Grounded,
 		Instances: []CompiledInstance{}, Ports: []CompiledPort{}, Clearances: []CompiledClearance{}, ReservedPaths: []CompiledPath{}, Barriers: []Barrier{}, Drops: []DropAnnotation{}, Views: []PresentationView{}, Diagnostics: []Diagnostic{},
 		Preview: PreviewData{UnitMM: UnitMM, Width: layout.Width, Depth: layout.Depth, Floor: []PreviewFloor{}}}

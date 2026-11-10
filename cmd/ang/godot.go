@@ -210,6 +210,9 @@ func runGodot(args []string, stdout, stderr io.Writer) error {
 		}
 		finishing.Replacements = append(finishing.Replacements, replacements...)
 	}
+	if err := godot.ValidateInteriorAuthoring(finishing, *selected); err != nil {
+		return err
+	}
 	finishing, err = godot.ResolveArchitectureForLevel(finishing, level)
 	if err != nil {
 		return err
@@ -288,6 +291,22 @@ func runGodot(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+	floorDraws, err := godot.ResolveFloorDraws(level, manifest, finishing)
+	if err != nil {
+		return err
+	}
+	floorData, err := json.MarshalIndent(floorDraws, "", "  ")
+	if err != nil {
+		return err
+	}
+	finishBindingsScene, err := godot.RenderFinishingBindings(level, manifest, finishing)
+	if err != nil {
+		return err
+	}
+	architectureScene, err := godot.RenderArchitectureGeometry(level, manifest, finishing)
+	if err != nil {
+		return err
+	}
 	if *check {
 		_, err = fmt.Fprintf(stdout, "Validated Godot layout %s: %d placements\n", level.ID, len(manifest.Instances))
 		return err
@@ -299,7 +318,7 @@ func runGodot(args []string, stdout, stderr io.Writer) error {
 		name string
 		data []byte
 	}{
-		{"finishing.json", append(finishData, '\n')}, {"compiled.json", append(compiled, '\n')}, {"placements.json", append(placements, '\n')}, {"location.tscn", scene},
+		{"architecture-geometry.tscn", architectureScene}, {"finishing-bindings.tscn", finishBindingsScene}, {"floor-draws.json", append(floorData, '\n')}, {"finishing.json", append(finishData, '\n')}, {"compiled.json", append(compiled, '\n')}, {"placements.json", append(placements, '\n')}, {"location.tscn", scene},
 	} {
 		if err = writeLocationSDKFile(filepath.Join(*out, f.name), f.data); err != nil {
 			return err

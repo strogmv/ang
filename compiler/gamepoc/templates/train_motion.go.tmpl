@@ -4,11 +4,20 @@
 package poc
 
 import (
-	"encoding/json"
 	"math"
 )
 
 type trainMotionCatalog struct {
+ BerthDwellSeconds float64 `json:"berth_dwell_seconds"`
+ BerthEdgeID string `json:"berth_edge_id"`
+ BoardingDoorGroup string `json:"boarding_door_group"`
+ DoorTravelM float64 `json:"door_travel_m"`
+ BerthLevelID string `json:"berth_level_id"`
+ Timetable *trainTimetable `json:"timetable,omitempty"`
+ AccelerationMPS2 float64 `json:"acceleration_mps2"`
+ BrakingMPS2 float64 `json:"braking_mps2"`
+ BerthDistanceM float64 `json:"berth_distance_m"`
+ DoorCloseSeconds float64 `json:"door_close_seconds"`
  NameKey string `json:"name_key,omitempty"`
 	AdditionalFleet  []trainMotionStock       `json:"additional_fleet,omitempty"`
 	PrefabResource   string                   `json:"prefab_resource"`
@@ -17,10 +26,7 @@ type trainMotionCatalog struct {
 	StockID          string                   `json:"stock_id"`
 	RouteID          string                   `json:"route_id"`
 	RouteVersion     int                      `json:"route_version"`
-	EpochSeconds     int64                    `json:"epoch_seconds"`
-	InitialDistanceM float64                  `json:"initial_distance_m"`
 	SpeedMPS         float64                  `json:"speed_mps"`
-	DwellSeconds     float64                  `json:"dwell_seconds"`
 	Points           []trainRoutePoint        `json:"points"`
 	Modules          []trainModuleDefinition  `json:"modules"`
 	Bindings         []trainBindingDefinition `json:"bindings"`
@@ -30,7 +36,6 @@ type trainMotionStock struct {
 	PrefabResource   string  `json:"prefab_resource"`
 	TrainID          string  `json:"train_id"`
 	StockID          string  `json:"stock_id"`
-	InitialDistanceM float64 `json:"initial_distance_m"`
 }
 type trainRoutePoint struct {
 	X float64 `json:"x"`
@@ -67,6 +72,7 @@ type trainMotionSnapshot struct {
 	Trains       []trainMotionState `json:"trains"`
 }
 type trainMotionState struct {
+ DoorProgress float64 `json:"door_progress"`
  NameKey string `json:"name_key,omitempty"`
  Passages []trainPassageHint `json:"passages"`
  NextLocationKey string `json:"next_location_key"`
@@ -76,7 +82,6 @@ type trainMotionState struct {
 	StockID            string             `json:"stock_id"`
 	RouteID            string             `json:"route_id"`
 	RouteVersion       int                `json:"route_version"`
-	MotionEpochSeconds int64              `json:"motion_epoch_seconds"`
 	Run                int64              `json:"run"`
 	EventSequence      int64              `json:"event_sequence"`
 	Phase              string             `json:"phase"`
@@ -159,29 +164,11 @@ func trainProject(p trainPose, b trainBindingDefinition) trainPose {
 	return trainPose{X: b.X + co*p.X + si*p.Z, Y: b.FloorElevationM + b.Y + p.Y, Z: b.Z - si*p.X + co*p.Z, YawDegrees: p.YawDegrees + b.YawDegrees}
 }
 
-// snapshot has no writes: an unloaded world follows exactly the same route as
-// an observed world, and save/load recovers its pose from the saved physical simulation clock.
-func (c *trainMotionCatalog) snapshot(seconds float64) trainMotionState {
-	length := c.length()
-	movingSeconds := length / c.SpeedMPS
-	period := movingSeconds + c.DwellSeconds
-	elapsed := math.Max(0, seconds-float64(c.EpochSeconds)) + c.InitialDistanceM/c.SpeedMPS
-	run := int64(math.Floor(elapsed / period))
-	phaseTime := elapsed - float64(run)*period
-	out := trainMotionState{PrefabResource: c.PrefabResource, TrainID: c.TrainID, StockID: c.StockID, RouteID: c.RouteID, RouteVersion: c.RouteVersion, MotionEpochSeconds: c.EpochSeconds, Run: run, EventSequence: run * 2, Phase: "moving", SpeedMPS: c.SpeedMPS, PassengerActorIDs: []string{}, CargoContainerIDs: []string{}, Modules: []trainModuleState{}}
-	next := float64(c.EpochSeconds) - c.InitialDistanceM/c.SpeedMPS + float64(run)*period
-	if phaseTime >= movingSeconds {
-		out.Phase = "dwell"
-		out.EventSequence++
-		out.SpeedMPS = 0
-		out.DistanceM = 0
-		out.WheelTravelM = float64(run+1) * length
-		out.NextEventSeconds = next + period
-	} else {
-		out.DistanceM = phaseTime * c.SpeedMPS
-		out.WheelTravelM = float64(run)*length + out.DistanceM
-		out.NextEventSeconds = next + movingSeconds
-	}
+// render projects the single saved route position. Visibility is bounded to
+// authored straight slices, including the hidden depth of each tunnel.
+func (c *trainMotionCatalog) render(distance, speed float64, phase string, run int64, doors, active bool) trainMotionState {
+ length:=c.length()
+ out:=trainMotionState{PrefabResource:c.PrefabResource,TrainID:c.TrainID,StockID:c.StockID,RouteID:c.RouteID,RouteVersion:c.RouteVersion,Run:run,EventSequence:run,Phase:phase,DistanceM:distance,WheelTravelM:float64(run)*length+distance,SpeedMPS:speed,DoorsOpen:doors,PassengerActorIDs:[]string{},CargoContainerIDs:[]string{},Modules:[]trainModuleState{}}
 	for _, m := range c.Modules {
 		distance := trainWrap(out.DistanceM+m.OffsetM, length)
 		module := trainModuleState{ID: m.ID, DistanceM: distance, Bindings: []trainModuleBinding{}}
@@ -192,7 +179,7 @@ func (c *trainMotionCatalog) snapshot(seconds float64) trainMotionState {
 			// Test the module's full interval, including one crossing route zero.
 			for _, shift := range []float64{-length, 0, length} {
 				d := distance + shift
-				if d+m.LengthM/2 >= b.StartM && d-m.LengthM/2 <= b.EndM {
+				if active && d+m.LengthM/2 >= b.StartM && d-m.LengthM/2 <= b.EndM {
 					visible = true
 				}
 			}
@@ -206,50 +193,37 @@ func (c *trainMotionCatalog) snapshot(seconds float64) trainMotionState {
 		}
 		out.Modules = append(out.Modules, module)
 	}
-	// Arrival means the first physical module entering an authored visible
-	// slice, not a stop or a timetable. Wrap includes the actual off-scene dwell.
-	bestETA := math.Inf(1)
-	out.NameKey = c.NameKey
-	for _, b := range c.Bindings {
-		if b.NameKey == "" { continue }
-		target := trainWrap(b.StartM-c.Modules[0].LengthM/2,length)
-		distance := trainWrap(target-out.DistanceM,length)
-		eta := distance/c.SpeedMPS
-		if out.Phase == "dwell" { eta = out.NextEventSeconds-seconds+target/c.SpeedMPS
-		} else if target < out.DistanceM { eta += c.DwellSeconds }
-		visible := false
-		for _, module := range out.Modules {for _, binding := range module.Bindings {if binding.LevelID==b.LevelID && binding.Visible {visible=true}}}
-		out.Passages=append(out.Passages,trainPassageHint{LevelID:b.LevelID,NameKey:b.NameKey,Visible:visible,ETASeconds:eta,ArrivalClockSeconds:seconds+eta,Approaching:!visible&&eta>0&&eta<=b.ApproachSeconds})
-		if !visible && eta < bestETA {bestETA=eta;out.NextLocationKey=b.NameKey;out.NextLocationETASeconds=eta}
-	}
-	return out
+ out.NameKey=c.NameKey
+ return out
 }
 
-// Fleet members never swap stock. Each applies its own authored phase to the
-// same saved physical clock; the shared geometry slices remain read-only.
-func (c *trainMotionCatalog) snapshots(seconds float64) []trainMotionState {
-	states := make([]trainMotionState, 0, 1+len(c.AdditionalFleet))
-	states = append(states, c.snapshot(seconds))
-	for _, stock := range c.AdditionalFleet {
-		member := *c
-		member.TrainID = stock.TrainID
-		member.NameKey = stock.NameKey
-		member.StockID = stock.StockID
-		member.PrefabResource = stock.PrefabResource
-		member.InitialDistanceM = stock.InitialDistanceM
-		states = append(states, member.snapshot(seconds))
-	}
-	return states
-}
-func (r *Runtime) trainMotionJSON() string {
-	ns := r.simNS()
-	snapshot := trainMotionSnapshot{ClockDomain: "simulation", ClockSeconds: float64(ns) / 1e9, SampleSimNS: ns, Epoch: r.state.Epoch, GameSeconds: r.state.Life.Seconds, Trains: []trainMotionState{}}
-	if c := r.world.TrainMotion; c != nil && r.state.Life.Enabled {
-		snapshot.Trains = c.snapshots(snapshot.ClockSeconds)
-	}
-	raw, err := json.Marshal(snapshot)
-	if err != nil {
-		panic(err)
-	} // CUE compile validation forbids non-finite input.
-	return string(raw)
+func (r *Runtime) trainMotionSnapshot() trainMotionSnapshot {
+ ns:=r.simNS()
+ snapshot:=trainMotionSnapshot{ClockDomain:"simulation",ClockSeconds:float64(ns)/1e9,SampleSimNS:ns,Epoch:r.state.Epoch,GameSeconds:r.state.Life.Seconds,Trains:[]trainMotionState{}}
+ c:=r.world.TrainMotion
+ if c==nil||c.Timetable==nil||!r.state.Life.Enabled{return snapshot}
+ dispatch:=r.state.TrainDispatch
+ distance,speed,phase,doors:=c.dispatchPose(dispatch,ns)
+ fleet:=append([]trainMotionStock{{NameKey:c.NameKey,PrefabResource:c.PrefabResource,TrainID:c.TrainID,StockID:c.StockID}},c.AdditionalFleet...)
+ for i,stock:=range fleet{
+  member:=*c;member.NameKey=stock.NameKey;member.PrefabResource=stock.PrefabResource;member.TrainID=stock.TrainID;member.StockID=stock.StockID
+  active:=dispatch.Active==i+1
+  localPhase,localSpeed,localDistance,localDoors:=phase,speed,distance,doors
+  if !active{localPhase="idle";localSpeed=0;localDistance=0;localDoors=false}
+  state:=member.render(localDistance,localSpeed,localPhase,dispatch.Run,localDoors,active)
+  if localDoors{state.DoorProgress=1}else if active&&localPhase=="closing"{state.DoorProgress=math.Max(0,1-float64(ns-dispatch.DepartNS)/1e9/c.DoorCloseSeconds)}
+  best:=math.Inf(1)
+  for _,binding:=range c.Bindings{
+   visible:=false
+   for _,module:=range state.Modules{for _,b:=range module.Bindings{if b.LevelID==binding.LevelID&&b.Visible{visible=true}}}
+   eta:=c.arrivalETA(dispatch,min(i,1),ns,snapshot.GameSeconds,distance,binding.StartM-c.Modules[0].LengthM/2)
+   if visible{eta=0}
+
+   arrivalClock:=0.0;if eta>=0{arrivalClock=snapshot.ClockSeconds+eta}
+   state.Passages=append(state.Passages,trainPassageHint{LevelID:binding.LevelID,NameKey:binding.NameKey,Visible:visible,ETASeconds:eta,ArrivalClockSeconds:arrivalClock,Approaching:!visible&&eta>0&&eta<=binding.ApproachSeconds})
+   if !visible&&eta>=0&&eta<best{best=eta;state.NextLocationKey=binding.NameKey;state.NextLocationETASeconds=eta}
+  }
+  snapshot.Trains=append(snapshot.Trains,state)
+ }
+ return snapshot
 }

@@ -29,7 +29,7 @@ func TestTrainMotionExternalImagesAndLegacyPNG(t *testing.T) {
 		}
 	}
 	writePNG("MarketArt/hub")
-	scene := PaintedScene{LevelID: "level.c7_transport_hub", Width: 1672, Height: 941, Background: "MarketArt/hub", AmbientPassages: []PaintedAmbientPassage{{ID: "hub.lower_freight_rail", MotionSource: "train_motion"}}}
+	scene := PaintedScene{LevelID: "level.c7_transport_hub", Width: 1672, Height: 941, Background: "MarketArt/hub", AmbientPassages: []PaintedAmbientPassage{{ID: "example.external_train", MotionSource: "train_motion"}}}
 	if err := checkPaintedImages(unity, []PaintedScene{scene}); err != nil {
 		t.Fatalf("geometry-only external passage demanded PNG: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestTrainMotionFullGeneration(t *testing.T) {
 	if !strings.Contains(filepath.ToSlash(absolute), "-stage/") {
 		t.Fatal("full generation test requires an explicitly isolated -stage project")
 	}
-	if err = Generate(absolute); err != nil {
+	if err = GenerateActive(absolute); err != nil {
 		t.Fatalf("complete Generate, including authored image consumers: %v", err)
 	}
 	worldRaw, err := os.ReadFile(filepath.Join(absolute, "internal/poc/world.json"))
@@ -88,24 +88,15 @@ func TestTrainMotionFullGeneration(t *testing.T) {
 		t.Fatal("generated server lost train catalog")
 	}
 	bindings := world.TrainMotion.Bindings
-	if len(bindings) != 3 || bindings[1].LevelID != "level.c7_transport_hub" || bindings[1].PassageID != "" || bindings[1].X != -60.2 || bindings[1].Y != -6 || bindings[1].Z != 200 || bindings[1].YawDegrees != 90 {
+	if len(bindings) != 3 || bindings[0].LevelID != "level.c7_transport_hub" || bindings[0].PassageID != "" || bindings[0].X != 0 || bindings[0].Y != 0 || bindings[0].Z != 27.5 || bindings[0].FloorElevationM != 18 || bindings[0].YawDegrees != 0 {
 		t.Fatal("generated server retained old station route")
 	}
-	clientRaw, err := os.ReadFile(filepath.Join(absolute, world.Config.UnityDir, "Assets/Resources/PocConfig.json"))
+	contract, err := os.ReadFile(filepath.Join(absolute, "../client-godot/generated/game_contract.gd"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var client struct {
-		ContentHash string `json:"content_hash"`
-		Art         struct {
-			Painted []PaintedScene `json:"painted"`
-		} `json:"art"`
-	}
-	if err = json.Unmarshal(clientRaw, &client); err != nil {
-		t.Fatal(err)
-	}
-	if len(client.ContentHash) != 64 {
-		t.Fatal("generated client has no content hash")
+	if !strings.Contains(string(contract), "var train_motion: PocRailMotion") || strings.Contains(string(contract), "var train_motion_json:") {
+		t.Fatal("active client retained the opaque train JSON instead of typed poses")
 	}
 	hub, station := false, false
 	for _, b := range world.ModularLocations {
@@ -117,7 +108,7 @@ func TestTrainMotionFullGeneration(t *testing.T) {
 			}
 		}
 	}
-	for _, scene := range client.Art.Painted {
+	for _, scene := range world.Art.Painted {
 		if scene.LevelID == "level.c7_transport_hub" {
 			t.Fatal("native hub retained obsolete painted calibration")
 		}

@@ -12,7 +12,7 @@ import (
 )
 
 func trainMotionFixture() TrainMotionCatalog {
-	return TrainMotionCatalog{PrefabResource: "TrainMotion/MarketTrainV1", ClockDomain: "simulation", TrainID: "train.test", StockID: "stock.test", RouteID: "route.test", RouteVersion: 1, EpochSeconds: 0, InitialDistanceM: 152.4, SpeedMPS: 3, DwellSeconds: 12,
+	return TrainMotionCatalog{BoardingDoorGroup: "passenger_far_", BerthDwellSeconds: 20, PrefabResource: "TrainMotion/MarketTrainV1", ClockDomain: "simulation", TrainID: "train.test", StockID: "stock.test", RouteID: "route.test", RouteVersion: 1, SpeedMPS: 3, AccelerationMPS2: .5, BrakingMPS2: .5, BerthDistanceM: 152.4, BerthLevelID: "a", DoorCloseSeconds: 2.8, DoorTravelM: .94, Timetable: &TrainTimetable{PeriodSeconds: 300, NightPeriodSeconds: 3600, DayStartSecond: 21600, DayEndSecond: 79200, BoardingWindowSeconds: 20, FreightOffsetSeconds: 150},
 		Points:   []TrainRoutePoint{{-100, 0}, {300, 0}, {300, 400}, {-100, 400}, {-100, 0}},
 		Modules:  []TrainModule{{"passenger", 0, 2.8, 13.6, -.53, []float64{4, -4}}, {"freight", -14.2, 2.8, 13.6, -.53, []float64{4, -4}}, {"freight2", -28.4, 2.8, 13.6, -.53, []float64{4, -4}}, {"freight3", -42.6, 2.8, 13.6, -.53, []float64{4, -4}}},
 		Bindings: []TrainBinding{{LevelID: "a", StartM: 100, EndM: 220}, {LevelID: "b", PassageID: "b.lower", StartM: 500, EndM: 620}, {LevelID: "c", PassageID: "c.lower", StartM: 900, EndM: 1020}}}
@@ -24,25 +24,30 @@ func TestTrainMotionRejectsInvalidRoutes(t *testing.T) {
 		t.Fatal(err)
 	}
 	cases := map[string]func(*TrainMotionCatalog){
-		"raw hint":                 func(c *TrainMotionCatalog) { c.NameKey = "Passenger train" },
-		"bad cue":                  func(c *TrainMotionCatalog) { c.Bindings[0].ApproachSeconds = 31 },
-		"unnamed cue":              func(c *TrainMotionCatalog) { c.Bindings[0].ApproachSeconds = 8 },
-		"missing third binding":    func(c *TrainMotionCatalog) { c.Bindings = c.Bindings[:2] },
-		"unknown level":            func(c *TrainMotionCatalog) { c.Bindings[0].LevelID = "missing" },
-		"duplicate level":          func(c *TrainMotionCatalog) { c.Bindings[1].LevelID = "a" },
-		"open route":               func(c *TrainMotionCatalog) { c.Points = c.Points[:len(c.Points)-1] },
-		"degenerate segment":       func(c *TrainMotionCatalog) { c.Points[1] = c.Points[0] },
-		"non-finite route":         func(c *TrainMotionCatalog) { c.Points[1].X = math.NaN() },
-		"infinite binding":         func(c *TrainMotionCatalog) { c.Bindings[0].X = math.Inf(1) },
-		"non-finite speed":         func(c *TrainMotionCatalog) { c.SpeedMPS = math.NaN() },
-		"non-finite dwell":         func(c *TrainMotionCatalog) { c.DwellSeconds = math.Inf(1) },
-		"invalid initial distance": func(c *TrainMotionCatalog) { c.InitialDistanceM = 1600 },
-		"entry to exterior train":  func(c *TrainMotionCatalog) { c.Bindings[0].EntryAllowed = true },
-		"sharp visible corner":     func(c *TrainMotionCatalog) { c.Bindings[0].StartM = 350; c.Bindings[0].EndM = 470 },
-		"duplicate module":         func(c *TrainMotionCatalog) { c.Modules[1].ID = c.Modules[0].ID },
-		"missing body width":       func(c *TrainMotionCatalog) { c.Modules[0].WidthM = 0 },
-		"invalid body width":       func(c *TrainMotionCatalog) { c.Modules[0].WidthM = math.NaN() },
-		"bogie outside body":       func(c *TrainMotionCatalog) { c.Modules[0].BogieOffsetsM[0] = 10 },
+		"missing boarding side":   func(c *TrainMotionCatalog) { c.BoardingDoorGroup = "" },
+		"unsafe boarding side":    func(c *TrainMotionCatalog) { c.BoardingDoorGroup = "../near" },
+		"missing physical stand":  func(c *TrainMotionCatalog) { c.BerthDwellSeconds = 0 },
+		"missing timetable":       func(c *TrainMotionCatalog) { c.Timetable = nil },
+		"invalid acceleration":    func(c *TrainMotionCatalog) { c.AccelerationMPS2 = 0 },
+		"invalid braking":         func(c *TrainMotionCatalog) { c.BrakingMPS2 = math.NaN() },
+		"berth outside track":     func(c *TrainMotionCatalog) { c.BerthDistanceM = 300 },
+		"raw hint":                func(c *TrainMotionCatalog) { c.NameKey = "Passenger train" },
+		"bad cue":                 func(c *TrainMotionCatalog) { c.Bindings[0].ApproachSeconds = 31 },
+		"unnamed cue":             func(c *TrainMotionCatalog) { c.Bindings[0].ApproachSeconds = 8 },
+		"missing third binding":   func(c *TrainMotionCatalog) { c.Bindings = c.Bindings[:2] },
+		"unknown level":           func(c *TrainMotionCatalog) { c.Bindings[0].LevelID = "missing" },
+		"duplicate level":         func(c *TrainMotionCatalog) { c.Bindings[1].LevelID = "a" },
+		"open route":              func(c *TrainMotionCatalog) { c.Points = c.Points[:len(c.Points)-1] },
+		"degenerate segment":      func(c *TrainMotionCatalog) { c.Points[1] = c.Points[0] },
+		"non-finite route":        func(c *TrainMotionCatalog) { c.Points[1].X = math.NaN() },
+		"infinite binding":        func(c *TrainMotionCatalog) { c.Bindings[0].X = math.Inf(1) },
+		"non-finite speed":        func(c *TrainMotionCatalog) { c.SpeedMPS = math.NaN() },
+		"entry to exterior train": func(c *TrainMotionCatalog) { c.Bindings[0].EntryAllowed = true },
+		"sharp visible corner":    func(c *TrainMotionCatalog) { c.Bindings[0].StartM = 350; c.Bindings[0].EndM = 470 },
+		"duplicate module":        func(c *TrainMotionCatalog) { c.Modules[1].ID = c.Modules[0].ID },
+		"missing body width":      func(c *TrainMotionCatalog) { c.Modules[0].WidthM = 0 },
+		"invalid body width":      func(c *TrainMotionCatalog) { c.Modules[0].WidthM = math.NaN() },
+		"bogie outside body":      func(c *TrainMotionCatalog) { c.Modules[0].BogieOffsetsM[0] = 10 },
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -59,7 +64,7 @@ func TestTrainMotionFleetValidation(t *testing.T) {
 	life := json.RawMessage(`{"locations":{"a":{},"b":{},"c":{}}}`)
 	fixture := func() TrainMotionCatalog {
 		c := trainMotionFixture()
-		c.AdditionalFleet = []TrainMotionStock{{PrefabResource: "TrainMotion/FreightTrainV2", TrainID: "train.freight", StockID: "stock.freight", InitialDistanceM: 952.4}}
+		c.AdditionalFleet = []TrainMotionStock{{PrefabResource: "TrainMotion/FreightTrainV2", TrainID: "train.freight", StockID: "stock.freight"}}
 		return c
 	}
 	valid := fixture()
@@ -67,14 +72,10 @@ func TestTrainMotionFleetValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 	cases := map[string]func(*TrainMotionCatalog){
-		"duplicate train":                  func(c *TrainMotionCatalog) { c.AdditionalFleet[0].TrainID = c.TrainID },
-		"duplicate stock":                  func(c *TrainMotionCatalog) { c.AdditionalFleet[0].StockID = c.StockID },
-		"empty stock":                      func(c *TrainMotionCatalog) { c.AdditionalFleet[0].StockID = "" },
-		"unsafe resource":                  func(c *TrainMotionCatalog) { c.AdditionalFleet[0].PrefabResource = "../Freight" },
-		"nonfinite phase":                  func(c *TrainMotionCatalog) { c.AdditionalFleet[0].InitialDistanceM = math.Inf(1) },
-		"outside route":                    func(c *TrainMotionCatalog) { c.AdditionalFleet[0].InitialDistanceM = 1600 },
-		"initial overlap":                  func(c *TrainMotionCatalog) { c.AdditionalFleet[0].InitialDistanceM = c.InitialDistanceM + 30 },
-		"dwell closes otherwise clear gap": func(c *TrainMotionCatalog) { c.AdditionalFleet[0].InitialDistanceM = c.InitialDistanceM + 80 },
+		"duplicate train": func(c *TrainMotionCatalog) { c.AdditionalFleet[0].TrainID = c.TrainID },
+		"duplicate stock": func(c *TrainMotionCatalog) { c.AdditionalFleet[0].StockID = c.StockID },
+		"empty stock":     func(c *TrainMotionCatalog) { c.AdditionalFleet[0].StockID = "" },
+		"unsafe resource": func(c *TrainMotionCatalog) { c.AdditionalFleet[0].PrefabResource = "../Freight" },
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -140,11 +141,11 @@ func TestTrainMotionAuthoredCUE(t *testing.T) {
 	if c.TrainMotion.ClockDomain != "simulation" || c.TrainMotion.SpeedMPS != 8 || len(c.TrainMotion.Modules) != 4 {
 		t.Fatal("wrong physical motion contract")
 	}
-	if c.TrainMotion.RouteVersion != 3 || len(c.TrainMotion.AdditionalFleet) != 1 || c.TrainMotion.TrainID != "train.c7.passenger.01" || c.TrainMotion.PrefabResource != "TrainMotion/PassengerTrainV2" || c.TrainMotion.InitialDistanceM != 152.4 {
+	if c.TrainMotion.RouteVersion != 5 || len(c.TrainMotion.AdditionalFleet) != 1 || c.TrainMotion.TrainID != "train.c7.passenger.01" || c.TrainMotion.PrefabResource != "TrainMotion/PassengerTrainV2" || c.TrainMotion.Timetable == nil {
 		t.Fatal("wrong passenger fleet identity/phase")
 	}
 	freight := c.TrainMotion.AdditionalFleet[0]
-	if freight.TrainID != "train.c7.freight.01" || freight.PrefabResource != "TrainMotion/FreightTrainV2" || freight.InitialDistanceM != 632.4 {
+	if freight.TrainID != "train.c7.freight.01" || freight.PrefabResource != "TrainMotion/FreightTrainV2" {
 		t.Fatal("wrong freight fleet identity/phase")
 	}
 	for i, id := range []string{"car.01", "car.02", "car.03", "car.04"} {
@@ -152,7 +153,7 @@ func TestTrainMotionAuthoredCUE(t *testing.T) {
 			t.Fatal("fleet car node contract drift")
 		}
 	}
-	if got := c.TrainMotion.Bindings; len(got) != 3 || got[0].LevelID != "level.c7_market" || got[1].LevelID != "level.c7_transport_hub" || got[2].LevelID != "level.poc_housing" {
+	if got := c.TrainMotion.Bindings; len(got) != 3 || got[0].LevelID != "level.c7_transport_hub" || got[1].LevelID != "level.c7_market" || got[2].LevelID != "level.poc_housing" {
 		t.Fatal("wrong physical views")
 	}
 	hubNative := false
@@ -161,11 +162,11 @@ func TestTrainMotionAuthoredCUE(t *testing.T) {
 			hubNative = true
 		}
 	}
-	hubBinding := c.TrainMotion.Bindings[1]
-	if hubNative && (hubBinding.PassageID != "" || hubBinding.X != -60.2 || hubBinding.Y != -6 || hubBinding.Z != 200 || hubBinding.YawDegrees != 90 || hubBinding.StartM != 360.2 || hubBinding.EndM != 420) {
-		t.Fatal("native hub lost the existing lower through-rail transform")
+	hubBinding := c.TrainMotion.Bindings[0]
+	if !hubNative || (hubBinding.PassageID != "" || hubBinding.X != 0 || hubBinding.Y != 0 || hubBinding.Z != 27.5 || hubBinding.YawDegrees != 0 || hubBinding.StartM != 100 || hubBinding.EndM != 164 || hubBinding.FloorElevationM != 18) {
+		t.Fatal("native hub must bind the real upper platform railway, not the retired lower loop")
 	}
-	if (!hubNative && hubBinding.PassageID != "hub.lower_freight_rail") || c.TrainMotion.Bindings[2].PassageID != "housing.lower_rail" {
+	if c.TrainMotion.Bindings[2].PassageID != "housing.lower_rail" {
 		t.Fatal("missing explicit rail identity")
 	}
 
@@ -206,18 +207,13 @@ func TestTrainMotionAuthoredCUE(t *testing.T) {
 	}
 	metrics := map[string]float64{}
 	for _, scene := range c.Art.Painted {
-		if hubNative && scene.LevelID == "level.c7_transport_hub" {
+		if scene.LevelID == "level.c7_transport_hub" {
 			t.Fatal("native hub retained incompatible painted geometry")
 		}
 		for _, passage := range scene.AmbientPassages {
 			if scene.LevelID == "level.poc_monorail" && passage.ID == "station.back_rail" {
 				if passage.PeriodSeconds != 300 || passage.NightPeriodSeconds != 3600 || passage.DwellSeconds != 20 || len(passage.BerthDoors) != 2 || passage.MotionSource == "train_motion" || passage.MetricRail != nil {
 					t.Fatal("legacy passenger berth changed")
-				}
-			}
-			if scene.LevelID == "level.c7_transport_hub" && passage.ID == "hub.lower_freight_rail" {
-				if passage.MotionSource != "train_motion" || passage.Image != "" || passage.PeriodSeconds != 0 || passage.ElevationM != 12 {
-					t.Fatal("hub exterior gained a second sprite/schedule or wrong elevation")
 				}
 			}
 
@@ -229,7 +225,7 @@ func TestTrainMotionAuthoredCUE(t *testing.T) {
 			}
 		}
 	}
-	if (!hubNative && metrics["level.c7_transport_hub"] != 29.9) || metrics["level.poc_housing"] != 60 {
+	if metrics["level.poc_housing"] != 60 {
 		t.Fatal("missing fixed authored rail datums in actual CUE")
 	}
 }
@@ -245,11 +241,29 @@ func TestTrainMotionRuntimeTrajectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	files := map[string]string{"go.mod": "module trainmotiontest\n\ngo 1.24\n", "train.go": string(source), "runtime.go": `package poc
- type Runtime struct{ world struct{TrainMotion *trainMotionCatalog};state struct{Epoch string;Tick,PhaseNS int64; Life struct{Seconds int64;Enabled bool}} }
+	files := map[string]string{"go.mod": "module angelsdemons/server\n\ngo 1.24\n", "train.go": string(source), "runtime.go": `package poc
+ type state struct{TrainDispatch trainDispatchState;Epoch string;Tick,PhaseNS int64; Life struct{Seconds int64;Enabled bool}}
+ type Runtime struct{world struct{TrainMotion *trainMotionCatalog};state state}
+ func(r *Runtime)tickNS()int64{return 100000000}
  func(r *Runtime)simNS()int64{return r.state.Tick*100000000+r.state.PhaseNS}
  `, "train_test.go": strings.Replace(trainMotionRuntimeTests, "FIXTURE", string(raw), 1)}
+	dispatch, err := os.ReadFile("templates/train_dispatch.go.tmpl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	files["dispatch.go"] = string(dispatch)
+	lifeSource, err := os.ReadFile("../behavior/templates/life.go.tmpl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lifeText := string(lifeSource)
+	first := strings.Index(lifeText, "type LifeEdge struct")
+	last := strings.Index(lifeText, "type LifeStep struct")
+	files["internal/behavior/schedule.go"] = "package behavior\ntype Cell struct{X,Y int}\ntype LifeFare struct{}\n" + lifeText[first:last]
 	for name, body := range files {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0755); err != nil {
+			t.Fatal(err)
+		}
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0600); err != nil {
 			t.Fatal(err)
 		}
@@ -265,82 +279,99 @@ func TestTrainMotionRuntimeTrajectory(t *testing.T) {
 
 const trainMotionRuntimeTests = `package poc
 import("encoding/json";"math";"reflect";"testing")
-func fixture(t *testing.T)*trainMotionCatalog{t.Helper();var c trainMotionCatalog;if err:=json.Unmarshal([]byte(` + "`FIXTURE`" + `),&c);err!=nil{t.Fatal(err)};return &c}
-func TestExplicitPassageIDSurvivesServerSnapshot(t *testing.T){c:=fixture(t);v:=c.snapshot(100);for _,m:=range v.Modules {for i,b:=range m.Bindings {if b.PassageID!=c.Bindings[i].PassageID {t.Fatal("snapshot lost explicit rail aperture identity")}}}}
-func TestOneTrainPassesABC(t *testing.T){
- c:=fixture(t);seen:=[]string{};last:="";prior:=0.0
- for seconds:=c.EpochSeconds;seconds<c.EpochSeconds+380;seconds++{
-  s:=c.snapshot(float64(seconds));if s.TrainID!=c.TrainID||s.StockID!=c.StockID||s.PrefabResource!=c.PrefabResource||len(s.Modules)!=4{t.Fatal("identity changed")};if s.WheelTravelM<prior{t.Fatal("wheel travel went backward")};prior=s.WheelTravelM
-  if s.EntryAllowed||s.DoorsOpen||len(s.PassengerActorIDs)!=0||len(s.CargoContainerIDs)!=0{t.Fatal("exterior train acquired logistics")}
-  for _,b:=range s.Modules[0].Bindings{if b.Visible&&b.LevelID!=last{seen=append(seen,b.LevelID);last=b.LevelID}}
+func fixture(t *testing.T)*trainMotionCatalog{t.Helper();var c trainMotionCatalog;if err:=json.Unmarshal([]byte(` + "`FIXTURE`" + `),&c);err!=nil{t.Fatal(err)};c.SpeedMPS=8;c.AccelerationMPS2=2;c.BrakingMPS2=2;c.BerthDistanceM=160;c.DoorCloseSeconds=2.8;c.BerthLevelID="a";c.Timetable=&trainTimetable{PeriodSeconds:300,NightPeriodSeconds:3600,DayStartSecond:21600,DayEndSecond:79200,BoardingWindowSeconds:20,FreightOffsetSeconds:150};c.AdditionalFleet=[]trainMotionStock{{TrainID:"freight",StockID:"freight.stock",PrefabResource:"Freight"}};return &c}
+func TestSharedTimetableBoundaries(t *testing.T){c:=fixture(t);for _,pair:=range [][2]int64{{0,0},{1,3600},{21599,21600},{21601,21900},{79199,79200},{79201,82800},{86399,86400}}{if got:=c.Timetable.next(pair[0],false);got!=pair[1]{t.Fatalf("departure %d=%d expected%d",pair[0],got,pair[1])}}}
+func TestAllRatesDayNightNoOverlapSavedContinuity(t *testing.T){
+ for _,rate:=range []int64{1,10,30}{for _,start:=range []int64{21600,79200}{
+  c:=fixture(t);r:=&Runtime{};r.world.TrainMotion=c;r.state.Life.Enabled=true;r.state.Life.Seconds=start
+  var previousDistance float64;var previousSpeed float64;var previousRun int64;seen:=map[string]bool{};starts:=0;berths:=0;skipped:=int64(0)
+  for tick:=int64(1);tick<=40000;tick++{
+   prior:=r.state.Life.Seconds;r.state.Tick=tick;r.state.Life.Seconds+=rate;r.advanceTrainMotion(prior)
+   state:=r.state.TrainDispatch;ns:=r.simNS();distance,speed,phase,doors:=c.dispatchPose(state,ns)
+   if state.Active!=0{
+    seen[phase]=true
+    if state.Run!=previousRun{starts++;previousRun=state.Run}else{
+     delta:=distance-previousDistance;if delta < -.000001||delta>c.SpeedMPS*.100001{t.Fatalf("position jump rate%d phase%s delta%g",rate,phase,delta)}
+     if math.Abs(speed-previousSpeed)>.201{t.Fatalf("speed discontinuity: %g -> %g",previousSpeed,speed)}
+    }
+    if doors{berths++;if phase!="berthed"||speed!=0||math.Abs(distance-c.BerthDistanceM)>1e-8{t.Fatal("doors outside stationary berth")}}
+    previousDistance,previousSpeed=distance,speed
+   }
+   if tick==1234{raw,_:=json.Marshal(r.state);loaded:=&Runtime{};loaded.world.TrainMotion=c;if err:=json.Unmarshal(raw,&loaded.state);err!=nil{t.Fatal(err)};if !reflect.DeepEqual(r.trainMotionSnapshot(),loaded.trainMotionSnapshot()){t.Fatal("save/load changed pose")}}
+   if tick%127==0{before:=r.state;one,two:=r.trainMotionSnapshot(),r.trainMotionSnapshot();if !reflect.DeepEqual(one,two)||!reflect.DeepEqual(before,r.state){t.Fatal("observer advanced train")}}
+   if state.Skipped<skipped{t.Fatal("skip count reversed")};skipped=state.Skipped
+  }
+  if starts<2{t.Fatalf("trains absent rate%d start%d phases%v",rate,start,seen)}
+  if rate==1&&(!seen["braking"]||!seen["berthed"]||!seen["accelerating"]||berths==0){t.Fatal("passenger stop incomplete")}
+  if rate>1&&skipped==0{t.Fatal("overdue departures not skipped")}
+ }}
+}
+func TestOneSavedTrainPositivelyTraversesAllThreeViews(t *testing.T){
+ c:=fixture(t);seen:=[]string{};last:="";prior:=-1.0
+ for distance:=0.0;distance<c.length();distance+=.25{
+  state:=c.render(distance,c.SpeedMPS,"passing",1,false,true)
+  if state.TrainID!=c.TrainID||state.StockID!=c.StockID||state.PrefabResource!=c.PrefabResource||len(state.Modules)!=4||len(state.PassengerActorIDs)!=0||len(state.CargoContainerIDs)!=0{t.Fatal("persistent stock identity or logistics changed")}
+  if state.WheelTravelM<prior{t.Fatal("wheel travel reversed within accepted run")};prior=state.WheelTravelM
+  for _,binding:=range state.Modules[0].Bindings{if binding.Visible&&binding.LevelID!=last{seen=append(seen,binding.LevelID);last=binding.LevelID}}
  }
- if !reflect.DeepEqual(seen,[]string{"a","b","c"}){t.Fatalf("route order: %v",seen)}
- s:=c.snapshot(float64(c.EpochSeconds));if math.Abs(s.Modules[0].Bindings[0].X-52.4)>1e-8{t.Fatal("initial metric pose")};if math.Abs(s.Modules[3].Bindings[0].X-9.8)>1e-8{t.Fatal("independent rear pose")}
- if math.Abs(s.Modules[0].Bindings[0].Bogies[0].X-56.4)>1e-8{t.Fatal("bogie distance")}
+ if !reflect.DeepEqual(seen,[]string{"a","b","c"}){t.Fatalf("actual positive three-view coverage/order: %v",seen)}
 }
-func TestUnobservedSaveLoadAndPause(t *testing.T){
- c:=fixture(t);r:=&Runtime{};r.world.TrainMotion=c;r.state.Epoch="a";r.state.Life.Enabled=true;r.state.Life.Seconds=25200;r.state.Tick=(c.EpochSeconds+200)*10
- before:=r.trainMotionJSON();for i:=0;i<100;i++{if r.trainMotionJSON()!=before{t.Fatal("snapshot mutated train")}}
- saved,err:=json.Marshal(r.state);if err!=nil{t.Fatal(err)};loaded:=&Runtime{};loaded.world.TrainMotion=c;if err:=json.Unmarshal(saved,&loaded.state);err!=nil{t.Fatal(err)}
- if loaded.trainMotionJSON()!=before{t.Fatal("load reset trip")}
- // No samples / observer while world time advances between B and C.
- r.state.Tick+=700;loaded.state.Tick+=700
- if loaded.trainMotionJSON()!=r.trainMotionJSON(){t.Fatal("unloaded continuation diverged")}
- now:=c.snapshot(float64(loaded.simNS())/1e9);if !now.Modules[0].Bindings[2].Visible{t.Fatal("train did not arrive at C")}
- loaded.state.Epoch="loaded";now2:=c.snapshot(float64(loaded.simNS())/1e9);if !reflect.DeepEqual(now,now2){t.Fatal("transport epoch altered motion")}
-}
-func TestCalendarRateDoesNotScalePhysicalMotion(t *testing.T){
- c:=fixture(t);r:=&Runtime{};r.world.TrainMotion=c;r.state.Life.Enabled=true;r.state.Tick=100;r.state.Life.Seconds=25200
- var before,after trainMotionSnapshot;json.Unmarshal([]byte(r.trainMotionJSON()),&before)
- r.state.Life.Seconds+=30000;json.Unmarshal([]byte(r.trainMotionJSON()),&after)
- if !reflect.DeepEqual(before.Trains,after.Trains)||before.ClockSeconds!=after.ClockSeconds{t.Fatal("calendar acceleration moved physical train")}
- r.state.PhaseNS=50000000;json.Unmarshal([]byte(r.trainMotionJSON()),&after)
- if math.Abs(after.Trains[0].WheelTravelM-before.Trains[0].WheelTravelM-.15)>1e-8{t.Fatal("saved sub-tick phase not represented")}
-}
-func TestIndependentCarAndBogieTangents(t *testing.T){
- c:=fixture(t);s:=c.snapshot(float64(c.EpochSeconds+83))
+func TestIndependentCarAndBogieTangentsOnTheSavedRoute(t *testing.T){
+ c:=fixture(t);s:=c.render(401,c.SpeedMPS,"passing",1,false,true)
  front,rear:=s.Modules[0].Bindings[0],s.Modules[1].Bindings[0]
- if front.YawDegrees==rear.YawDegrees{t.Fatal("cars were moved as one rigid root around corner")}
- if front.Bogies[0].YawDegrees==front.Bogies[1].YawDegrees{t.Fatal("bogies did not sample local tangents")}
- if math.Abs(front.Bogies[0].Y+.53)>1e-9{t.Fatal("bogie vertical datum lost")}
+ if front.YawDegrees==rear.YawDegrees{t.Fatal("cars were moved as one rigid root at a hidden connector")}
+ if front.Bogies[0].YawDegrees==front.Bogies[1].YawDegrees{t.Fatal("bogies lost independently sampled tangents")}
+ if math.Abs(front.Bogies[0].Y+.53)>1e-9{t.Fatal("authored bogie datum lost")}
+ for i,module:=range s.Modules{expected:=trainWrap(s.DistanceM+c.Modules[i].OffsetM,c.length());if math.Abs(module.DistanceM-expected)>1e-9||module.ID!=c.Modules[i].ID{t.Fatal("module offset or identity lost")}}
 }
-func TestDwellAndNextRun(t *testing.T){
- c:=fixture(t);arrival:=float64(c.EpochSeconds)+(c.length()-c.InitialDistanceM)/c.SpeedMPS
- stop:=int64(math.Ceil(arrival));s:=c.snapshot(float64(stop));if s.Phase!="dwell"||s.SpeedMPS!=0{t.Fatal("no server stop")}
- for second:=stop;float64(second)<s.NextEventSeconds;second++{d:=c.snapshot(float64(second));if d.DistanceM!=0||d.WheelTravelM!=s.WheelTravelM||d.Run!=0{t.Fatal("train moved during dwell")}}
- after:=c.snapshot(math.Ceil(s.NextEventSeconds));if after.Phase!="moving"||after.Run!=1||after.EventSequence<=s.EventSequence{t.Fatal("departure/run event absent")}
- for _,second:=range []int64{0,c.EpochSeconds,c.EpochSeconds+1000000000}{if _,err:=json.Marshal(c.snapshot(float64(second)));err!=nil{t.Fatal("non-finite output")}}
+func TestNoAcceptedFreightSlotHasNoInventedArrival(t *testing.T){
+ c:=fixture(t);s:=trainDispatchState{Initialized:true,Rate:300};s.Next[0]=c.Timetable.next(21600,false);s.Next[1]=c.Timetable.next(21600,true)
+ if c.nextStartSeconds(s,1,0,21600)>=0{t.Fatal("fixture unexpectedly has a freight slot")}
+ if eta:=c.arrivalETA(s,1,0,21600,0,93.2);eta!=-1{t.Fatalf("unavailable run acquired phantom ETA %g",eta)}
 }
-func fleetFixture(t *testing.T)*trainMotionCatalog{
- c:=fixture(t);c.Points=[]trainRoutePoint{{-100,0},{200,0},{200,132},{-100,132},{-100,0}};c.SpeedMPS=8;c.DwellSeconds=12
- c.TrainID="train.c7.passenger.01";c.StockID="stock.c7.passenger_56m.v2";c.PrefabResource="TrainMotion/PassengerTrainV2";c.RouteVersion=3
- c.AdditionalFleet=[]trainMotionStock{{TrainID:"train.c7.freight.01",StockID:"stock.c7.freight_56m.v2",PrefabResource:"TrainMotion/FreightTrainV2",InitialDistanceM:632.4}}
- c.Bindings=[]trainBindingDefinition{{LevelID:"a",StartM:100,EndM:210},{LevelID:"b",StartM:360.2,EndM:420},{LevelID:"c",StartM:500,EndM:620}}
- for i,id:=range []string{"car.01","car.02","car.03","car.04"}{c.Modules[i].ID=id}
- return c
+func TestPhysicalStandIsTwentySecondsAtEveryCalendarRate(t *testing.T){
+ for _,rate:=range []int64{1,10,30}{for _,calendar:=range []int64{21600,79200}{
+  c:=fixture(t);r:=&Runtime{};r.world.TrainMotion=c;r.state.Life.Enabled=true;r.state.Life.Seconds=calendar
+  opened:=map[int64]int64{};closed:=map[int64]bool{};stands:=0
+  for tick:=int64(1);tick<=18000;tick++{
+   previous:=r.state.Life.Seconds;r.state.Tick=tick;r.state.Life.Seconds+=rate;r.advanceTrainMotion(previous)
+   s:=r.state.TrainDispatch;if s.Active!=1{continue};_,_,phase,doors:=c.dispatchPose(s,r.simNS())
+   if doors{if _,ok:=opened[s.Run];!ok{opened[s.Run]=r.simNS()}}
+   if phase=="closing"&&!closed[s.Run]{start,ok:=opened[s.Run];if !ok{t.Fatal("closing without observed physical stand")};duration:=float64(r.simNS()-start)/1e9;if math.Abs(duration-c.BerthDwellSeconds)>.100001{t.Fatalf("rate%d stand=%g",rate,duration)};stands++;closed[s.Run]=true}
+  }
+  if stands<2{t.Fatalf("rate%d calendar%d only%d stands",rate,calendar,stands)}
+ }}
+ c:=fixture(t);s:=trainDispatchState{Active:1,Initialized:true,Run:1,StartNS:100000000000,LastNS:100000000000,Rate:10};s.DepartNS=s.StartNS+int64((c.approachSeconds()+c.BerthDwellSeconds)*1e9)
+ beforeD,beforeV,beforePhase,beforeDoors:=c.dispatchPose(s,s.DepartNS-1)
+ for _,rate:=range []float64{10,100,300}{s.Rate=rate;d,v,phase,doors:=c.dispatchPose(s,s.DepartNS-1);if d!=beforeD||v!=beforeV||phase!=beforePhase||doors!=beforeDoors{t.Fatal("rate changed fixed visible stand")}}
 }
-func TestTwoPersistentStocksAlternateWithoutOverlap(t *testing.T){
- c:=fleetFixture(t);length:=c.length();if length!=864||length/c.SpeedMPS+c.DwellSeconds!=120 {t.Fatal("authored period changed")}
- prior:=c.snapshots(0);seen:=map[string][]string{};times:=map[string][]float64{};visible:=map[string]bool{}
- for tick:=0;tick<=3600;tick++ {seconds:=float64(tick)/10;states:=c.snapshots(seconds)
-  if len(states)!=2||states[0].TrainID==states[1].TrainID||states[0].StockID==states[1].StockID {t.Fatal("fleet identity duplicated")}
-  distance:=math.Abs(states[0].DistanceM-states[1].DistanceM);distance=math.Min(distance,length-distance);if distance<384-1e-8 {t.Fatalf("fleet dwell closed safe separation: %f",distance)}
-  for i,state:=range states {
-   if state.TrainID!=prior[i].TrainID||state.StockID!=prior[i].StockID||state.PrefabResource!=prior[i].PrefabResource||state.WheelTravelM<prior[i].WheelTravelM {t.Fatal("stock swapped or train jumped backwards")}
-   if state.EntryAllowed||state.DoorsOpen||len(state.PassengerActorIDs)!=0||len(state.CargoContainerIDs)!=0 {t.Fatal("art passengers/containers became fake logistics")}
-   for _,binding:=range state.Modules[0].Bindings {key:=state.TrainID+binding.LevelID;if binding.Visible&&!visible[key] {seen[binding.LevelID]=append(seen[binding.LevelID],state.TrainID);times[binding.LevelID]=append(times[binding.LevelID],seconds)};visible[key]=binding.Visible}
-  };prior=states
+func TestSlowerClockKeepsSkippedFutureStartsConsumed(t *testing.T){
+ c:=fixture(t);r:=&Runtime{};r.world.TrainMotion=c;r.state.Life.Enabled=true;r.state.Life.Seconds=28800
+ step:=func(rate int64){prior:=r.state.Life.Seconds;r.state.Tick++;r.state.Life.Seconds+=rate;r.advanceTrainMotion(prior)}
+ for i:=0;i<4000&&r.state.TrainDispatch.Active!=1;i++{step(1)}
+ if r.state.TrainDispatch.Active!=1{t.Fatal("ordinary daytime run absent")}
+ accepted:=r.state.TrainDispatch;step(30)
+ skipped:=r.state.TrainDispatch.Skipped;cursor:=r.state.TrainDispatch.Next[0]
+ if skipped<=accepted.Skipped{t.Fatal("fast clock did not consume overlapping future starts")}
+ // The owner keeps skipped slots skipped. Slowing down must not put these
+ // future departure slots back in a queue or reset the active physical run.
+ nextStartGame:=float64(cursor)-c.leadSeconds(false,10)
+ if nextStartGame<=float64(r.state.Life.Seconds)+c.length()/c.SpeedMPS*10{t.Fatal("fixture lacks the real slowdown setup gap")}
+ found:=false
+ for i:=0;i<18000;i++{
+  before:=r.state.TrainDispatch;oldD,_,_,_:=c.dispatchPose(before,r.simNS());step(1);after:=r.state.TrainDispatch
+  if after.Skipped<skipped{t.Fatal("skipped slots were restored")};skipped=after.Skipped
+  if after.Run==accepted.Run&&after.Active!=0{d,_,_,_:=c.dispatchPose(after,r.simNS());if d<oldD-.000001||d-oldD>c.SpeedMPS*.100001{t.Fatal("rate change moved an accepted run discontinuously")}}
+  if after.Next[0]<cursor{t.Fatal("passenger cursor moved backwards")}
+  if after.Run>accepted.Run&&after.Active!=0&&after.StartNS<c.finishNS(accepted){t.Fatal("slow clock overlapped the accepted run")}
+  if after.Run>accepted.Run&&after.Active==1{
+   if float64(r.state.Life.Seconds)<nextStartGame-.000001||after.Departure<cursor{t.Fatal("slow clock replayed an already skipped passenger slot")};found=true;break
+  }
  }
- for _,level:=range []string{"a","b","c"}{ids,at:=seen[level],times[level];if len(ids)<5 {t.Fatal("both trains did not revisit all three views")};for i:=1;i<len(ids);i++ {if ids[i]==ids[i-1] {t.Fatal("stock types did not alternate")};if i>1&&math.Abs(at[i]-at[i-1]-60)>.11 {t.Fatalf("headway drift: %v",at)}}}
- before,after:=c.snapshots(10),c.snapshots(10.5);for i:=range before {if math.Abs(after[i].WheelTravelM-before[i].WheelTravelM-4)>1e-8 {t.Fatal("not eight physical metres per second")}}
- r:=&Runtime{};r.world.TrainMotion=c;r.state.Life.Enabled=true;r.state.Tick=1173;r.state.PhaseNS=12345678;r.state.Epoch="original"
- raw:=r.trainMotionJSON();saved,err:=json.Marshal(r.state);if err!=nil {t.Fatal(err)};loaded:=&Runtime{};loaded.world.TrainMotion=c;json.Unmarshal(saved,&loaded.state)
- for i:=0;i<30;i++ {if loaded.trainMotionJSON()!=raw {t.Fatal("paused/loaded fleet changed")}}
- r.state.Tick+=1200;loaded.state.Tick+=1200;if r.trainMotionJSON()!=loaded.trainMotionJSON(){t.Fatal("unloaded fleet route diverged")}
- var initial,next trainMotionSnapshot;json.Unmarshal([]byte(raw),&initial);json.Unmarshal([]byte(loaded.trainMotionJSON()),&next)
- for i:=range initial.Trains {if math.Abs(next.Trains[i].WheelTravelM-initial.Trains[i].WheelTravelM-864)>1e-8||next.Trains[i].TrainID!=initial.Trains[i].TrainID {t.Fatal("periodic continuation lost identity or distance")}}
+ if !found{t.Fatal("train never returned after its persisted skipped-slot cursor")}
 }
-
+func TestGeometryHasOnlyDeclaredVisibleSlices(t *testing.T){c:=fixture(t);for d:=0.0;d<c.length();d+=.25{state:=c.render(d,8,"moving",1,false,true);for _,m:=range state.Modules{for i,b:=range m.Bindings{if b.PassageID!=c.Bindings[i].PassageID{t.Fatal("binding identity lost")};if b.Visible{p:=c.sample(m.DistanceM,c.length());if p.YawDegrees!=0&&p.YawDegrees!=90&&p.YawDegrees!=180&&p.YawDegrees!=-90{t.Fatal("offtrack yaw")}}}}};idle:=c.render(0,0,"idle",1,false,false);for _,m:=range idle.Modules{for _,b:=range m.Bindings{if b.Visible{t.Fatal("idle train drawn")}}}}
+func TestPhysicalBerthCoversWholeLifeWindow(t *testing.T){c:=fixture(t);s:=trainDispatchState{Active:1,StartNS:0,DepartNS:int64((c.approachSeconds()+20)*1e9)};for at:=c.approachSeconds();at<c.approachSeconds()+20;at+=.01{d,v,phase,doors:=c.dispatchPose(s,int64(at*1e9));if math.Abs(d-c.BerthDistanceM)>1e-8||v!=0||phase!="berthed"||!doors{t.Fatalf("boarding window lacks stopped train at%g",at)}}}
 `
 
 func TestTrainPaintedBindingIdentityAndBerthProtection(t *testing.T) {

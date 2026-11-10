@@ -380,21 +380,23 @@ type LayoutDaylight struct {
 }
 
 type Layout struct {
-	Camera        *LayoutCamera    `json:"camera,omitempty"`
-	Daylight      *LayoutDaylight  `json:"daylight,omitempty"`
-	ID            string           `json:"id"`
-	UnitMM        int              `json:"unit_mm"`
-	Seed          int64            `json:"seed"`
-	Width         int              `json:"width"`
-	Depth         int              `json:"depth"`
-	Elevation     int              `json:"elevation"`
-	Grounded      bool             `json:"grounded"`
-	Floor         []FloorArea      `json:"floor"`
-	Entries       []Cell           `json:"entries"`
-	Instances     []Instance       `json:"instances"`
-	ReservedPaths []ReservedPath   `json:"reserved_paths"`
-	Drops         []DropAnnotation `json:"drops"`
-	Decks         []Deck           `json:"decks,omitempty"`
+	Setting       string            `json:"setting,omitempty"`
+	Interior      *InteriorEnvelope `json:"interior,omitempty"`
+	Camera        *LayoutCamera     `json:"camera,omitempty"`
+	Daylight      *LayoutDaylight   `json:"daylight,omitempty"`
+	ID            string            `json:"id"`
+	UnitMM        int               `json:"unit_mm"`
+	Seed          int64             `json:"seed"`
+	Width         int               `json:"width"`
+	Depth         int               `json:"depth"`
+	Elevation     int               `json:"elevation"`
+	Grounded      bool              `json:"grounded"`
+	Floor         []FloorArea       `json:"floor"`
+	Entries       []Cell            `json:"entries"`
+	Instances     []Instance        `json:"instances"`
+	ReservedPaths []ReservedPath    `json:"reserved_paths"`
+	Drops         []DropAnnotation  `json:"drops"`
+	Decks         []Deck            `json:"decks,omitempty"`
 	// Multi-deck authoring (document 80). All omitted for planar layouts, so
 	// their JSON, locks and structural hashes remain byte-identical.
 	BaseSurfaceID string         `json:"base_surface_id,omitempty"`

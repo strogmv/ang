@@ -8,6 +8,7 @@ import (
 // Architecture is authored policy; engine-neutral roles identify surfaces and
 // CUE owns resource paths. Material names never imply a concrete wall.
 type Architecture struct {
+	OpenPlanReason   string `json:"open_plan_reason,omitempty"`
 	concreteResolved bool
 	Concrete         *ConcreteInstance           `json:"concrete,omitempty"`
 	Walls            map[string]ConcreteInstance `json:"walls,omitempty"`
@@ -23,13 +24,20 @@ type Architecture struct {
 }
 
 type ArchitectureDraw struct {
-	ID           string     `json:"id"`
-	Kind         string     `json:"kind"`
-	Zone         string     `json:"zone,omitempty"`
-	MaterialRole string     `json:"material_role"`
-	Position     [3]float64 `json:"position_plan_m"`
-	Size         [3]float64 `json:"size_m"`
-	Reason       string     `json:"reason"`
+	NearCut      *ArchitectureNearCut `json:"near_cut,omitempty"`
+	ID           string               `json:"id"`
+	Kind         string               `json:"kind"`
+	Zone         string               `json:"zone,omitempty"`
+	MaterialRole string               `json:"material_role"`
+	Position     [3]float64           `json:"position_plan_m"`
+	Size         [3]float64           `json:"size_m"`
+	Reason       string               `json:"reason"`
+}
+
+// A camera cut is presentation only; geometry guards retain the complete wall.
+type ArchitectureNearCut struct {
+	HeightM float64 `json:"height_m"`
+	Reason  string  `json:"reason"`
 }
 
 type WallZone struct {

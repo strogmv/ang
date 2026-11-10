@@ -38,7 +38,7 @@ func TestTickAlignedPublicationAndHeroStamp(t *testing.T) {
   for len(c.out)>0 {
    s:=(<-c.out).GetGameState()
    if s==nil||!s.PublishedAfterTick||s.Tick-previous!=1||s.SimTimeNs!=s.Tick*r.tickNS()||s.HeroBody==nil||s.HeroBody.SampleNs!=s.Tick*r.tickNS(){t.Fatalf("misaligned sample: %v previous %d",s,previous)}
-   var train trainMotionSnapshot;if err:=json.Unmarshal([]byte(s.Life.TrainMotionJson),&train);err!=nil||train.SampleSimNS!=s.SimTimeNs{t.Fatal("continuous train stamp differs from frame",err)}
+   if s.Life.TrainMotion==nil||s.Life.TrainMotion.SampleSimNs!=s.SimTimeNs{t.Fatal("typed continuous train stamp differs from frame")}
    for _,a:=range s.SceneAgents {if a.MotionStartNs>s.SimTimeNs||a.MovementStepNs<=0{t.Fatal("NPC motion contract",a)}}
    previous=s.Tick;received++
   }

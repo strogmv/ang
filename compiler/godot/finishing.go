@@ -14,6 +14,8 @@ import (
 // Finishing changes presentation only. Stable surface IDs retain all compiled
 // collision, navigation and perception semantics, even when art replaces a draw.
 type Finishing struct {
+	FloorRecesses    []FloorRecess       `json:"floor_recesses,omitempty"`
+	FloorOpenings    []FloorOpening      `json:"floor_openings,omitempty"`
 	Architecture     *Architecture       `json:"architecture,omitempty"`
 	ObjectRoles      map[string]string   `json:"object_roles,omitempty"`
 	Environment      *EnvironmentProfile `json:"environment"`
