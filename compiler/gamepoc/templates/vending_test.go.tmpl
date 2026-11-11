@@ -5,6 +5,8 @@ package poc
 
 import (
 	"encoding/json"
+	"math"
+	"strings"
 	"testing"
 
 	behavior "angelsdemons/server/internal/behavior"
@@ -284,23 +286,56 @@ func TestVendingNPCBuysWaterAndTheNightRefill(t *testing.T) {
 	if r.vendingLamp(i3, true) != v.Light.SensorPPM || r.vendingLamp(i3, false) != v.Light.NightPPM {
 		t.Fatal("panel lamp ignores the presence sensor or the night")
 	}
-	// night refill from the cassette: nothing created, the showcase back to par
+	// night refill from the cassette: nothing created, the showcase back to par. Addendum 1: the service cabinet couples at
+	// the block's end and loads the modules in turn; tm3's shelves fill one by one while it is loaded, then it is at par.
+	// a busy day: 25 more bottles left the showcase (here: back into the module's cassette, the same goods), so the night has
+	// shelves to fill one by one
+	for moved := int64(0); moved < 25; {
+		w := vendingFirst(r, tm3.DisplayStore, "item.vm_water_1l")
+		q := min(w.Quantity, 25-moved)
+		tx := inv.Transaction{Actor: v.Owner, Sequence: r.state.Inventory.Cursors[v.Owner].Sequence + 1, RequestTag: "test/thin",
+			Moves: []inv.Move{{Item: w.ID, Quantity: q, ExpectedRevision: w.Revision, To: inv.Location{Kind: "store", Store: tm3.CassetteStore}}}}
+		if _, err := r.vendingApplyUnlocked(r.inventoryModelFor(true), tx, tm3.CassetteStore); err != nil {
+			t.Fatal(err)
+		}
+		moved += q
+	}
+	water1 := r.vendingStock(tm3.DisplayStore, "item.vm_water_1l")
 	goods := commerceTotal(r.state.Inventory)
 	cassette0 := r.vendingStock(tm3.CassetteStore, "item.vm_water_1l")
-	r.state.Life.Seconds = (r.state.Life.Seconds/86400)*86400 + v.Refill.FromSecond + int64(i3)*v.Refill.SecondsPerUnit + 30
-	if r.vendingStatus(i3) != "service" || r.vendingServes(tm3.DisplayStore) {
-		t.Fatal("unit under the service robot still sells")
-	}
+	day := (r.state.Life.Seconds/86400)*86400 + 86400
+	r.state.Life.Seconds = day + 3600 // 01:00 of the next day: the round of today has not begun
 	if err := r.advanceVending(); err != nil {
 		t.Fatal(err)
 	}
+	loading, partial := false, false
 	par := int64(0)
 	for _, o := range tm3.Sells {
 		if o.Item == "item.vm_water_1l" {
 			par = o.Par
 		}
 	}
-	if r.vendingStock(tm3.DisplayStore, "item.vm_water_1l") != par || r.vendingStock(tm3.CassetteStore, "item.vm_water_1l") != cassette0-(par-(water0-1)) || commerceTotal(r.state.Inventory) != goods {
+	for r.state.Life.Seconds < day+6*3600 {
+		r.state.Life.Seconds++
+		if err := r.advanceVending(); err != nil {
+			t.Fatal(err)
+		}
+		if r.vendingInService(i3) {
+			loading = true
+			if r.vendingStatus(i3) != "service" || r.vendingServes(tm3.DisplayStore) {
+				t.Fatal("unit under the service cabinet still sells")
+			}
+			if w := r.vendingStock(tm3.DisplayStore, "item.vm_water_1l"); w > water1 && w < par {
+				partial = true
+			}
+		} else if loading && r.vendingStock(tm3.DisplayStore, "item.vm_water_1l") != par {
+			t.Fatal("tm3 left the service with its water below par")
+		}
+	}
+	if !loading || !partial {
+		t.Fatalf("tm3 was not loaded (%v) or its water did not fill shelf by shelf (%v)", loading, partial)
+	}
+	if r.vendingStock(tm3.DisplayStore, "item.vm_water_1l") != par || r.vendingStock(tm3.CassetteStore, "item.vm_water_1l") != cassette0-(par-water1) || commerceTotal(r.state.Inventory) != goods {
 		t.Fatal("night refill did not move exactly the missing units from the cassette")
 	}
 	if err := r.advanceVending(); err != nil || r.vendingUnitState("tm3").Refills != 1 {
@@ -308,5 +343,255 @@ func TestVendingNPCBuysWaterAndTheNightRefill(t *testing.T) {
 	}
 	if err := r.state.Inventory.Validate(r.inventoryModelFor(true)); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// torgomat v2 (owner 11.11): what the glass shows is the display store against each shelf's share of the par level; a sale
+// lights the band for the whole dispense and leaves a public event (the thing, its shelf, its scene); a buy-back leaves one
+// for the tray; nothing about the buyer or the price goes into the view.
+func TestVendingShelvesAndDispenseFollowTheRealStock(t *testing.T) {
+	r, v := vendingFixture(t)
+	i1, tm1 := vendingUnitByID(t, v, "tm1")
+	row := func(id string) *pb.PocCraftHeap {
+		for _, h := range r.vendingShelfRows(tm1) {
+			if h.Id == id {
+				return h
+			}
+		}
+		t.Fatalf("no shelf %s", id)
+		return nil
+	}
+	for k, h := range r.vendingShelfRows(tm1) {
+		if h.Fill != "full" || h.HeapResource != v.Models[tm1.Shelves[k].Item].Full || h.X != tm1.Shelves[k].At.X || h.Z != tm1.Shelves[k].At.Z {
+			t.Fatalf("a fresh showcase shelf %s is %s (%s)", h.Id, h.Fill, h.HeapResource)
+		}
+	}
+	vendingPlace(t, r, playerActorID, tm1.Panel)
+	hero := r.state.Inventory.Accounts["account.hero.crd"]
+	hero.Balance += 10000 // enough for the trays of a whole shelf
+	r.state.Inventory.Accounts[hero.ID] = hero
+	tray := "item.vm_ration_tray"
+	var shares []vendingShelf
+	for _, sh := range tm1.Shelves {
+		if sh.Item == tray {
+			shares = append(shares, sh)
+		}
+	}
+	if len(shares) != 2 {
+		t.Fatal("the food unit keeps its trays on two shelves")
+	}
+	upper, lower := shares[1], shares[0]
+	sold := int64(0)
+	buy := func() {
+		t.Helper()
+		item := vendingFirst(r, tm1.DisplayStore, tray)
+		req := vendingCommandRequest(r, "buy", item, "")
+		if !inventoryRequest(t, r, req) {
+			t.Fatalf("purchase %d refused: %s", sold+1, r.vendingUnitState(tm1.ID).HeroKey)
+		}
+		sold++
+		// the hero eats it on the spot (the bag stays free for the next tray)
+		bought, _ := vendingCarried(r, tray)
+		if err := r.state.Inventory.Consume(r.inventoryModelFor(true), playerActorID, bought.ID, bought.Quantity); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// the first purchase takes the last tray of the upper tray shelf: the event names that shelf and the tray's scene
+	buy()
+	s := r.vendingUnitState(tm1.ID)
+	if s.SaleSerial != 1 || s.SaleItem != tray || s.SaleShelf != upper.ID || s.SaleTick != r.state.Tick {
+		t.Fatalf("sale event %+v", s)
+	}
+	if r.vendingStatus(i1) != "serving" || s.ServingUntil-r.state.Tick != v.ServingTicks {
+		t.Fatal("the band does not pulse for the whole dispense")
+	}
+	view := &pb.PocLifeView{}
+	r.appendVending(view, r.state.Life.Actor(playerActorID), &pb.PocObserverView{}, "ru")
+	var unit *pb.PocVendingUnit
+	for _, u := range view.Vending {
+		if u.Id == tm1.ID {
+			unit = u
+		}
+	}
+	if unit == nil || unit.Sale == nil || unit.Sale.Serial != 1 || unit.Sale.Resource != v.Models[tray].Item || unit.Sale.Ticks != int32(v.ServingTicks) || unit.Sale.Shelf != upper.ID || len(unit.Shelves) != len(tm1.Shelves) {
+		t.Fatal("the view does not carry the dispense or the shelves")
+	}
+	// selling the upper shelf down: full -> half -> few -> empty, the lower stays full; then the lower thins
+	for sold < upper.Units {
+		buy()
+		q := upper.Units - sold
+		if got := row(upper.ID).Fill; got != craftHeapLevel(q, upper.Units) {
+			t.Fatalf("upper tray shelf with %d left shows %s", q, got)
+		}
+		if row(lower.ID).Fill != "full" {
+			t.Fatal("the lower tray shelf thinned before the upper one was empty")
+		}
+	}
+	if row(upper.ID).Fill != "empty" || row(upper.ID).HeapResource != "" {
+		t.Fatal("an empty shelf still names goods")
+	}
+	buy()
+	if r.vendingUnitState(tm1.ID).SaleShelf != lower.ID || row(lower.ID).Fill != craftHeapLevel(lower.Units-1, lower.Units) {
+		t.Fatal("the next tray did not come from the lower shelf")
+	}
+	// a buy-back leaves the tray's event (equipment unit TM-2 takes a spent cell)
+	_, tm2 := vendingUnitByID(t, v, "tm2")
+	vendingPlace(t, r, playerActorID, tm2.Panel)
+	cell, _ := vendingCarried(r, "item.vm_cell_spent")
+	if !inventoryRequest(t, r, vendingCommandRequest(r, "sell", cell, tm2.DisplayStore)) {
+		t.Fatal("buy-back refused")
+	}
+	if s2 := r.vendingUnitState(tm2.ID); s2.IntakeSerial != 1 || s2.IntakeItem != "item.vm_cell_spent" || s2.SaleSerial != 0 {
+		t.Fatalf("buy-back event %+v", s2)
+	}
+	if r.vendingItemScene("item.vm_cell_spent") == "" || r.vendingItemScene("item.never_modelled") != v.NeutralModel {
+		t.Fatal("a thing without a model must show the neutral package")
+	}
+	// an NPC purchase leaves the same public event
+	_, tm3 := vendingUnitByID(t, v, "tm3")
+	r.vendingNoteSale(tm3.DisplayStore, "item.vm_water_1l")
+	if s3 := r.vendingUnitState(tm3.ID); s3.SaleSerial != 1 || s3.SaleItem != "item.vm_water_1l" || s3.SaleShelf == "" {
+		t.Fatalf("an NPC sale left no event: %+v", s3)
+	}
+}
+
+// Addendum 1 (owner 11.11): the service cabinet is server state. It leaves its bay to couple as the first window opens, drives
+// over walkable cells only, couples at the docking port beside the block's end, loads the modules one after another in the
+// refill order (each in service only while it is loaded), uncouples and goes home; a body in its lane stops it until it steps
+// aside; a round the clock skipped is done unseen; the state survives a save.
+func TestVendingCabinetDocksAtTheEndAndLoadsInTurn(t *testing.T) {
+	r, v := vendingFixture(t)
+	rb := v.Robot
+	if rb.OutLeg == nil || rb.BackLeg == nil {
+		t.Fatal("the cabinet has no legs")
+	}
+	// a fresh game at 07:00: today's round lies behind the clock — done unseen, nothing in service, nobody out
+	if err := r.advanceVending(); err != nil {
+		t.Fatal(err)
+	}
+	if st := r.state.Vending.Robot; st.Phase != "done" {
+		t.Fatalf("the skipped round of the first day: %+v", st)
+	}
+	if _, out := r.vendingRobotPose(); out {
+		t.Fatal("the cabinet is out by day")
+	}
+	// the next night, second by second
+	day := (r.state.Life.Seconds/86400)*86400 + 86400
+	depart := day + v.Refill.FromSecond - rb.OutLeg.Seconds - rb.CoupleSeconds
+	r.state.Life.Seconds = depart - 5
+	if err := r.advanceVending(); err != nil {
+		t.Fatal(err)
+	}
+	if _, out := r.vendingRobotPose(); out {
+		t.Fatal("the cabinet left its bay early")
+	}
+	// a body in its lane: a person of the hall stands on the 10th cell of the way out
+	block := rb.OutLeg.Cells[10]
+	var stander *behavior.LifeActor
+	for i := range r.state.Life.Actors {
+		if a := &r.state.Life.Actors[i]; a.ID != playerActorID && a.Level == v.Level && a.OnFloor() {
+			stander = a
+			break
+		}
+	}
+	if stander == nil {
+		t.Fatal("no person on the hub floor")
+	}
+	home := stander.Position
+	stander.Position, stander.Path = behavior.Cell{X: block.X, Y: block.Y}, nil
+	var phases []string
+	order := []string{}
+	walk := func(x, y float64) bool {
+		return r.world.Life.Walks(v.Level, behavior.Cell{X: int(math.Floor(x * 2)), Y: int(math.Floor(y * 2))})
+	}
+	waited := false
+	for r.state.Life.Seconds < day+6*3600 {
+		r.state.Life.Seconds++
+		if err := r.advanceVending(); err != nil {
+			t.Fatal(err)
+		}
+		st := r.state.Vending.Robot
+		if len(phases) == 0 || phases[len(phases)-1] != st.Phase {
+			phases = append(phases, st.Phase)
+		}
+		p, out := r.vendingRobotPose()
+		if out && (st.Phase == "out" || st.Phase == "back") && !walk(p.X, p.Y) {
+			t.Fatalf("the cabinet drives off the floor at %+v", p)
+		}
+		next := rb.OutLeg.Cells[min(st.Cell+1, len(rb.OutLeg.Cells)-1)]
+		if st.Waited && st.Phase == "out" && absInt(next.X-block.X) <= rb.ClearanceCells && absInt(next.Y-block.Y) <= rb.ClearanceCells {
+			waited = true
+			if p.Phase != "wait" || p.X != rb.OutLeg.Points[st.Cell][0] || p.Y != rb.OutLeg.Points[st.Cell][1] {
+				t.Fatalf("the cabinet does not stand before the body: %+v %+v", st, p)
+			}
+			if r.state.Life.Seconds-depart > 60 {
+				stander.Position = home // the person walks on after a while
+			}
+		}
+		if st.Phase == "couple" || st.Phase == "load" || st.Phase == "uncouple" {
+			if !out || p.X != rb.Dock.X || p.Y != rb.Dock.Y || p.YawDegrees != rb.Dock.YawDegrees {
+				t.Fatalf("the coupled cabinet is not at the port: %+v", p)
+			}
+		}
+		inService := 0
+		for i, u := range v.Units {
+			if r.vendingInService(i) {
+				inService++
+				if p == nil || p.Unit != u.ID || st.Phase != "load" {
+					t.Fatalf("%s in service while the cabinet does %+v", u.ID, p)
+				}
+				if len(order) == 0 || order[len(order)-1] != u.ID {
+					order = append(order, u.ID)
+				}
+			}
+		}
+		if inService > 1 {
+			t.Fatal("two modules in service at once")
+		}
+	}
+	if !waited || r.state.Vending.Robot.Waits < 1 {
+		t.Fatal("the cabinet drove through the body in its lane")
+	}
+	if strings.Join(order, ",") != strings.Join(v.Refill.Order, ",") {
+		t.Fatalf("modules loaded %v, the order is %v", order, v.Refill.Order)
+	}
+	if strings.Join(phases, ",") != "done,out,couple,load,uncouple,back,done" {
+		t.Fatalf("the round went %v", phases)
+	}
+	if _, out := r.vendingRobotPose(); out {
+		t.Fatal("the cabinet is not home after its round")
+	}
+	// without a body in its way it has coupled as the first window opens; at 03:32 it loads ТМ-1 (the review's frame)
+	r2, _ := vendingFixture(t)
+	day2 := (r2.state.Life.Seconds/86400)*86400 + 86400
+	r2.state.Life.Seconds = day2 + v.Refill.FromSecond - rb.OutLeg.Seconds - rb.CoupleSeconds - 1
+	for r2.state.Life.Seconds < day2+3*3600+1800+120 {
+		r2.state.Life.Seconds++
+		if err := r2.advanceVending(); err != nil {
+			t.Fatal(err)
+		}
+		if r2.state.Life.Seconds == day2+v.Refill.FromSecond && r2.state.Vending.Robot.Phase != "load" && r2.state.Vending.Robot.Waits == 0 {
+			t.Fatalf("at the window the cabinet is %+v", r2.state.Vending.Robot)
+		}
+	}
+	if p, _ := r2.vendingRobotPose(); p == nil || p.Unit != "tm1" || p.Phase != "load" {
+		t.Fatalf("at 03:32 the cabinet loads %v, the review expects ТМ-1", p)
+	}
+	// the round survives a save and a load
+	saved := r2.snapshotState()
+	if err := r2.writeSave(r2.world.Config.SaveSlots[0], saved); err != nil {
+		t.Fatal(err)
+	}
+	loaded, _, err := r2.readSave(r2.world.Config.SaveSlots[0])
+	if err != nil || loaded.Vending.Robot != saved.Vending.Robot {
+		t.Fatalf("save/load lost the cabinet: %v %+v %+v", err, loaded.Vending.Robot, saved.Vending.Robot)
+	}
+	bad := r2.snapshotState()
+	bad.Vending.Robot.Phase = "fly"
+	if err := r2.writeSave(r2.world.Config.SaveSlots[0], bad); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := r2.readSave(r2.world.Config.SaveSlots[0]); err == nil {
+		t.Fatal("loaded a cabinet off its round")
 	}
 }

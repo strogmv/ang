@@ -234,7 +234,7 @@ func (r *Runtime) craftingNPCBuy(actor string, item inv.Item) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	r.vendingNoteSale(item.Location.Store)
+	r.vendingNoteSale(item.Location.Store, item.Definition)
 	if len(result.Created) > 0 {
 		return result.Created[0], true
 	}

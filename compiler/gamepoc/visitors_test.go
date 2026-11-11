@@ -179,6 +179,11 @@ func TestVisitorsAddSlotsTheOutsideAccountAndTheConsignments(t *testing.T) {
 		{"outside account too small", "outside", func(c *Compiled) { c.Visitors.Outside.Balance = 10 }},
 		{"supply for no days", "supply", func(c *Compiled) { c.Visitors.Supply.Days = 0 }},
 		{"supply skips an unknown shop", "skips unknown shop", func(c *Compiled) { c.Visitors.Supply.Skip = []string{"none"} }},
+		// torgomat v2: a place's own standing cells are floor next to it; its facing points somewhere; the wait is bounded
+		{"standing cell in a wall", "standing cell", func(c *Compiled) { c.Visitors.Targets[0].Spots = []inv.Cell{{X: 40, Y: 1}} }},
+		{"standing cell far away", "standing cell", func(c *Compiled) { c.Visitors.Targets[0].Spots = []inv.Cell{{X: 6, Y: 1}} }},
+		{"facing nowhere", "facing", func(c *Compiled) { c.Visitors.Targets[0].Face = &VisitorFace{} }},
+		{"endless wait after paying", "wait after paying", func(c *Compiled) { c.Visitors.Targets[0].TakeTicks = 601 }},
 	}
 	for _, tc := range cases {
 		c := visitorFixture(t)

@@ -49,11 +49,17 @@ type visitorEntry struct {
 	At inv.Cell `json:"at"`
 }
 type visitorTarget struct {
-	ID       string   `json:"id"`
-	Shop     string   `json:"shop"`
-	Category string   `json:"category"`
-	Store    string   `json:"store"`
-	At       inv.Cell `json:"at"`
+	ID        string     `json:"id"`
+	Shop      string     `json:"shop"`
+	Category  string     `json:"category"`
+	Store     string     `json:"store"`
+	At        inv.Cell   `json:"at"`
+	Spots     []inv.Cell `json:"spots,omitempty"`
+	Face      *struct {
+		X float64 `json:"x"`
+		Y float64 `json:"y"`
+	} `json:"face,omitempty"`
+	TakeTicks int64 `json:"take_ticks,omitempty"`
 }
 type visitorLot struct {
 	Item string `json:"item"`
@@ -108,7 +114,7 @@ type visitorBody struct {
 	At     behavior.Cell `json:"at"`
 	Path   []behavior.Cell `json:"path,omitempty"`
 	Wait   int64         `json:"wait"`  // server ticks until the next step / the end of the stand
-	Phase  string        `json:"phase"` // walk | stand | leave
+	Phase  string        `json:"phase"` // walk | stand | take (paid, waits for the dispense) | leave
 	Target string        `json:"target,omitempty"`
 	Units  int64         `json:"units,omitempty"`
 	Stops  []visitorStop `json:"stops,omitempty"`
@@ -384,7 +390,42 @@ func (r *Runtime) visitorChoose(serial int64, n int, category string) (string, b
 		return "", behavior.Cell{}, false
 	}
 	t := v.Targets[open[r.visitorDraw(serial, fmt.Sprintf("choose.%d", n))%uint64(len(open))]]
+	if len(t.Spots) > 0 {
+		return t.ID, r.visitorSpotAmong(t.Spots), true
+	}
 	return t.ID, r.visitorSpot(behavior.Cell{X: t.At.X, Y: t.At.Y}), true
+}
+
+// visitorSpotAmong (torgomat v2): a place with its own standing cells (a terminal's panel row): the first of them the fewest
+// walkers stand on or head for.
+func (r *Runtime) visitorSpotAmong(spots []inv.Cell) behavior.Cell {
+	taken := map[behavior.Cell]int{}
+	for _, b := range r.state.Visitors.Bodies {
+		if b.Phase == "leave" {
+			continue
+		}
+		spot := b.At
+		if len(b.Path) > 0 {
+			spot = b.Path[len(b.Path)-1]
+		}
+		taken[spot]++
+	}
+	best := behavior.Cell{X: spots[0].X, Y: spots[0].Y}
+	for _, c := range spots[1:] {
+		if cell := (behavior.Cell{X: c.X, Y: c.Y}); taken[cell] < taken[best] {
+			best = cell
+		}
+	}
+	return best
+}
+
+// visitorTargetOf: the selling place a walker is at (nil for a peddler or none).
+func (r *Runtime) visitorTargetOf(id string) *visitorTarget {
+	r.visitorIndex()
+	if i, ok := r.visitors.targets[id]; ok {
+		return &r.world.Visitors.Targets[i]
+	}
+	return nil
 }
 
 // visitorSpot: where a walker stands at a selling place — the customer's cell or a cell beside it along the counter,
@@ -539,7 +580,7 @@ func (r *Runtime) visitorBuy(slot string, serial int64, n int, target string, at
 		if err != nil {
 			break
 		}
-		r.vendingNoteSale(t.Store)
+		r.vendingNoteSale(t.Store, item.Definition)
 		r.visitorNoteSale(item.Owner, 1, q)
 		bought++
 	}
@@ -768,7 +809,15 @@ func (r *Runtime) advanceVisitors() error {
 			b.Phase = "stand"
 			b.Wait = v.DwellTicks.Min + int64(r.visitorDraw(b.Serial, fmt.Sprintf("dwell.%d", len(b.Stops)))%uint64(v.DwellTicks.Max-v.DwellTicks.Min+1))
 		case "stand":
-			b.Bought += r.visitorBuy(slot, b.Serial, len(b.Stops), b.Target, b.At, b.Units)
+			got := r.visitorBuy(slot, b.Serial, len(b.Stops), b.Target, b.At, b.Units)
+			b.Bought += got
+			// at a terminal he waits at the panel until the thing is dispensed and taken (torgomat v2: take_ticks of the place)
+			if t := r.visitorTargetOf(b.Target); got > 0 && t != nil && t.TakeTicks > 0 {
+				b.Phase, b.Wait = "take", t.TakeTicks
+				break
+			}
+			r.visitorHead(&b)
+		case "take":
 			r.visitorHead(&b)
 		default: // at the way out
 			r.visitorLeave(slot)
@@ -868,6 +917,8 @@ func (r *Runtime) appendVisitors(view *pb.PocLifeView, hero *behavior.LifeActor,
 		row := &pb.PocVisitor{Id: b.Serial, Look: r.world.Visitors.Kinds[b.Kind].Look, X: int32(b.At.X), Y: int32(b.At.Y), NextX: int32(b.At.X), NextY: int32(b.At.Y), Phase: b.Phase}
 		if len(b.Path) > 0 {
 			row.NextX, row.NextY, row.StepTicks = int32(b.Path[0].X), int32(b.Path[0].Y), int32(b.Wait+1)
+		} else if t := r.visitorTargetOf(b.Target); t != nil && t.Face != nil && (b.Phase == "stand" || b.Phase == "take") {
+			row.FaceX, row.FaceY = t.Face.X, t.Face.Y
 		}
 		view.Visitors = append(view.Visitors, row)
 	}
@@ -886,8 +937,8 @@ func (r *Runtime) validateVisitorSave(s state) error {
 	}
 	slots := map[int]bool{}
 	for _, b := range s.Visitors.Bodies {
-		if b.Slot < 1 || b.Slot >= len(v.Slots) || slots[b.Slot] || b.Kind < 0 || b.Kind >= len(v.Kinds) || b.Exit < 0 || b.Exit >= len(v.Entries) || b.Wait < 0 || b.Wait > v.DwellTicks.Max+v.MoveTicks ||
-			(b.Phase != "walk" && b.Phase != "stand" && b.Phase != "leave") || b.At.X < 0 || b.At.Y < 0 || len(b.Stops) > v.MaxStops || b.Units < 0 || b.Bought < 0 || b.Held < 0 || b.Held > visitorHoldTicks {
+		if b.Slot < 1 || b.Slot >= len(v.Slots) || slots[b.Slot] || b.Kind < 0 || b.Kind >= len(v.Kinds) || b.Exit < 0 || b.Exit >= len(v.Entries) || b.Wait < 0 || b.Wait > max(v.DwellTicks.Max, r.visitorMaxTake())+v.MoveTicks ||
+			(b.Phase != "walk" && b.Phase != "stand" && b.Phase != "take" && b.Phase != "leave") || b.At.X < 0 || b.At.Y < 0 || len(b.Stops) > v.MaxStops || b.Units < 0 || b.Bought < 0 || b.Held < 0 || b.Held > visitorHoldTicks {
 			return errors.New("invalid visitor")
 		}
 		slots[b.Slot] = true
@@ -914,4 +965,13 @@ func (r *Runtime) visitorLinked(a, b behavior.Cell) bool {
 		}
 	}
 	return false
+}
+
+// visitorMaxTake: the longest wait after paying of any place (a saved walker may be in it).
+func (r *Runtime) visitorMaxTake() int64 {
+	var m int64
+	for _, t := range r.world.Visitors.Targets {
+		m = max(m, t.TakeTicks)
+	}
+	return m
 }

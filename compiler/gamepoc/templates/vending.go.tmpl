@@ -8,6 +8,7 @@ package poc
 
 import (
 	"errors"
+	"math"
 	"sort"
 	"strings"
 
@@ -43,6 +44,34 @@ type vendingUnit struct {
 	Buys          []vendingBuy   `json:"buys"`
 	Services      []string       `json:"services"`
 	Dock          string         `json:"dock"`
+	// torgomat v2: the shelves the stock fills, the pose of the window and of the robot's dock
+	Shelves    []vendingShelf `json:"shelves"`
+	YawDegrees float64        `json:"yaw_degrees"`
+	Window     vendingPose    `json:"window"`
+}
+type vendingPose struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+	Z float64 `json:"z"`
+}
+type vendingShelf struct {
+	ID         string      `json:"id"`
+	Item       string      `json:"item"`
+	Units      int64       `json:"units"`
+	Kind       string      `json:"kind"`
+	At         vendingPose `json:"at"`
+	YawDegrees float64     `json:"yaw_degrees"`
+}
+type vendingModel struct {
+	Item string `json:"item"`
+	Full string `json:"full"`
+	Half string `json:"half"`
+	Few  string `json:"few"`
+}
+type vendingLeg struct {
+	Cells   []inv.Cell   `json:"cells"`
+	Points  [][2]float64 `json:"points"`
+	Seconds int64        `json:"seconds"`
 }
 type vendingCatalog struct {
 	Instance               string `json:"instance"`
@@ -60,10 +89,42 @@ type vendingCatalog struct {
 		NightTo   int64 `json:"night_to"`
 	} `json:"light"`
 	Refill struct {
-		FromSecond     int64 `json:"from_second"`
-		SecondsPerUnit int64 `json:"seconds_per_unit"`
+		FromSecond     int64    `json:"from_second"`
+		SecondsPerUnit int64    `json:"seconds_per_unit"`
+		Order          []string `json:"order"`
 	} `json:"refill"`
-	Units []vendingUnit `json:"units"`
+	Units    []vendingUnit `json:"units"`
+	Dispense struct {
+		RingTicks   int64 `json:"ring_ticks"`
+		LiftTicks   int64 `json:"lift_ticks"`
+		WindowTicks int64 `json:"window_ticks"`
+		OpenTicks   int64 `json:"open_ticks"`
+		TakeTicks   int64 `json:"take_ticks"`
+		CloseTicks  int64 `json:"close_ticks"`
+	} `json:"dispense"`
+	Intake struct {
+		LightTicks int64 `json:"light_ticks"`
+		OpenTicks  int64 `json:"open_ticks"`
+		TakeTicks  int64 `json:"take_ticks"`
+		CloseTicks int64 `json:"close_ticks"`
+	} `json:"intake"`
+	Models       map[string]vendingModel `json:"models"`
+	NeutralModel string                  `json:"neutral_model"`
+	Robot        struct {
+		Resource       string `json:"resource"`
+		CellSeconds    int64  `json:"cell_seconds"`
+		CoupleSeconds  int64  `json:"couple_seconds"`
+		FillSeconds    int64  `json:"fill_seconds"`
+		GiveWaySeconds int64  `json:"give_way_seconds"`
+		ClearanceCells int    `json:"clearance_cells"`
+		Dock           struct {
+			X          float64 `json:"x"`
+			Y          float64 `json:"y"`
+			YawDegrees float64 `json:"yaw_degrees"`
+		} `json:"dock"`
+		OutLeg  *vendingLeg `json:"out_leg"`
+		BackLeg *vendingLeg `json:"back_leg"`
+	} `json:"robot"`
 }
 
 // Saved with the game. Ticks are server ticks (the 3 s red flash is wall time at 10 Hz); days are Life game days + 1.
@@ -77,6 +138,28 @@ type vendingUnitState struct {
 	HeroKey      string `json:"hero_key,omitempty"`
 	HeroItem     string `json:"hero_item,omitempty"`
 	HeroMinor    int64  `json:"hero_minor,omitempty"`
+	// torgomat v2: the last purchase (anyone's) and the hero's last buy-back — public events the client plays
+	SaleSerial   int64  `json:"sale_serial,omitempty"`
+	SaleItem     string `json:"sale_item,omitempty"`
+	SaleShelf    string `json:"sale_shelf,omitempty"`
+	SaleTick     int64  `json:"sale_tick,omitempty"`
+	IntakeSerial int64  `json:"intake_serial,omitempty"`
+	IntakeItem   string `json:"intake_item,omitempty"`
+	IntakeTick   int64  `json:"intake_tick,omitempty"`
+}
+
+// The night service cabinet (addendum 1): where it is on its round, coupled or not, which module it loads. Times are game
+// seconds (Life.Seconds, absolute); saved with the game.
+type vendingRobotState struct {
+	Day    int64  `json:"day,omitempty"`    // the day key of the round it is on (or finished)
+	Phase  string `json:"phase,omitempty"`  // "" in its bay | out | couple | load | uncouple | back | done
+	Cell   int    `json:"cell,omitempty"`   // the cell of its leg it stands on (out / back)
+	Since  int64  `json:"since,omitempty"`  // when it entered that cell / began the phase / began loading the module
+	Unit   int    `json:"unit,omitempty"`   // the module it loads: index in refill.order
+	Steps  int    `json:"steps,omitempty"`  // shelves of that module filled
+	Moved  bool   `json:"moved,omitempty"`  // goods moved into that module
+	Waits  int64  `json:"waits,omitempty"`  // times it found a body in its lane (ledger)
+	Waited bool   `json:"waited,omitempty"` // it stands before a body now
 }
 type vendingBuyback struct {
 	Day   int64 `json:"day"`
@@ -85,6 +168,7 @@ type vendingBuyback struct {
 type vendingState struct {
 	Units   map[string]vendingUnitState `json:"units,omitempty"`
 	Buyback map[string]vendingBuyback   `json:"buyback,omitempty"`
+	Robot   vendingRobotState           `json:"robot,omitempty"`
 }
 
 func (s vendingState) clone() vendingState {
@@ -129,11 +213,21 @@ func (r *Runtime) vendingDisplayUnit(store string) (int, bool) {
 	}
 	return -1, false
 }
-func (r *Runtime) vendingInService(i int) bool {
+// vendingSlot: the place of unit i in the cabinet's loading order (refill.order).
+func (r *Runtime) vendingSlot(i int) int {
 	v := r.world.Vending
-	sec := r.state.Life.Seconds % 86400
-	from := v.Refill.FromSecond + int64(i)*v.Refill.SecondsPerUnit
-	return sec >= from && sec < from+v.Refill.SecondsPerUnit
+	for j, id := range v.Refill.Order {
+		if id == v.Units[i].ID {
+			return j
+		}
+	}
+	return i
+}
+
+// vendingInService: the cabinet is coupled and loads unit i now (its status is amber, it sells nothing).
+func (r *Runtime) vendingInService(i int) bool {
+	s := r.state.Vending.Robot
+	return s.Phase == "load" && s.Unit == r.vendingSlot(i)
 }
 
 // A vending display serves while its unit is not under service (used by the NPC buyers instead of a present proprietor).
@@ -176,23 +270,81 @@ func (r *Runtime) vendingLamp(i int, occupied bool) int64 {
 	return ppm
 }
 
-// A successful sale or buy-back by anyone: the band pulses white for serving_ticks.
-func (r *Runtime) vendingServed(i int, buyback bool) {
+// A successful sale or buy-back by anyone: the band pulses white for serving_ticks, and the unit keeps the public event of
+// it (torgomat v2: the dispense of the thing from its shelf, the buy-back tray taking it) for the client to play.
+func (r *Runtime) vendingServed(i int, buyback bool, definition string) {
 	u := r.world.Vending.Units[i]
 	s := r.vendingUnitState(u.ID)
 	s.ServingUntil = r.state.Tick + r.world.Vending.ServingTicks
 	s.RefusedUntil = 0
 	if buyback {
 		s.Buybacks++
+		s.IntakeSerial++
+		s.IntakeItem, s.IntakeTick = definition, r.state.Tick
 	} else {
 		s.Sales++
+		s.SaleSerial++
+		s.SaleItem, s.SaleTick = definition, r.state.Tick
+		// the unit just sold was the (stock+1)-th of the thing: the shelf that held it
+		s.SaleShelf = r.vendingShelfOfUnit(u, definition, r.vendingStock(u.DisplayStore, definition)+1)
 	}
 	r.setVendingUnitState(u.ID, s)
 }
-func (r *Runtime) vendingNoteSale(store string) {
+func (r *Runtime) vendingNoteSale(store, definition string) {
 	if i, ok := r.vendingDisplayUnit(store); ok {
-		r.vendingServed(i, false)
+		r.vendingServed(i, false, definition)
 	}
+}
+
+// vendingShelfOfUnit: the shelf that holds the n-th unit of a thing (the stock fills the thing's shelves in their order).
+func (r *Runtime) vendingShelfOfUnit(u vendingUnit, definition string, n int64) string {
+	var cum int64
+	last := ""
+	for _, sh := range u.Shelves {
+		if sh.Item != definition {
+			continue
+		}
+		last = sh.ID
+		cum += sh.Units
+		if n <= cum {
+			return sh.ID
+		}
+	}
+	return last
+}
+
+// vendingShelfRows: what every shelf of a unit shows now — the stock of its thing against its share of the par level.
+func (r *Runtime) vendingShelfRows(u vendingUnit) []*pb.PocCraftHeap {
+	v := r.world.Vending
+	stock := map[string]int64{}
+	for _, sh := range u.Shelves {
+		if _, ok := stock[sh.Item]; !ok {
+			stock[sh.Item] = r.vendingStock(u.DisplayStore, sh.Item)
+		}
+	}
+	used := map[string]int64{}
+	rows := make([]*pb.PocCraftHeap, 0, len(u.Shelves))
+	for _, sh := range u.Shelves {
+		q := stock[sh.Item] - used[sh.Item]
+		if q < 0 {
+			q = 0
+		}
+		if q > sh.Units {
+			q = sh.Units
+		}
+		used[sh.Item] += sh.Units
+		fill := craftHeapLevel(q, sh.Units)
+		m := v.Models[sh.Item]
+		scene := map[string]string{"full": m.Full, "half": m.Half, "few": m.Few}[fill]
+		rows = append(rows, &pb.PocCraftHeap{Id: sh.ID, Fill: fill, X: sh.At.X, Y: sh.At.Y, Z: sh.At.Z, YawDegrees: sh.YawDegrees, HeapResource: scene})
+	}
+	return rows
+}
+func (r *Runtime) vendingItemScene(definition string) string {
+	if m, ok := r.world.Vending.Models[definition]; ok && m.Item != "" {
+		return m.Item
+	}
+	return r.world.Vending.NeutralModel
 }
 
 // heroResult keeps the hero's last result line at the unit (key + arguments, localized per client in the view).
@@ -319,7 +471,7 @@ func (r *Runtime) vendingCommand(c *connection, q *pb.PocInventoryCommand, tag s
 		if _, err := r.executeActorAction(action); err != nil {
 			return refuse("ui.torgomat.refused.stock", item.Definition)
 		}
-		r.vendingServed(unit, false)
+		r.vendingServed(unit, false, item.Definition)
 		r.vendingHeroResult(unit, "ui.torgomat.result.bought", item.Definition, price, false)
 		result.Ok = true
 		result.Message = r.vendingText(locale, "ui.torgomat.result.bought", item.Definition, price)
@@ -370,7 +522,7 @@ func (r *Runtime) vendingCommand(c *connection, q *pb.PocInventoryCommand, tag s
 	}
 	b.Minor += price
 	r.state.Vending.Buyback[playerActorID] = b
-	r.vendingServed(unit, true)
+	r.vendingServed(unit, true, item.Definition)
 	r.vendingHeroResult(unit, "ui.torgomat.result.sold", item.Definition, price, false)
 	r.focusActor(playerActorID, item.ID)
 	result.Ok = true
@@ -406,44 +558,198 @@ func (r *Runtime) vendingText(locale, key, definition string, minor int64) strin
 	return strings.ReplaceAll(text, "{crd}", strings.ReplaceAll(inv.FormatMoney(minor, r.world.Inventory.Currencies[r.vendingAccountCurrency()].Scale),".",r.localText(locale,"ui.format.decimal_separator",".")))
 }
 
-// advanceVending: the night refill (unit i serves from from_second + i*seconds_per_unit, once per game day; if the
-// window was skipped by a long frame it runs at the first frame after its start that day) and the hero's result line
-// fading when he leaves the panel.
+// advanceVending: the night round of the service cabinet (advanceVendingRobot) and the hero's result line fading when he
+// leaves the panel.
 func (r *Runtime) advanceVending() error {
 	v := r.world.Vending
 	if len(v.Units) == 0 || !r.state.Life.Enabled {
 		return nil
 	}
-	day := r.vendingDayKey()
-	sec := r.state.Life.Seconds % 86400
 	hero := r.vendingHeroUnit()
 	for i, u := range v.Units {
 		s := r.vendingUnitState(u.ID)
-		changed := false
 		if hero != i && s.HeroKey != "" {
 			s.HeroKey, s.HeroItem, s.HeroMinor = "", "", 0
-			changed = true
-		}
-		if s.RefillDay != day && sec >= v.Refill.FromSecond+int64(i)*v.Refill.SecondsPerUnit {
-			moved, err := r.vendingRefill(u)
-			if err != nil {
-				return err
-			}
-			s.RefillDay = day
-			if moved > 0 {
-				s.Refills++
-			}
-			changed = true
-		}
-		if changed {
 			r.setVendingUnitState(u.ID, s)
+		}
+	}
+	return r.advanceVendingRobot()
+}
+
+// advanceVendingRobot (addendum 1): the cabinet leaves its bay so that it has coupled when the first module's window opens,
+// drives its route a cell at a time (it waits while a body stands in the next cell; after give_way_seconds the body has
+// stepped aside), couples at the docking port on the block's end, loads the modules in the refill order — each its
+// seconds_per_unit, the shelves filling one by one in fill_seconds — uncouples and drives home. A round the clock skipped
+// whole (a new game, a long load) is done unseen: every module filled to its par at once. Nothing is created: the goods come
+// from the module's own locked cassette.
+func (r *Runtime) advanceVendingRobot() error {
+	v := r.world.Vending
+	rb := v.Robot
+	if rb.OutLeg == nil || rb.BackLeg == nil || len(v.Refill.Order) == 0 {
+		return nil
+	}
+	s := &r.state.Vending.Robot
+	now := r.state.Life.Seconds
+	day := r.vendingDayKey()
+	dayStart := now - now%86400
+	n := len(v.Refill.Order)
+	depart := dayStart + v.Refill.FromSecond - rb.OutLeg.Seconds - rb.CoupleSeconds
+	nominalEnd := dayStart + v.Refill.FromSecond + int64(n)*v.Refill.SecondsPerUnit
+	for guard := 0; guard < 100000; guard++ {
+		switch s.Phase {
+		case "", "done":
+			if s.Phase == "done" && s.Day == day {
+				return nil
+			}
+			if now < depart {
+				return nil
+			}
+			if now >= nominalEnd {
+				// the round of today lies behind a jump of the clock: the modules are filled unseen
+				for j := 0; j < n; j++ {
+					if err := r.vendingFinishUnit(j, day, true); err != nil {
+						return err
+					}
+				}
+				*s = vendingRobotState{Day: day, Phase: "done", Waits: s.Waits}
+				return nil
+			}
+			*s = vendingRobotState{Day: day, Phase: "out", Since: depart, Waits: s.Waits}
+		case "out", "back":
+			leg := rb.OutLeg
+			if s.Phase == "back" {
+				leg = rb.BackLeg
+			}
+			last := len(leg.Cells) - 1
+			for s.Cell < last {
+				due := s.Since + rb.CellSeconds
+				if now < due {
+					return nil
+				}
+				if r.vendingBlocked(leg.Cells[s.Cell+1]) && now-due < rb.GiveWaySeconds {
+					if !s.Waited {
+						s.Waits++
+					}
+					s.Waited = true
+					return nil
+				}
+				if s.Waited {
+					due = now
+				}
+				s.Cell, s.Since, s.Waited = s.Cell+1, due, false
+			}
+			if s.Phase == "out" {
+				s.Phase, s.Cell = "couple", 0
+			} else {
+				s.Phase, s.Cell = "done", 0
+				return nil
+			}
+		case "couple":
+			if now < s.Since+rb.CoupleSeconds {
+				return nil
+			}
+			s.Phase, s.Since, s.Unit, s.Steps, s.Moved = "load", s.Since+rb.CoupleSeconds, 0, 0, false
+		case "load":
+			i, _ := r.vendingUnitIndex(v.Refill.Order[s.Unit])
+			u := v.Units[i]
+			steps := max(1, len(u.Shelves))
+			for s.Steps < steps && now >= s.Since+int64(s.Steps+1)*rb.FillSeconds/int64(steps) {
+				moved, err := r.vendingRefill(u, s.Steps)
+				if err != nil {
+					return err
+				}
+				s.Moved = s.Moved || moved > 0
+				s.Steps++
+			}
+			if now < s.Since+v.Refill.SecondsPerUnit {
+				return nil
+			}
+			us := r.vendingUnitState(u.ID)
+			us.RefillDay = day
+			if s.Moved {
+				us.Refills++
+			}
+			r.setVendingUnitState(u.ID, us)
+			s.Unit, s.Since, s.Steps, s.Moved = s.Unit+1, s.Since+v.Refill.SecondsPerUnit, 0, false
+			if s.Unit >= n {
+				s.Phase, s.Unit = "uncouple", 0
+			}
+		case "uncouple":
+			if now < s.Since+rb.CoupleSeconds {
+				return nil
+			}
+			s.Phase, s.Cell, s.Since = "back", 0, s.Since+rb.CoupleSeconds
+		default:
+			*s = vendingRobotState{}
+			return nil
 		}
 	}
 	return nil
 }
 
-// vendingRefill moves goods of the system from the cassette to the showcase up to the par level (nothing is created).
-func (r *Runtime) vendingRefill(u vendingUnit) (int64, error) {
+// vendingFinishUnit: every shelf step of the j-th module of the order at once (a round the clock skipped).
+func (r *Runtime) vendingFinishUnit(j int, day int64, count bool) error {
+	v := r.world.Vending
+	i, ok := r.vendingUnitIndex(v.Refill.Order[j])
+	if !ok {
+		return nil
+	}
+	u := v.Units[i]
+	moved := false
+	for k := 0; k < max(1, len(u.Shelves)); k++ {
+		m, err := r.vendingRefill(u, k)
+		if err != nil {
+			return err
+		}
+		moved = moved || m > 0
+	}
+	us := r.vendingUnitState(u.ID)
+	us.RefillDay = day
+	if moved && count {
+		us.Refills++
+	}
+	r.setVendingUnitState(u.ID, us)
+	return nil
+}
+func (r *Runtime) vendingUnitIndex(id string) (int, bool) {
+	for i, u := range r.world.Vending.Units {
+		if u.ID == id {
+			return i, true
+		}
+	}
+	return -1, false
+}
+
+// vendingBlocked: a body stands where the cabinet's body would be in that cell — the cell and clearance_cells round it (the
+// hero, a person of the hall, a resident of the population, a visitor).
+func (r *Runtime) vendingBlocked(c inv.Cell) bool {
+	v := r.world.Vending
+	k := v.Robot.ClearanceCells
+	near := func(at behavior.Cell) bool { return absInt(at.X-c.X) <= k && absInt(at.Y-c.Y) <= k }
+	for _, a := range r.state.Life.Actors {
+		if a.Level == v.Level && a.OnFloor() && near(a.Position) {
+			return true
+		}
+	}
+	for _, a := range r.state.Life.Population.Actors {
+		if a.Level == v.Level && a.Trip == nil && near(a.Position) {
+			return true
+		}
+	}
+	if r.world.Visitors.Level == v.Level {
+		for _, b := range r.state.Visitors.Bodies {
+			if near(b.At) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// vendingRefill moves goods of the system from the cassette to the showcase (nothing is created): step k fills shelf k —
+// its thing up to the shares of its shelves so far (the last shelf of a thing brings it to the par level). A unit without
+// shelves is filled to the par level in one step.
+func (r *Runtime) vendingRefill(u vendingUnit, step int) (int64, error) {
 	v := r.world.Vending
 	model := r.inventoryModelFor(true)
 	var moves []inv.Move
@@ -455,7 +761,20 @@ func (r *Runtime) vendingRefill(u vendingUnit) (int64, error) {
 		}
 	}
 	sort.Strings(ids)
-	for _, o := range u.Sells {
+	targets := []vendingOffer{}
+	if step < len(u.Shelves) {
+		sh := u.Shelves[step]
+		var upto int64
+		for k := 0; k <= step; k++ {
+			if u.Shelves[k].Item == sh.Item {
+				upto += u.Shelves[k].Units
+			}
+		}
+		targets = append(targets, vendingOffer{Item: sh.Item, Par: upto})
+	} else {
+		targets = u.Sells
+	}
+	for _, o := range targets {
 		need := o.Par - r.vendingStock(u.DisplayStore, o.Item)
 		for _, id := range ids {
 			if need <= 0 || len(moves) >= 64 {
@@ -549,9 +868,70 @@ func (r *Runtime) appendVending(view *pb.PocLifeView, hero *behavior.LifeActor, 
 		if i == active {
 			r.appendVendingPanel(unit, i, locale, scale)
 		}
+		// torgomat v2: the goods behind the glass, the last dispense and buy-back, the service hatch
+		unit.Shelves = r.vendingShelfRows(u)
+		s := r.vendingUnitState(u.ID)
+		if s.SaleSerial > 0 {
+			unit.Sale = &pb.PocVendingEvent{Serial: s.SaleSerial, Definition: s.SaleItem, Resource: r.vendingItemScene(s.SaleItem), Tick: s.SaleTick, Ticks: int32(v.ServingTicks), Shelf: s.SaleShelf}
+		}
+		if s.IntakeSerial > 0 {
+			in := v.Intake
+			unit.Intake = &pb.PocVendingEvent{Serial: s.IntakeSerial, Definition: s.IntakeItem, Resource: r.vendingItemScene(s.IntakeItem), Tick: s.IntakeTick, Ticks: int32(in.LightTicks + in.OpenTicks + in.TakeTicks + in.CloseTicks)}
+		}
 		view.Vending = append(view.Vending, unit)
 	}
+	if pose, ok := r.vendingRobotPose(); ok && viewSees(perception, int32(math.Floor(pose.X*2)), int32(math.Floor(pose.Y*2))) {
+		view.VendingRobot = pose
+	}
 }
+
+// vendingRobotPose: where the service cabinet is now (its state): driving between two cells of its leg (standing before a body
+// in its lane), coupled at the docking port, loading the module of the order, uncoupling. Not in its bay: nothing to send.
+func (r *Runtime) vendingRobotPose() (*pb.PocVendingRobot, bool) {
+	v := r.world.Vending
+	rb := v.Robot
+	s := r.state.Vending.Robot
+	if rb.OutLeg == nil || rb.BackLeg == nil || !r.state.Life.Enabled {
+		return nil, false
+	}
+	now := r.state.Life.Seconds
+	out := &pb.PocVendingRobot{Resource: rb.Resource}
+	switch s.Phase {
+	case "out", "back":
+		leg := rb.OutLeg
+		if s.Phase == "back" {
+			leg = rb.BackLeg
+		}
+		a := leg.Points[min(s.Cell, len(leg.Points)-1)]
+		b := leg.Points[min(s.Cell+1, len(leg.Points)-1)]
+		f := 0.0
+		if !s.Waited {
+			f = math.Max(0, math.Min(1, float64(now-s.Since)/float64(rb.CellSeconds)))
+		}
+		out.X, out.Y = a[0]+(b[0]-a[0])*f, a[1]+(b[1]-a[1])*f
+		out.YawDegrees = math.Mod(math.Atan2(b[0]-a[0], b[1]-a[1])*180/math.Pi+360, 360)
+		if a == b {
+			out.YawDegrees = rb.Dock.YawDegrees
+		}
+		out.Phase = "drive"
+		if s.Waited {
+			out.Phase = "wait"
+		}
+		out.PhasePpm = int32(f * 1000000)
+		return out, true
+	case "couple", "load", "uncouple":
+		out.X, out.Y, out.YawDegrees, out.Phase = rb.Dock.X, rb.Dock.Y, rb.Dock.YawDegrees, s.Phase
+		span := rb.CoupleSeconds
+		if s.Phase == "load" {
+			span = v.Refill.SecondsPerUnit
+			out.Unit = v.Refill.Order[min(s.Unit, len(v.Refill.Order)-1)]
+		}
+		out.PhasePpm = int32(max(int64(0), min(int64(1000000), (now-s.Since)*1000000/max(int64(1), span))))
+		return out, true
+	}
+	return nil, false
+}
+
 func (r *Runtime) appendVendingPanel(unit *pb.PocVendingUnit, i int, locale string, scale int64) {
 	v := r.world.Vending
 	u := v.Units[i]
@@ -645,7 +1025,59 @@ func (r *Runtime) validateVendingSave(s state) error {
 			return errVendingSave
 		}
 	}
+	// the cabinet: a known phase, a cell of its leg, a module of the order
+	rb, st := v.Robot, s.Vending.Robot
+	switch st.Phase {
+	case "", "done", "couple", "uncouple":
+	case "out", "back":
+		leg := rb.OutLeg
+		if st.Phase == "back" {
+			leg = rb.BackLeg
+		}
+		if leg == nil || st.Cell < 0 || st.Cell >= len(leg.Cells) {
+			return errVendingSave
+		}
+	case "load":
+		if st.Unit < 0 || st.Unit >= len(v.Refill.Order) || st.Steps < 0 {
+			return errVendingSave
+		}
+	default:
+		return errVendingSave
+	}
 	return nil
 }
 
-var errVendingSave = errors.New("vending state names an unknown unit or exceeds the daily buy-back limit")
+var errVendingSave = errors.New("vending state names an unknown unit, exceeds the daily buy-back limit or puts the service cabinet off its round")
+
+// vendingFaceAgent (torgomat v2): a person who stands at the panel of a terminal for his purchase (his brain's place is the
+// unit and he stands on its approach) faces the panel while the thing is dispensed.
+func (r *Runtime) vendingFaceAgent(a *pb.PocAgentState, standing bool) {
+	v := r.world.Vending
+	if !standing || len(v.Units) == 0 {
+		return
+	}
+	place := ""
+	if p := r.state.Life.Actor(a.Id); p != nil {
+		place = p.Brain.Place.ID
+	} else {
+		for i := range r.state.Life.Population.Actors {
+			if r.state.Life.Population.Actors[i].ID == a.Id {
+				place = r.state.Life.Population.Actors[i].Brain.Place.ID
+				break
+			}
+		}
+	}
+	for _, u := range v.Units {
+		if place != "vending."+u.ID {
+			continue
+		}
+		for _, c := range u.Approach {
+			if int32(c.X) == a.X && int32(c.Y) == a.Y {
+				a.FaceX, a.FaceY = 0, 1
+				if u.Face == "south" {
+					a.FaceY = -1
+				}
+			}
+		}
+	}
+}

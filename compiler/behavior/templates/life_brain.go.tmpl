@@ -11,6 +11,9 @@ type LifeAffordance struct {
  // QueueLimit (demo-hub v14-traders): at most this many people may be heading for / standing at the place; 0 = no limit.
  // A newcomer then picks the next place that offers the same kind (the host filters its offers).
  QueueLimit int `json:"queue_limit,omitempty"`
+ // PayFirst (torgomat v2): a terminal of the system is paid on arrival; the person then stands at the panel for the meal time
+ // (the thing is dispensed and taken) instead of paying when leaving.
+ PayFirst bool `json:"pay_first,omitempty"`
  // Kind "seated_food" (demo-hub v5-yatai): a staffed food counter with reserved seats. Model data only: a brain keeps
  // the place by ID without it (saves stay small) and reads the seating from the model.
  Seating *LifeSeating `json:"seating,omitempty"`
@@ -224,7 +227,10 @@ func(b *LifeBrain)advance(m LifeBrainModel,svc LifeBrainServices,id,level,activi
   case "ration":
    if seconds%86400>=b.Place.Open&&seconds%86400<b.Place.Close&&b.Rations<m.RationDaily&&b.RationOrder==m.RationOrder {b.MealElapsed+=dt;if b.MealElapsed>=m.MealSeconds{b.Needs[0]=brainClamp(b.Needs[0]-m.MealRelief);b.Rations++;b.Meals++;b.MealElapsed=0;if b.BreakKind=="lunch"{b.Returning=true};b.NextDecision=seconds;b.Goal.HoldUntil=b.Goal.ChosenTick}}
   case "market_food","market_goods":
-   b.MealElapsed+=dt;if b.MealElapsed>=m.MealSeconds{food:=b.Place.Kind=="market_food";if svc.Buy!=nil&&svc.Buy(id,b.Place,food){b.Purchases++;if food{b.Needs[0]=brainClamp(b.Needs[0]-m.MealRelief);b.Meals++;if b.BreakKind=="lunch"{b.Returning=true}}else{b.GoodsDay=seconds/86400}};b.MealElapsed=0;b.NextDecision=seconds;b.Goal.HoldUntil=b.Goal.ChosenTick}
+   b.MealElapsed+=dt;food:=b.Place.Kind=="market_food"
+   buy:=func()bool{if svc.Buy!=nil&&svc.Buy(id,b.Place,food){b.Purchases++;if food{b.Needs[0]=brainClamp(b.Needs[0]-m.MealRelief);b.Meals++;if b.BreakKind=="lunch"{b.Returning=true}}else{b.GoodsDay=seconds/86400};return true};return false}
+   leave:=func(){b.MealElapsed=0;b.NextDecision=seconds;b.Goal.HoldUntil=b.Goal.ChosenTick}
+   if b.Place.PayFirst{if b.MealElapsed==dt&&!buy(){leave()}else if b.MealElapsed>=m.MealSeconds{leave()}}else if b.MealElapsed>=m.MealSeconds{buy();leave()}
   }
  }else{b.MealElapsed=0}
  // Keep the destination through the trip. A new duty, its return deadline or

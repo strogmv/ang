@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
 
 	"cuelang.org/go/cue"
 	inv "github.com/strogmv/ang/compiler/inventory/runtime"
@@ -31,6 +32,62 @@ type VendingSignal struct {
 	FlashHz float64 `json:"flash_hz,omitempty"`
 	RU      string  `json:"ru"`
 }
+
+// torgomat v2 (owner 11.11.2026): a pose in plan metres of the level and the shelves, models, timings and the night robot.
+type VendingPose struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+	Z float64 `json:"z"`
+}
+type VendingShelf struct {
+	ID         string      `json:"id"`
+	Item       string      `json:"item"`
+	Units      int64       `json:"units"`
+	Kind       string      `json:"kind"`
+	At         VendingPose `json:"at"`
+	YawDegrees float64     `json:"yaw_degrees"`
+}
+type VendingModel struct {
+	Item string `json:"item"`
+	Full string `json:"full,omitempty"`
+	Half string `json:"half,omitempty"`
+	Few  string `json:"few,omitempty"`
+}
+type VendingLift struct {
+	RestZ   float64 `json:"rest_z"`
+	WindowZ float64 `json:"window_z"`
+}
+
+// A leg of the night cabinet, derived by ANG from the waypoints of its route: every cell it drives over, their plan points
+// (the dock cell's point is the coupled pose beside the port) and its game seconds when nothing stands in the way.
+type VendingLeg struct {
+	Cells   []inv.Cell   `json:"cells"`
+	Points  [][2]float64 `json:"points"`
+	Seconds int64        `json:"seconds"`
+}
+type VendingDock struct {
+	X          float64 `json:"x"`
+	Y          float64 `json:"y"`
+	YawDegrees float64 `json:"yaw_degrees"`
+}
+
+// The night service cabinet (addendum 1, owner 11.11): it couples to the docking port on the block's end; the host keeps its
+// state (where it is, coupled or not, which module it loads).
+type VendingRobot struct {
+	Resource       string      `json:"resource"`
+	Home           inv.Cell    `json:"home"`
+	Out            []inv.Cell  `json:"out"`
+	Back           []inv.Cell  `json:"back"`
+	DockCell       inv.Cell    `json:"dock_cell"`
+	Dock           VendingDock `json:"dock"`
+	CellSeconds    int64       `json:"cell_seconds"`
+	CoupleSeconds  int64       `json:"couple_seconds"`
+	FillSeconds    int64       `json:"fill_seconds"`
+	GiveWaySeconds int64       `json:"give_way_seconds"`
+	ClearanceCells int         `json:"clearance_cells"`
+	OutLeg         *VendingLeg `json:"out_leg,omitempty"`
+	BackLeg        *VendingLeg `json:"back_leg,omitempty"`
+}
 type VendingUnit struct {
 	ID            string         `json:"id"`
 	N             int            `json:"n"`
@@ -48,6 +105,12 @@ type VendingUnit struct {
 	Services      []string       `json:"services"`
 	Dock          string         `json:"dock"`
 	LabelKey      string         `json:"label_key"`
+	Shelves       []VendingShelf `json:"shelves"`
+	YawDegrees    float64        `json:"yaw_degrees"`
+	Lift          *VendingLift   `json:"lift,omitempty"`
+	Window        VendingPose    `json:"window"`
+	Sash          bool           `json:"sash"`
+	Fan           bool           `json:"fan"`
 }
 type VendingFixture struct {
 	ID            string  `json:"id"`
@@ -78,10 +141,30 @@ type VendingCatalog struct {
 	RefusalTicks           int64        `json:"refusal_ticks"`
 	Light                  VendingLight `json:"light"`
 	Refill                 struct {
-		FromSecond     int64 `json:"from_second"`
-		SecondsPerUnit int64 `json:"seconds_per_unit"`
+		FromSecond     int64    `json:"from_second"`
+		SecondsPerUnit int64    `json:"seconds_per_unit"`
+		Order          []string `json:"order"`
 	} `json:"refill"`
-	Signals struct {
+	Dispense struct {
+		RingTicks   int64 `json:"ring_ticks"`
+		LiftTicks   int64 `json:"lift_ticks"`
+		WindowTicks int64 `json:"window_ticks"`
+		OpenTicks   int64 `json:"open_ticks"`
+		TakeTicks   int64 `json:"take_ticks"`
+		CloseTicks  int64 `json:"close_ticks"`
+	} `json:"dispense"`
+	Intake struct {
+		LightTicks int64 `json:"light_ticks"`
+		OpenTicks  int64 `json:"open_ticks"`
+		TakeTicks  int64 `json:"take_ticks"`
+		CloseTicks int64 `json:"close_ticks"`
+	} `json:"intake"`
+	Models       map[string]VendingModel `json:"models"`
+	NeutralModel string                  `json:"neutral_model"`
+	Kit          []string                `json:"kit"`
+	Robot        VendingRobot            `json:"robot"`
+	Look         map[string]any          `json:"look"`
+	Signals      struct {
 		Status map[string]VendingSignal `json:"status"`
 		Dock   map[string]VendingSignal `json:"dock"`
 	} `json:"signals"`
@@ -231,6 +314,146 @@ func validateVending(c Compiled) error {
 			}
 		}
 	}
+	return validateVendingLive(v, walk)
+}
+
+// validateVendingLive (torgomat v2): the shelves of every unit hold its stocked goods and their shares add up to the par level;
+// every good has its scenes in the kit; the dispense and buy-back timings fit the band; the refill order names every unit once;
+// the robot's route runs over walkable cells in straight runs, passes the docks in the refill order and fits the night window.
+// It derives the robot's legs (plan points and game seconds) for the host.
+func validateVendingLive(v *VendingCatalog, walk func(inv.Cell) bool) error {
+	d := v.Dispense
+	if d.RingTicks < 1 || d.LiftTicks < 1 || d.WindowTicks < 1 || d.OpenTicks < 1 || d.TakeTicks < 1 || d.CloseTicks < 1 ||
+		v.ServingTicks != d.RingTicks+d.LiftTicks+d.WindowTicks+d.OpenTicks+d.TakeTicks+d.CloseTicks {
+		return fmt.Errorf("vending: the dispense phases must be positive and add up to serving_ticks")
+	}
+	in := v.Intake
+	if in.LightTicks < 1 || in.OpenTicks < 1 || in.TakeTicks < 1 || in.CloseTicks < 1 || in.LightTicks+in.OpenTicks+in.TakeTicks+in.CloseTicks > v.ServingTicks {
+		return fmt.Errorf("vending: the buy-back phases must be positive and fit serving_ticks")
+	}
+	kit := map[string]bool{}
+	for _, r := range v.Kit {
+		kit[r] = true
+	}
+	inKit := func(r string) bool { return r != "" && kit[r] }
+	if !inKit(v.NeutralModel) || !inKit(v.Robot.Resource) {
+		return fmt.Errorf("vending: the neutral package or the robot is not in the kit")
+	}
+	if len(v.Look) == 0 {
+		return fmt.Errorf("vending: the look of the block is missing")
+	}
+	byID := map[string]int{}
+	for i, u := range v.Units {
+		byID[u.ID] = i
+		share := map[string]int64{}
+		seen := map[string]bool{}
+		for _, sh := range u.Shelves {
+			if sh.ID == "" || seen[sh.ID] || sh.Units < 1 || (sh.Kind != "shelf" && sh.Kind != "bay") || (sh.Kind == "bay") != (u.Kind == "equipment") {
+				return fmt.Errorf("vending %s: shelf %q empty, duplicate or of the wrong kind", u.ID, sh.ID)
+			}
+			seen[sh.ID] = true
+			m, ok := v.Models[sh.Item]
+			if !ok || !inKit(m.Item) || !inKit(m.Full) || !inKit(m.Half) || !inKit(m.Few) {
+				return fmt.Errorf("vending %s: shelf %s holds %q without its scenes in the kit", u.ID, sh.ID, sh.Item)
+			}
+			share[sh.Item] += sh.Units
+		}
+		for _, o := range u.Sells {
+			if o.Par > 0 && share[o.Item] != o.Par {
+				return fmt.Errorf("vending %s: the shelves of %s hold %d, the par level is %d", u.ID, o.Item, share[o.Item], o.Par)
+			}
+			delete(share, o.Item)
+		}
+		if len(share) > 0 {
+			extra := make([]string, 0, len(share))
+			for item := range share {
+				extra = append(extra, item)
+			}
+			sort.Strings(extra)
+			return fmt.Errorf("vending %s: a shelf holds %s the unit does not stock", u.ID, extra[0])
+		}
+		for _, b := range u.Buys {
+			if m, ok := v.Models[b.Item]; ok && !inKit(m.Item) {
+				return fmt.Errorf("vending %s: the buy-back scene of %s is not in the kit", u.ID, b.Item)
+			}
+		}
+		if (u.Kind != "equipment") != (u.Lift != nil) || (u.Lift != nil && u.Lift.WindowZ >= u.Lift.RestZ) {
+			return fmt.Errorf("vending %s: a showcase has a lift from its floor down to the window, an equipment module none", u.ID)
+		}
+	}
+	order := v.Refill.Order
+	if len(order) != len(v.Units) {
+		return fmt.Errorf("vending: the refill order must name every unit once")
+	}
+	placed := map[string]bool{}
+	for _, id := range order {
+		if _, ok := byID[id]; !ok || placed[id] {
+			return fmt.Errorf("vending: the refill order must name every unit once")
+		}
+		placed[id] = true
+	}
+	// the cabinet: straight runs between the waypoints over walkable cells, out from home to the dock cell and back
+	r := &v.Robot
+	if r.CellSeconds < 1 || r.CoupleSeconds < 1 || r.FillSeconds < 1 || r.FillSeconds > v.Refill.SecondsPerUnit || r.GiveWaySeconds < 1 || r.ClearanceCells < 0 || !walk(r.DockCell) {
+		return fmt.Errorf("vending: the robot needs positive timings, a fill within a module's window and a dock cell on the floor")
+	}
+	leg := func(name string, way []inv.Cell, from, to inv.Cell) (*VendingLeg, error) {
+		if len(way) < 2 || way[0] != from || way[len(way)-1] != to {
+			return nil, fmt.Errorf("vending: the robot's %s route must run from %v to %v", name, from, to)
+		}
+		cells := []inv.Cell{way[0]}
+		for k := 1; k < len(way); k++ {
+			a, b := way[k-1], way[k]
+			if a.X != b.X && a.Y != b.Y {
+				return nil, fmt.Errorf("vending: the robot's run %v -> %v is not straight", a, b)
+			}
+			for a != b {
+				switch {
+				case a.X < b.X:
+					a.X++
+				case a.X > b.X:
+					a.X--
+				case a.Y < b.Y:
+					a.Y++
+				default:
+					a.Y--
+				}
+				cells = append(cells, a)
+			}
+		}
+		out := &VendingLeg{Cells: cells, Seconds: int64(len(cells)-1) * r.CellSeconds}
+		for _, c := range cells {
+			// its body covers the cell and clearance_cells round it: the whole lane must be floor
+			for dx := -r.ClearanceCells; dx <= r.ClearanceCells; dx++ {
+				for dy := -r.ClearanceCells; dy <= r.ClearanceCells; dy++ {
+					if !walk(inv.Cell{X: c.X + dx, Y: c.Y + dy}) {
+						return nil, fmt.Errorf("vending: the robot's %s lane at %v runs into the blocked cell %v", name, c, inv.Cell{X: c.X + dx, Y: c.Y + dy})
+					}
+				}
+			}
+			out.Points = append(out.Points, [2]float64{float64(c.X)*0.5 + 0.25, float64(c.Y)*0.5 + 0.25})
+		}
+		return out, nil
+	}
+	var err error
+	if r.OutLeg, err = leg("out", r.Out, r.Home, r.DockCell); err != nil {
+		return err
+	}
+	if r.BackLeg, err = leg("back", r.Back, r.DockCell, r.Home); err != nil {
+		return err
+	}
+	dock := [2]float64{r.Dock.X, r.Dock.Y}
+	r.OutLeg.Points[len(r.OutLeg.Points)-1] = dock
+	r.BackLeg.Points[0] = dock
+	// the coupled pose stands beside its dock cell (within a cell of its middle)
+	if dx, dy := r.Dock.X-(float64(r.DockCell.X)*0.5+0.25), r.Dock.Y-(float64(r.DockCell.Y)*0.5+0.25); dx*dx+dy*dy > 0.5*0.5 {
+		return fmt.Errorf("vending: the coupled pose is more than a cell from the dock cell")
+	}
+	// the night: it leaves home so that the first module's window opens as it has coupled; it is home before midnight
+	if v.Refill.FromSecond-r.OutLeg.Seconds-r.CoupleSeconds < 0 ||
+		v.Refill.FromSecond+int64(len(order))*v.Refill.SecondsPerUnit+r.CoupleSeconds+r.BackLeg.Seconds >= 86400 {
+		return fmt.Errorf("vending: the robot's round does not fit the night")
+	}
 	return nil
 }
 
@@ -242,7 +465,14 @@ func clientVending(v *VendingCatalog) map[string]any {
 	}
 	units := []map[string]any{}
 	for _, u := range v.Units {
-		units = append(units, map[string]any{"id": u.ID, "n": u.N, "kind": u.Kind, "face": u.Face, "dock": u.Dock})
+		row := map[string]any{"id": u.ID, "n": u.N, "kind": u.Kind, "face": u.Face, "dock": u.Dock,
+			// torgomat v2: the live parts of the model the client moves (the scenes of the goods come with the view)
+			"yaw_degrees": u.YawDegrees, "window": u.Window, "sash": u.Sash, "fan": u.Fan}
+		if u.Lift != nil {
+			row["lift"] = u.Lift
+		}
+		units = append(units, row)
 	}
-	return map[string]any{"instance": v.Instance, "level": v.Level, "units": units, "light": v.Light, "status": v.Signals.Status, "dock": v.Signals.Dock}
+	return map[string]any{"instance": v.Instance, "level": v.Level, "units": units, "light": v.Light, "status": v.Signals.Status, "dock": v.Signals.Dock,
+		"dispense": v.Dispense, "intake": v.Intake, "look": v.Look, "robot": map[string]any{"resource": v.Robot.Resource}}
 }

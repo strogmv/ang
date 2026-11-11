@@ -50,6 +50,16 @@ type VisitorTarget struct {
 	Category string   `json:"category"`
 	Store    string   `json:"store"`
 	At       inv.Cell `json:"at"`
+	// torgomat v2: a place with its own standing cells (the panel row of a terminal, in preference order; none = the
+	// customer's cell or a cell beside it along the counter), the way a walker faces there (plan x, y) and how many ticks he
+	// waits after paying (the dispense of a terminal) before he walks on
+	Spots     []inv.Cell   `json:"spots,omitempty"`
+	Face      *VisitorFace `json:"face,omitempty"`
+	TakeTicks int64        `json:"take_ticks,omitempty"`
+}
+type VisitorFace struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
 }
 type VisitorLot struct {
 	Item string `json:"item"`
@@ -180,6 +190,14 @@ func applyVisitors(c *Compiled) error {
 	for _, t := range p.Targets {
 		if t.ID == "" || targets[t.ID] || t.Category == "" || t.Category == p.PeddlerCategory || !walk(t.At) {
 			return fail("target %q: duplicate, without a category or not on the floor %v", t.ID, t.At)
+		}
+		if t.TakeTicks < 0 || t.TakeTicks > 600 || (t.Face != nil && t.Face.X == 0 && t.Face.Y == 0) {
+			return fail("target %q: the wait after paying must be 0..600 ticks and a facing must point somewhere", t.ID)
+		}
+		for _, c := range t.Spots {
+			if !walk(c) || manhattanCells(c, t.At) > 2 {
+				return fail("target %q: standing cell %v is not on the floor within two cells of the place", t.ID, c)
+			}
 		}
 		targets[t.ID] = true
 		st, ok := m.Stores[t.Store]
@@ -315,3 +333,14 @@ func applyVisitors(c *Compiled) error {
 
 // visitorSlot reports whether an inventory actor is a buyer slot of the visitors (tools that list people skip them).
 func visitorSlot(id string) bool { return strings.HasPrefix(id, visitorSlotPrefix) }
+
+func manhattanCells(a, b inv.Cell) int {
+	dx, dy := a.X-b.X, a.Y-b.Y
+	if dx < 0 {
+		dx = -dx
+	}
+	if dy < 0 {
+		dy = -dy
+	}
+	return dx + dy
+}

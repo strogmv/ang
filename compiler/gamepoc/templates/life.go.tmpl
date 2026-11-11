@@ -239,6 +239,7 @@ func (r *Runtime) sendLifeState(c *connection) {
 			r.setLifeActivity(a, b)
 		}
 		if observer,known:=r.state.Stealth.Observers[agent.ID];known&&observer.Level==hero.Level{a.FaceX=observer.FaceX;a.FaceY=observer.FaceY}
+		r.vendingFaceAgent(a, len(agent.Path) == 0)
  r.encounterAgent(a)
  msg.SceneAgents = append(msg.SceneAgents, a)
 	}
