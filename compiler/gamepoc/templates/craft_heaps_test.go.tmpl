@@ -179,19 +179,33 @@ func TestCraftHeapStallDayFollowsSalesAndSupply(t *testing.T) {
 	}
 	consignment := total(s.Supply.Store)
 	world := everywhere()
+	// every unit sold here: to the residents (their economy ledger) and to the hall's visitors (their ledger); what a
+	// visitor bought leaves the world with him, so the world's stock is counted together with what was carried out
+	soldHere := func() int64 { return r.state.NPCEconomy.UnitsBySeller[sh.Owner] + r.state.Visitors.Ledger.Units[sh.Owner] }
+	carried := func() int64 {
+		var n int64
+		for _, h := range s.Heaps {
+			n += r.state.Visitors.Ledger.Carried[h.Item]
+		}
+		return n
+	}
 	var soldTotal int64
 	thinned := 0
+	soldStart := soldHere()
 	for day := int64(0); day < 2; day++ {
+		until(start + day*86400 + sh.OpenSecond - 60)
+		soldAtOpening := soldHere()
 		until(start + day*86400 + sh.OpenSecond + s.Supply.WindowMinutes*60 + 60)
 		if !r.storefrontOpen(s.Shop) {
 			t.Fatalf("day %d: the stall is not open after its supply window", day+1)
 		}
-		morning, soldBefore := total(sh.DisplayStore), r.state.NPCEconomy.UnitsBySeller[sh.Owner]
-		if morning < full-3 {
-			t.Fatalf("day %d: %d of %d on the stall after the morning lay-out, slots %v", day+1, morning, full, fills())
+		morning, soldBefore := total(sh.DisplayStore), soldHere()
+		// the lay-out reached the full lot: what stands now and what was already sold since the opening make it up
+		if morning+(soldBefore-soldAtOpening) < full-3 {
+			t.Fatalf("day %d: %d of %d on the stall after the morning lay-out (%d sold since the opening), slots %v", day+1, morning, full, soldBefore-soldAtOpening, fills())
 		}
 		until(start + day*86400 + sh.CloseSecond - 1800)
-		evening, levels, sold := total(sh.DisplayStore), fills(), r.state.NPCEconomy.UnitsBySeller[sh.Owner]-soldBefore
+		evening, levels, sold := total(sh.DisplayStore), fills(), soldHere()-soldBefore
 		t.Logf("day %d: %d of %d in the morning, %d in the evening, slots %v, consignment %d; the hall bought %d units (%d eaten on the spot), %d of them here", day+1, morning, full, evening, levels, total(s.Supply.Store), r.state.NPCEconomy.Purchases, r.state.NPCEconomy.FoodConsumed, sold)
 		if evening != morning-sold {
 			t.Fatalf("day %d: %d in the morning, %d sold since, %d on the stall: the stock moved without a sale", day+1, morning, sold, evening)
@@ -216,10 +230,11 @@ func TestCraftHeapStallDayFollowsSalesAndSupply(t *testing.T) {
 		t.Fatalf("the stall never thinned out: %d units sold in two days and every slot still full in the evening", soldTotal)
 	}
 	// the first lay-out is the stall's own initial stock; the second morning replaced what the first day sold
-	if after := total(s.Supply.Store); soldTotal > 0 && (after >= consignment || consignment-after > soldTotal) {
-		t.Fatalf("the consignment went from %d to %d while %d units were sold", consignment, after, soldTotal)
+	// (everything sold here counts: the lay-out also replaces what is bought during its own hour)
+	if after, sold := total(s.Supply.Store), soldHere()-soldStart; soldTotal > 0 && (after >= consignment || consignment-after > sold) {
+		t.Fatalf("the consignment went from %d to %d while %d units were sold", consignment, after, sold)
 	}
-	if after := everywhere(); after > world {
+	if after := everywhere() + carried(); after > world {
 		t.Fatalf("goods were created: %d units in the world before, %d after", world, after)
 	}
 }

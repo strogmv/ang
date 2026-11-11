@@ -77,6 +77,7 @@ type worldAuditReport struct {
 	MoneyDelta              int64            `json:"money_delta_minor"`
 	FoodConsumed            int64            `json:"food_consumed"`
 	OtherConsumed           int64            `json:"other_consumed_units"`
+	VisitorCarried          int64            `json:"visitor_carried_units"`
 	RetainedPurchaseUnits   int64            `json:"retained_purchase_units"`
 	StockDeltasByDefinition map[string]int64 `json:"stock_deltas_by_definition"`
 	PeakHunger              int64            `json:"peak_hunger_ppm"`
@@ -239,11 +240,29 @@ func worldNPCHeldUnits(r *Runtime) int64 {
 			continue
 		}
 		store, ok := r.state.Inventory.Stores[item.Location.Store]
-		if ok && store.Kind == "actor" && store.Anchor.Actor != playerActorID {
+		// the bag of a hall visitor is not an NPC's: what he bought is his until he carries it out (visitors ledger)
+		if ok && store.Kind == "actor" && store.Anchor.Actor != playerActorID && !worldVisitorSlot(r, store.Anchor.Actor) {
 			n += item.Quantity
 		}
 	}
 	return n
+}
+func worldVisitorSlot(r *Runtime, actor string) bool {
+	for _, id := range r.world.Visitors.Slots {
+		if id == actor {
+			return true
+		}
+	}
+	return false
+}
+
+// worldVisitorCarried: the units the hall visitors took out of the sector, by definition (their ledger).
+func worldVisitorCarried(r *Runtime) map[string]int64 {
+	out := map[string]int64{}
+	for id, n := range r.state.Visitors.Ledger.Carried {
+		out[id] = n
+	}
+	return out
 }
 func worldWorkerIDs(ids map[string]bool) []string {
 	out := make([]string, 0, len(ids))
@@ -300,6 +319,7 @@ func worldRunAuditDay(t testing.TB, count int, seconds int64, compareDay2 bool) 
 	purchasesPerDay := []int64{}
 	previousPurchases := int64(0)
 	stockDefinitionsStart := worldStockByDefinition(r)
+	carriedStart := worldVisitorCarried(r)
 	heldStart := worldNPCHeldUnits(r)
 	attendedIDs := [][]string{}
 	// Food counters deliberately exclude drinks (e.g. the yatai's food:false
@@ -560,6 +580,14 @@ func worldRunAuditDay(t testing.TB, count int, seconds int64, compareDay2 bool) 
 	}
 	rep.PurchasesPerDay = purchasesPerDay
 	rep.StockDelta = commerceTotal(r.state.Inventory) - stockStart
+	// Units a hall visitor carried out of the sector left the inventory through his ledger, one for one: they are
+	// counted back, so the stock still changes only by what the residents ate or used up.
+	carried := worldVisitorCarried(r)
+	for id, n := range carried {
+		carried[id] = n - carriedStart[id]
+		rep.VisitorCarried += carried[id]
+	}
+	rep.StockDelta += rep.VisitorCarried
 	rep.NPCPurchases = r.state.NPCEconomy.Purchases
 	rep.WageSource = r.state.NPCEconomy.WageSource
 	rep.MoneyDelta = npcMoney(r) - moneyStart
@@ -579,7 +607,7 @@ func worldRunAuditDay(t testing.TB, count int, seconds int64, compareDay2 bool) 
 	}
 	var consumedFood int64
 	for id, before := range stockDefinitionsStart {
-		delta := stockDefinitionsEnd[id] - before
+		delta := stockDefinitionsEnd[id] - before + carried[id]
 		if delta == 0 {
 			continue
 		}

@@ -226,7 +226,10 @@ func TestMaintenanceReplacementInventoryAndSave(t *testing.T){
  if !saved||!resumed{t.Fatalf("repair stalled: %+v events=%v",r.state.Life.Maintenance,r.state.Life.Events)}
  cfg:=r.world.Life.Maintenance.Assets[0];counts:=map[string]int64{};for _,it:=range r.state.Inventory.Items{if it.Location.Kind=="store"{counts[it.Location.Store]+=it.Quantity}}
  if counts[cfg.Store("spares")]!=int64(cfg.InitialSpares-1)||counts[cfg.Store("installed")]!=1||counts[cfg.Store("retired")]!=1{t.Fatalf("part conservation failed: %v",counts)}
- totalBefore,totalAfter:=int64(0),int64(0);for _,it:=range initial.Items{totalBefore+=it.Quantity};for _,it:=range r.state.Inventory.Items{totalAfter+=it.Quantity};if totalBefore!=totalAfter{t.Fatal("replacement created/destroyed physical items")}
+ totalBefore,totalAfter:=int64(0),int64(0);for _,it:=range initial.Items{totalBefore+=it.Quantity};for _,it:=range r.state.Inventory.Items{totalAfter+=it.Quantity}
+ // what the hall's visitors carried out of the sector meanwhile left through their ledger, unit for unit
+ for _,n:=range r.state.Visitors.Ledger.Carried{totalAfter+=n}
+ if totalBefore!=totalAfter{t.Fatal("replacement created/destroyed physical items")}
  if err:=r.state.Inventory.Validate(r.inventoryModelFor(r.state.Life.Enabled));err!=nil{t.Fatal(err)}
  if err:=r.lifeCommand(&pb.PocLifeCommand{Action:"fault",Destination:"pump_c7"});err!=nil{t.Fatal(err)}
  for i:=0;i<1600&&r.state.Life.Maintenance.Units[1].Replacements==0;i++{r.step()}

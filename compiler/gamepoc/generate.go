@@ -246,7 +246,9 @@ type Compiled struct {
 	// Dome-system vending terminals (demo-hub v12-vending, world.vending); nil in worlds without them.
 	Vending *VendingCatalog `json:"vending,omitempty"`
 	// Peddlers of the hub (demo-hub v23, world.peddlers): mobile shopfronts on a round of stops; nil in worlds without them.
-	Peddlers          *PeddlerCatalog    `json:"peddlers,omitempty"`
+	Peddlers *PeddlerCatalog `json:"peddlers,omitempty"`
+	// Hall visitors (world.visitors): light buyers from the other sectors and the stalls' consignments; nil without them.
+	Visitors          *VisitorCatalog    `json:"visitors,omitempty"`
 	CalendarEncounter *CalendarEncounter `json:"calendar_encounter,omitempty"`
 	// Craft places of the hub islands (demo-hub v16-goods, world.market_goods); nil in worlds without them.
 	Craft *CraftCatalog `json:"craft,omitempty"`
@@ -471,6 +473,9 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 		return out, nil, err
 	}
 	if out.Peddlers, err = readPeddlers(world); err != nil {
+		return out, nil, err
+	}
+	if out.Visitors, err = readVisitors(world); err != nil {
 		return out, nil, err
 	}
 	if out.Soundscape, err = readSoundscape(world); err != nil {
@@ -830,6 +835,9 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 		return out, nil, err
 	}
 	if err := applyPeddlers(&out); err != nil {
+		return out, nil, err
+	}
+	if err := applyVisitors(&out); err != nil {
 		return out, nil, err
 	}
 	if err := applyCrafting(&out, craftingIn); err != nil {
@@ -1213,6 +1221,8 @@ func generatePOC(project string, legacyUnity bool) error {
 		"vending_test.go.tmpl":                  filepath.Join(project, "internal/poc/vending_generated_test.go"),
 		"vending.cs.tmpl":                       filepath.Join(unity, "Assets/Generated/Poc/PocVending.cs"),
 		"peddlers.go.tmpl":                      filepath.Join(project, "internal/poc/peddlers.gen.go"),
+		"visitors.go.tmpl":                      filepath.Join(project, "internal/poc/visitors.gen.go"),
+		"visitors_test.go.tmpl":                 filepath.Join(project, "internal/poc/visitors_generated_test.go"),
 		"cart_parking.go.tmpl":                  filepath.Join(project, "internal/poc/cart_parking.gen.go"),
 		"cargo_convoys.go.tmpl":                 filepath.Join(project, "internal/poc/cargo_convoys.gen.go"),
 		"cargo_convoys_test.go.tmpl":            filepath.Join(project, "internal/poc/cargo_convoys_generated_test.go"),

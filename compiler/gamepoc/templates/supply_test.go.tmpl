@@ -24,6 +24,8 @@ func TestMarketDeliveriesActualNightLife100(t *testing.T){
  if len(r.world.Inventory.Deliveries)==0{t.Skip("fixture has no merchant deliveries")};if len(r.world.Inventory.Deliveries)!=8||len(r.world.Inventory.Shopfronts)<8{t.Fatal("incomplete eight-shop fixture")} // unsupplied tenant stalls may add shopfronts
  // This regression isolates delivery/packing conservation; stage-1 day tests include consumers.
  r.world.Life.Brain.Enabled=false
+ // ...and so do the visitors' tests: the hall's visitors (and the stalls' morning lay-out with them) are consumers too.
+ r.world.Visitors.Level=""
  life,err:=r.world.Life.StartWithPopulation(100,playerActorID);if err!=nil{t.Fatal(err)}
  r.state.Active=true;r.state.Speed=1;r.initLifeState(life);r.state.Life.SecondsPerTick=1;r.state.Life.Actor(playerActorID).Manual=true
  if r.state.Life.Seconds!=7*3600{t.Fatal("overnight fixture must start at07:00")}

@@ -221,6 +221,37 @@ type CraftCatalog struct {
 	// market goods v2: the produce kit models and the counters of the island places
 	Models   map[string]CraftModel `json:"models,omitempty"`
 	Counters []CraftCounter        `json:"counters,omitempty"`
+	// phase 3d: the dressed selling places (pavilion interiors, the griddle set, the benches, the decks)
+	Dress []CraftDress `json:"dress,omitempty"`
+}
+
+// A thing the server dresses a selling place with (market_goods schema #Prop) and a dressed place (#Dress).
+type CraftPropStock struct {
+	Items []string `json:"items"`
+	Full  int64    `json:"full"`
+	Half  string   `json:"half"`
+	Few   string   `json:"few"`
+}
+type CraftProp struct {
+	ID    string          `json:"id"`
+	Model string          `json:"model"`
+	XMM   int             `json:"x_mm"`
+	DMM   int             `json:"d_mm"`
+	ZMM   int             `json:"z_mm"`
+	Yaw   int             `json:"yaw"`
+	Show  string          `json:"show"`
+	Lit   bool            `json:"lit"`
+	Stock *CraftPropStock `json:"stock,omitempty"`
+}
+type CraftDress struct {
+	Place    string      `json:"place"`
+	Shop     string      `json:"shop"`
+	Frame    string      `json:"frame"`
+	AtMM     []int       `json:"at_mm,omitempty"`
+	Yaw      int         `json:"yaw,omitempty"`
+	Props    []CraftProp `json:"props"`
+	Replaces []string    `json:"replaces"`
+	Shut     []string    `json:"shut"`
 }
 
 func readCraft(world cue.Value) (*CraftCatalog, error) {
@@ -487,7 +518,118 @@ func validateCraft(c Compiled) error {
 			return err
 		}
 	}
-	return validateCraftCounters(c, instances)
+	if err := validateCraftCounters(c, instances); err != nil {
+		return err
+	}
+	return validateCraftDress(c)
+}
+
+// validateCraftDress: every dressed place names a shopfront and, on an island, the counter of that shop; every prop is a
+// model of the kit inside the counter's own units and half of the island; a prop that follows a stock names models of
+// its levels and goods the shop starts with, and `full` is exactly that starting stock (the lot the stall is topped up to).
+func validateCraftDress(c Compiled) error {
+	g := c.Craft
+	fronts := map[string]int{}
+	for i, sh := range c.Inventory.Shopfronts {
+		fronts[sh.ID] = i + 1
+	}
+	counters := map[string]CraftCounter{}
+	for _, k := range g.Counters {
+		counters[k.Place] = k
+	}
+	seen := map[string]bool{}
+	for _, d := range g.Dress {
+		fail := func(format string, args ...any) error {
+			return fmt.Errorf("market_goods dress %s: %s", d.Place, fmt.Sprintf(format, args...))
+		}
+		if d.Place == "" || seen[d.Place] || len(d.Props) == 0 {
+			return fail("repeated place or no props")
+		}
+		seen[d.Place] = true
+		if fronts[d.Shop] == 0 {
+			return fail("%s is not a shopfront", d.Shop)
+		}
+		front := c.Inventory.Shopfronts[fronts[d.Shop]-1]
+		length, depth := 0, 0
+		switch d.Frame {
+		case "counter":
+			k, ok := counters[d.Place]
+			if !ok || k.Shop != d.Shop {
+				return fail("no counter of shop %s at this place", d.Shop)
+			}
+			length, depth = len(k.Units)*1500, g.Passport.SizeMM.D/2
+		case "bay":
+			if len(d.AtMM) != 3 || d.AtMM[0] < 0 || d.AtMM[1] < 0 || d.AtMM[2] < 0 {
+				return fail("a bay needs its plan origin [x, y, z]")
+			}
+			for _, name := range append(append([]string(nil), d.Replaces...), d.Shut...) {
+				if i := strings.Index(name, ":"); i < 1 || i == len(name)-1 {
+					return fail("a bay replaces nodes of a named module: %q is not \"<instance>:<node>\"", name)
+				}
+			}
+		default:
+			return fail("frame %q", d.Frame)
+		}
+		if d.Frame != "bay" && len(d.Shut) != 0 {
+			return fail("only a bay has nodes shown while it is shut")
+		}
+		// the starting stock of the shop's showcase and reserve, by definition
+		start := map[string]int64{}
+		var whole int64
+		for _, src := range c.Inventory.Sources {
+			if src.Location.Kind == "store" && (src.Location.Store == front.DisplayStore || src.Location.Store == front.ReserveStore) && src.Owner == front.Owner && src.ForSale {
+				start[src.Definition] += src.Quantity
+				whole += src.Quantity
+			}
+		}
+		ids := map[string]bool{}
+		for _, q := range d.Props {
+			if q.ID == "" || ids[q.ID] {
+				return fail("prop id %q repeats", q.ID)
+			}
+			ids[q.ID] = true
+			model := func(id string) error {
+				m, ok := g.Models[id]
+				if !ok || (m.Kind != "fixture" && m.Kind != "goods" && m.Kind != "prop") {
+					return fail("prop %s: %q is not a fixture, goods or prop model of the kit", q.ID, id)
+				}
+				return nil
+			}
+			if err := model(q.Model); err != nil {
+				return err
+			}
+			if q.Show != "open" && q.Show != "always" && q.Show != "shut" {
+				return fail("prop %s: show %q", q.ID, q.Show)
+			}
+			if d.Frame == "counter" && (q.XMM < 0 || q.XMM > length || q.DMM < 0 || q.DMM > depth || q.ZMM > 2600) {
+				return fail("prop %s stands outside the counter's own units (x %d of %d, d %d of %d, z %d)", q.ID, q.XMM, length, q.DMM, depth, q.ZMM)
+			}
+			if st := q.Stock; st != nil {
+				if q.Show != "open" {
+					return fail("prop %s: a stock is shown only at the open place", q.ID)
+				}
+				for _, id := range []string{st.Half, st.Few} {
+					if err := model(id); err != nil {
+						return err
+					}
+				}
+				want := whole
+				if len(st.Items) > 0 {
+					want = 0
+					for _, item := range st.Items {
+						if start[item] == 0 {
+							return fail("prop %s: shop %s does not start with %s", q.ID, d.Shop, item)
+						}
+						want += start[item]
+					}
+				}
+				if st.Full != want {
+					return fail("prop %s: full %d, the shop starts with %d", q.ID, st.Full, want)
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // validateCraftHeaps: the heap slots of one stall (see validateCraft).

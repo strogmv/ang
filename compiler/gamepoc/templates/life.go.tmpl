@@ -43,6 +43,7 @@ func (r *Runtime) initLifeState(life behavior.LifeState) {
 	r.initNPCEconomy()
 	r.initVending()
 	r.initPeddlers()
+	r.initVisitors()
  r.initCalendarEncounter()
 	r.initCrafting()
 	r.initBarks()
@@ -136,6 +137,9 @@ func (r *Runtime) advanceLifeFrameBy(delta int64) error {
 		return err
 	}
 	if err := r.advancePeddlers(); err != nil {
+		return err
+	}
+	if err := r.advanceVisitors(); err != nil {
 		return err
 	}
 	if err := r.advanceCrafting(delta); err != nil {
@@ -316,10 +320,12 @@ func (r *Runtime) sendLifeState(c *connection) {
 	r.appendStorefrontState(view, hero, msg.PlayerView)
 	r.appendVending(view, hero, msg.PlayerView, c.locale)
 	r.appendPeddlers(view, hero, msg.PlayerView, c.locale)
+	r.appendVisitors(view, hero, msg.PlayerView)
 <<ANG if .GodotScreens ANG>> r.appendScreenTrade(msg,c.locale);r.appendScreenServices(msg,c.locale) <<ANG end ANG>>
  view.CartParkingJson=r.cartParkingJSON(hero,msg.PlayerView)
  r.appendConversation(msg,c.locale)
 	r.appendCraft(view, hero, msg.PlayerView)
+	r.appendGoodsDress(view, hero, msg.PlayerView)
 	r.appendSoundscape(view, hero)
 	r.appendNoiseWaves(view, hero)
 	r.appendGates(view, hero, msg.PlayerView)

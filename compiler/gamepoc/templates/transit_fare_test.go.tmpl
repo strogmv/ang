@@ -11,7 +11,11 @@ import (
 )
 
 func paidTransitFixture(t *testing.T)(*Runtime,behavior.LifeEdge,string){
- t.Helper();r:=lifeRuntimeFixture(t);var edge behavior.LifeEdge;for _,e:=range r.world.Life.Edges{if e.Fare!=nil{edge=e;break}};if edge.ID==""{t.Skip("no authored paid transit")}
+ t.Helper();r:=lifeRuntimeFixture(t)
+ // The fare tests compare the whole inventory before and after a ride; the hall's visitors (who trade every minute of
+ // the day on another floor of the world) are not part of this fixture.
+ r.world.Visitors.Level=""
+ var edge behavior.LifeEdge;for _,e:=range r.world.Life.Edges{if e.Fare!=nil{edge=e;break}};if edge.ID==""{t.Skip("no authored paid transit")}
  hero:=r.state.Life.Actor(playerActorID);hero.Level=edge.From;hero.Position=edge.Exit;hero.Goal=edge.Exit;hero.Path=nil;hero.PendingPath=nil;hero.Trip=nil;hero.Arrived=false;hero.Manual=true;hero.OverrideLevel="";hero.OverrideEdge="";hero.AdmissionDeniedEdge="";hero.WaitingDeparture=0;r.state.Life.SecondsPerTick=1;r.state.Life.Seconds=edge.NextDeparture(r.state.Life.Seconds+1)-1;r.syncLifeHero();r.updateLifeExploration();r.syncRegionKnowledge()
  payer:="";for id,a:=range r.state.Inventory.Accounts{if a.Owner==playerActorID&&a.Currency==edge.Fare.Currency{payer=id;break}};if payer==""{t.Fatal("paid route has no controlled account")};return r,edge,payer
 }

@@ -61,6 +61,36 @@ type craftCounterDef struct {
 		X int64 `json:"x"`
 		Y int64 `json:"y"`
 	} `json:"at"`
+	Side  string  `json:"side"`
+	Units []int64 `json:"units"`
+}
+
+// phase 3d: a dressed selling place and its props (market_goods schema #Dress, #Prop)
+type craftPropDef struct {
+	ID    string `json:"id"`
+	Model string `json:"model"`
+	XMM   int64  `json:"x_mm"`
+	DMM   int64  `json:"d_mm"`
+	ZMM   int64  `json:"z_mm"`
+	Yaw   int64  `json:"yaw"`
+	Show  string `json:"show"`
+	Lit   bool   `json:"lit"`
+	Stock *struct {
+		Items []string `json:"items"`
+		Full  int64    `json:"full"`
+		Half  string   `json:"half"`
+		Few   string   `json:"few"`
+	} `json:"stock"`
+}
+type craftDressDef struct {
+	Place    string         `json:"place"`
+	Shop     string         `json:"shop"`
+	Frame    string         `json:"frame"`
+	AtMM     []int64        `json:"at_mm"`
+	Yaw      int64          `json:"yaw"`
+	Props    []craftPropDef `json:"props"`
+	Replaces []string       `json:"replaces"`
+	Shut     []string       `json:"shut"`
 }
 type craftKitDef struct {
 	ID      string `json:"id"`
@@ -88,6 +118,7 @@ type craftCatalog struct {
 		Scene string `json:"scene"`
 	} `json:"models"`
 	Counters []craftCounterDef `json:"counters"`
+	Dress    []craftDressDef   `json:"dress"`
 }
 
 // craftHeapLevel: what a heap slot shows for q units left of a full stock: more than two thirds is full, more than a
@@ -412,5 +443,91 @@ func (r *Runtime) appendCraft(view *pb.PocLifeView, hero *behavior.LifeActor, pe
 			}
 		}
 		view.CraftStalls = append(view.CraftStalls, out)
+	}
+}
+
+// appendGoodsDress: the dressed selling places the hero sees (phase 3d). For every prop the server says whether it is
+// there now and which model stands for it: by the state of the storefront (open / shut), by the real stock of the shop's
+// showcase for a prop that follows a stock (a level of three, nothing when sold out), and whether its lamp burns.
+// The pose is plan metres like a heap slot's; a prop that is not there is sent with an empty scene.
+func (r *Runtime) appendGoodsDress(view *pb.PocLifeView, hero *behavior.LifeActor, perception *pb.PocObserverView) {
+	g := r.world.Craft
+	if len(g.Dress) == 0 || hero == nil || !hero.OnFloor() || hero.Level != g.Level {
+		return
+	}
+	for _, d := range g.Dress {
+		var front *inv.Shopfront
+		for i := range r.world.Inventory.Shopfronts {
+			if r.world.Inventory.Shopfronts[i].ID == d.Shop {
+				front = &r.world.Inventory.Shopfronts[i]
+			}
+		}
+		if front == nil || !viewSees(perception, int32(front.Service.At.X), int32(front.Service.At.Y)) {
+			continue
+		}
+		open := r.storefrontOpen(d.Shop)
+		out := &pb.PocGoodsDress{Place: d.Place, Open: open}
+		// the frame of the place: its origin in plan metres, the direction of its x axis and of the way inwards
+		var x0, y0, z0, yaw float64
+		along, inwards := 1.0, -1.0
+		if d.Frame == "bay" {
+			x0, y0, z0, yaw = float64(d.AtMM[0])/1000, float64(d.AtMM[1])/1000, float64(d.AtMM[2])/1000, float64(d.Yaw)
+			out.ReplacedNodes = append(out.ReplacedNodes, d.Replaces...)
+			out.ShutNodes = append(out.ShutNodes, d.Shut...)
+		} else {
+			for _, k := range g.Counters {
+				if k.Place != d.Place || len(k.Units) == 0 {
+					continue
+				}
+				x0 = float64(k.At.X)*0.5 + float64(k.Units[0])*1.5
+				if k.Side == "south" {
+					y0 = float64(k.At.Y)*0.5 + float64(g.Passport.SizeMM.D)/1000
+				} else {
+					y0, yaw, inwards = float64(k.At.Y)*0.5, 180, 1
+				}
+				island := k.Island
+				for _, name := range d.Replaces {
+					out.ReplacedNodes = append(out.ReplacedNodes, island+":"+name)
+				}
+			}
+		}
+		for _, q := range d.Props {
+			row := &pb.PocCraftHeap{Id: q.ID, Fill: "packed", YawDegrees: yaw + float64(q.Yaw), Z: z0 + float64(q.ZMM)/1000}
+			if d.Frame == "bay" {
+				row.X, row.Y = x0+float64(q.XMM)/1000, y0-float64(q.DMM)/1000
+			} else {
+				row.X, row.Y = x0+along*float64(q.XMM)/1000, y0+inwards*float64(q.DMM)/1000
+			}
+			shown := q.Show == "always" || (q.Show == "open") == open
+			if shown {
+				row.Fill, row.HeapResource = "full", g.Models[q.Model].Scene
+				if st := q.Stock; st != nil {
+					var n int64
+					if len(st.Items) == 0 {
+						for _, i := range r.state.Inventory.Items {
+							if i.Location.Kind == "store" && i.Location.Store == front.DisplayStore && i.ForSale && !i.Hidden {
+								n += i.Quantity
+							}
+						}
+					} else {
+						for _, item := range st.Items {
+							n += r.craftStock(front.DisplayStore, item)
+						}
+					}
+					row.Fill = craftHeapLevel(n, st.Full)
+					switch row.Fill {
+					case "half":
+						row.HeapResource = g.Models[st.Half].Scene
+					case "few":
+						row.HeapResource = g.Models[st.Few].Scene
+					case "empty":
+						row.HeapResource = ""
+					}
+				}
+				row.Lit = q.Lit && open
+			}
+			out.Props = append(out.Props, row)
+		}
+		view.GoodsDress = append(view.GoodsDress, out)
 	}
 }
