@@ -1,5 +1,5 @@
 """ANG art validation for CUE-first levels; reads existing glTF, never runs Blender."""
-import argparse, base64, json, math, struct, sys
+import argparse, base64, hashlib, json, math, os, struct, sys
 from pathlib import Path
 from types import SimpleNamespace as NS
 sys.path.insert(0,str(Path(__file__).resolve().parent))
@@ -95,11 +95,65 @@ def read_asset(path,root,instance,matrix,source_hashes):
     for node in g['scenes'][g.get('scene',0)]['nodes']:visit(node,matrix)
     return objects
 
+class InstanceCache:
+    """Verdicts of single CUE instances, keyed by everything one verdict reads.
+
+    A verdict depends on the bound art bytes and its absolute path (it is recorded
+    in sources), the instance ID, pose and basis, the level's walkable cells,
+    locators and reserved volumes, this validator's code and the Python build.
+    The level-wide checks (known conflicts, budgets, attachments) always run.
+    An instance with errors is never stored, so it is validated on every run.
+    With refresh, nothing is reused: every verdict is computed and stored, and a
+    stored verdict that differs from the fresh one is counted as a mismatch."""
+    SCHEMA='ang.art-instance-cache.v1'
+    def __init__(self,folder,contract,refresh=False):
+        here=Path(__file__).resolve().parent
+        geometry={name:contract.get(name) for name in ['unit_m','tolerance_m','walkable','locators','reserved_hidden']}
+        geometry['model_reflection']=contract['convention']['model_reflection']
+        self.folder=Path(folder);self.refresh=refresh;self.hits=0;self.stored=0;self.mismatches=[]
+        self.base=self.sha({'schema':self.SCHEMA,'python':sys.version,'code':{name:digest(here/name) for name in ['assets.py','runtime.py']},'geometry':geometry})
+    @staticmethod
+    def sha(value):
+        return hashlib.sha256(json.dumps(value,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+    def key(self,instance,row,asset,asset_sha):
+        return self.sha({'base':self.base,'instance':instance,'world':row['world'],'asset_basis':row.get('asset_basis'),'asset':str(asset.resolve()),'asset_sha256':asset_sha})
+    def path(self,key):
+        return self.folder/'ang-art'/key[:2]/(key+'.json')
+    def load(self,key,asset):
+        if self.refresh:return None
+        path=self.path(key)
+        try:
+            entry=json.loads(path.read_text())
+            if entry['schema']!=self.SCHEMA or entry['key']!=key:return None
+            # External glTF buffers are read beside the model: their bytes are inputs too.
+            if any(name!=str(asset.resolve()) and (not Path(name).is_file() or digest(name)!=value) for name,value in entry['sources']):return None
+            os.utime(path)
+        except (OSError,ValueError,KeyError,TypeError):return None
+        self.hits+=1
+        return entry
+    def store(self,key,sources,objects):
+        path=self.path(key)
+        if self.refresh and path.is_file():
+            try:old=json.loads(path.read_text())
+            except (OSError,ValueError):old={}
+            if old.get('sources')==json.loads(json.dumps(sources)) and old.get('objects')==objects:return
+            self.mismatches.append(key)
+        try:
+            path.parent.mkdir(parents=True,exist_ok=True)
+            temporary=path.with_name('.'+path.name+'.'+str(os.getpid()))
+            temporary.write_text(json.dumps({'schema':self.SCHEMA,'key':key,'sources':sources,'objects':objects}))
+            os.replace(temporary,path);self.stored+=1
+        except OSError as error:
+            print('ANG_ART_CACHE not stored:',error,file=sys.stderr)
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--contract',required=True);parser.add_argument('--out',required=True)
     parser.add_argument('--attachments-existing');parser.add_argument('--collect-conflicts',action='store_true')
+    parser.add_argument('--cache-dir',help='reuse the verdicts of unchanged instances; omit to validate every instance')
+    parser.add_argument('--cache-refresh',action='store_true',help='with --cache-dir: reuse nothing, store every fresh verdict and count stored ones that differ')
     args=parser.parse_args();contract=json.loads(Path(args.contract).read_text());out=Path(args.out);out.mkdir(parents=True,exist_ok=True)
+    cache=InstanceCache(args.cache_dir,contract,args.cache_refresh) if args.cache_dir else None
     errors=[];missing=[];warnings=[];sources={};objects=[];components=[];all_conflicts=[];source_triangles={};proxy_triangles=0
     report={'schema':'ang.blender-export.v1','source_kind':'cue_bound_art','contract_sha256':digest(args.contract),'geometry_contract_sha256':contract['geometry_contract_sha256'],'components':components,'validation':{'errors':errors,'missing_art':missing,'warnings':warnings,'conflicts':all_conflicts},'sources':sources,'budget':contract['budget']}
     reflection=Matrix(contract['convention']['model_reflection'])
@@ -122,16 +176,34 @@ def main():
             continue
         world=Matrix(row['world'])
         if row.get('asset_basis')=='godot':world=world@reflection
-        try:batch=read_asset(asset,asset.parent,key,world,sources)
+        asset_sha=digest(asset)
+        entry_key=cache.key(key,row,asset,asset_sha) if cache else None
+        hit=cache.load(entry_key,asset) if cache else None
+        if hit is not None:
+            for name,value in hit['sources']:sources[name]=value
+            for item in hit['objects']:all_conflicts.extend(item['conflicts'])
+            components.append({'id':key,'model_ref':row['model_ref'],'source':str(asset),'sha256':asset_sha,'triangles':sum(item['triangles'] for item in hit['objects']),'objects':[{'name':item['name'],'triangles':item['triangles'],'materials':item['materials']} for item in hit['objects']]})
+            source_triangles[key]=sum(item['triangles'] for item in hit['objects'])
+            continue
+        read={}
+        try:batch=read_asset(asset,asset.parent,key,world,read)
         except (ValueError,KeyError,IndexError,struct.error) as e:
+            sources.update(read)
             errors.append(f'CUE instance {key!r}, source {str(asset)!r}: {e}');continue
+        sources.update(read)
         if not batch:missing.append(f'CUE instance {key!r}: model has no mesh, fix the bound art {str(asset)!r}')
+        verdicts=[];failed=False
         for obj in batch:
+            before=len(errors)
             conflicts=validate_geometry(contract,[obj],Matrix(),None,errors,instance_id=key)
+            failed=failed or len(errors)>before
+            # A copy before check_known_conflicts annotates the rows.
+            if cache:verdicts.append({'name':obj.name,'triangles':len(obj.loop_triangles),'materials':list(obj.materials),'conflicts':json.loads(json.dumps(conflicts))})
             all_conflicts.extend(conflicts)
-        components.append({'id':key,'model_ref':row['model_ref'],'source':str(asset),'sha256':digest(asset),'triangles':sum(len(o.loop_triangles) for o in batch),'objects':[{'name':o.name,'triangles':len(o.loop_triangles),'materials':o.materials} for o in batch]})
+        components.append({'id':key,'model_ref':row['model_ref'],'source':str(asset),'sha256':asset_sha,'triangles':sum(len(o.loop_triangles) for o in batch),'objects':[{'name':o.name,'triangles':len(o.loop_triangles),'materials':o.materials} for o in batch]})
         source_triangles[key]=sum(len(o.loop_triangles) for o in batch)
         objects.extend(batch)
+        if cache and batch and not failed:cache.store(entry_key,list(read.items()),verdicts)
     report['validation']['known_conflicts']=check_known_conflicts(contract,all_conflicts,errors,warnings)
     if contract.get('light_metrics_status')!='cue_declared':
         warnings.append('Light budget UNMEASURED: CUE has no authored light list; declared count zero is not a complete scene measurement. Supply the actual producer/native counters before acceptance.')
@@ -155,6 +227,7 @@ def main():
     attachments['sources'].update(sources)
     write_json(out/'provenance.json',report);write_json(out/'models.json',{});write_json(out/'model-attachments.json',attachments)
     if errors or missing:raise ValueError('ANG authoring validation failed:\n'+'\n'.join(errors+missing))
+    if cache:print('ANG_ART_CACHE',cache.hits,'reused;',cache.stored,'stored;',len(cache.mismatches),'stored verdicts differed from fresh ones',*cache.mismatches[:5])
     print('ANG_CUE_ART_PASS',len(components),'instances;',totals)
 
 if __name__=='__main__':main()

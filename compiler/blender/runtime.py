@@ -506,6 +506,10 @@ def validate_geometry(contract, objects, source_to_world, depsgraph, errors, ins
             for locator in protected:
                 x, floor, y = locator['position_plan_m']
                 radius = max(.05, unit/2-tol)
+                # Plan boxes 1 um apart: the exact test below rejects on its first
+                # axes (1e-12 slack), so skipping it changes no result, only time.
+                if xmax < x-radius-1e-6 or xmin > x+radius+1e-6 or ymax < y-radius-1e-6 or ymin > y+radius+1e-6:
+                    continue
                 if zhi > floor+tol and zlo < floor+1.85 and triangle_box(prism_triangle, (x-radius, y-radius, floor+tol), (x+radius, y+radius, floor+1.85)):
                     key = (object_id, locator['kind'], locator['name'], locator.get('instance_id', ''))
                     if key not in conflicts:
