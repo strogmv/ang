@@ -82,6 +82,7 @@ type worldModular struct {
 type worldData struct {
  ExitZones *exitZoneCatalog `json:"exit_zones,omitempty"`
  LiftingDecks *liftingDeckCatalog `json:"lifting_decks,omitempty"`
+ TurretWatch *turretWatchCatalog `json:"turret_watch,omitempty"`
  MedicalCapsules *medicalCatalog `json:"medical_capsules"`
  SanitaryServices *sanitaryCatalog `json:"sanitary_services"`
  TrainMotion *trainMotionCatalog `json:"train_motion"`
@@ -128,6 +129,7 @@ type worldData struct {
 }
 type state struct {
  LiftingDecks map[string]liftingDeckState
+ Turrets []turretWatchState `json:"turrets,omitempty"`
  CargoConvoys map[string]cargoConvoyState `json:",omitempty"`
 
  TrainDispatch trainDispatchState

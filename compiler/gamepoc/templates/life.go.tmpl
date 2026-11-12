@@ -33,6 +33,7 @@ func (r *Runtime) initLifeState(life behavior.LifeState) {
  r.state.Medical=medicalState{}
  r.state.Sanitary=sanitaryState{}
  r.initLiftingDecks()
+ r.state.Turrets=nil
  r.initCargoConvoys()
  r.state.TrainDispatch=trainDispatchState{}
  r.state.TrainPassengers=nil
@@ -150,6 +151,7 @@ func (r *Runtime) advanceLifeFrameBy(delta int64) error {
 	r.awardRepairPractice(previous)
 	r.advancePractice()
 	r.syncLifeHero()
+ r.advanceTurretWatch()
 	r.syncRegionKnowledge()
  if err:=r.advanceStealth();err!=nil{return err}
  if err:=r.combatLifeAfterFrame();err!=nil{return err}
@@ -322,6 +324,7 @@ func (r *Runtime) sendLifeState(c *connection) {
 	r.appendVending(view, hero, msg.PlayerView, c.locale)
 	r.appendPeddlers(view, hero, msg.PlayerView, c.locale)
 	r.appendVisitors(view, hero, msg.PlayerView)
+ r.appendTurretWatch(view, hero, msg.PlayerView)
 <<ANG if .GodotScreens ANG>> r.appendScreenTrade(msg,c.locale);r.appendScreenServices(msg,c.locale) <<ANG end ANG>>
  view.CartParkingJson=r.cartParkingJSON(hero,msg.PlayerView)
  r.appendConversation(msg,c.locale)
@@ -629,6 +632,7 @@ func (r *Runtime) validateLifeSave(s state) error {
  if err:=r.validateTrainDispatch(s);err!=nil{return err}
  if err:=r.validateTrainPassengers(s);err!=nil{return err}
  if err:=r.validateLiftingDecks(s);err!=nil{return err}
+ if err:=r.validateTurretWatch(s);err!=nil{return err}
  if err:=r.validateCargoConvoys(s);err!=nil{return err}
 	if !s.Active || s.Tick < 0 || s.Speed != 1 || s.PhaseNS < 0 || s.PhaseNS >= r.tickNS() {
 		return errors.New("invalid life clock")
