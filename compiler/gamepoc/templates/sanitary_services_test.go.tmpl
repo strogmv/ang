@@ -266,7 +266,7 @@ func TestSanitaryPhysicalHeroApproachAndUnloadedNPC(t *testing.T) {
 	r.world.Life.HeroBody = original.Life.HeroBody
 	r.canonicalWorld.Life.HeroBody = original.Life.HeroBody
 	hero := r.state.Life.Actor(playerActorID)
-	hero.Position = behavior.Cell{X: r.world.SanitaryServices.CommonEntryCell.X + 1, Y: r.world.SanitaryServices.CommonEntryCell.Y}
+	hero.Position = sanitaryHallCell(r, u)
 	hero.Goal = hero.Position
 	r.state.Life.EnsureHeroBody(r.world.Life)
 	if hero.Body == nil {
@@ -374,7 +374,7 @@ func TestSanitaryRejectForgedDoorAndFlow(t *testing.T) {
 	r, u := sanitaryFixture(t, "shower")
 	sanitaryUsing(t, r, u)
 	sanitaryAdvance(t, r, 2)
-	for _, mutate := range []func(*state){func(s *state) { d := s.Sanitary.Doors[u.ID]; d.To = 1; s.Sanitary.Doors[u.ID] = d }, func(s *state) {
+	for _, mutate := range []func(*state){func(s *state) { d := s.Sanitary.Doors[u.cellKey()]; d.To = 1; s.Sanitary.Doors[u.cellKey()] = d }, func(s *state) {
 		p := s.Sanitary.Users[playerActorID]
 		p.WaterRemainder++
 		s.Sanitary.Users[playerActorID] = p
@@ -387,29 +387,266 @@ func TestSanitaryRejectForgedDoorAndFlow(t *testing.T) {
 	}
 }
 
-func TestSanitaryCommonEntranceTopology(t *testing.T) {
+// A hall cell in front of the unit: its last wait cell, or beside the shared entrance.
+func sanitaryHallCell(r *Runtime, u sanitaryUnit) behavior.Cell {
+	if len(u.WaitCells) > 0 {
+		return u.WaitCells[len(u.WaitCells)-1]
+	}
+	if c := r.world.SanitaryServices.CommonEntryCell; c != nil {
+		return behavior.Cell{X: c.X + 1, Y: c.Y}
+	}
+	return u.EntryCell
+}
+
+func TestSanitaryEntranceTopology(t *testing.T) {
 	r, _ := sanitaryFixture(t, "wc")
 	cfg := r.world.SanitaryServices
 	m := r.state.Life.GateModel(r.world.Life)
-	level := "level.c7_market"
-	for _, u := range cfg.Units {
-		path := m.Space(level, nil).Path(cfg.CommonEntryCell, u.EntryCell, behavior.Cell{}, 0)
-		if len(path) == 0 {
-			t.Fatalf("unit unreachable from shared entrance: %s", u.ID)
-		}
-		portal := false
-		for _, c := range path {
-			if c.X == 10 && (c.Y == 44 || c.Y == 45) {
-				portal = true
+	level := cfg.Units[0].LevelID
+	if cfg.CommonEntryCell != nil {
+		for _, u := range cfg.Units {
+			path := m.Space(level, nil).Path(*cfg.CommonEntryCell, u.EntryCell, behavior.Cell{}, 0)
+			if len(path) == 0 {
+				t.Fatalf("unit unreachable from shared entrance: %s", u.ID)
+			}
+			portal := false
+			for _, c := range path {
+				if c.X == 10 && (c.Y == 44 || c.Y == 45) {
+					portal = true
+				}
+			}
+			if !portal {
+				t.Fatalf("route bypassed common entry: %s %v", u.ID, path)
+			}
+			blocked := map[behavior.Cell]bool{{X: 10, Y: 44}: true, {X: 10, Y: 45}: true}
+			if p := m.Space(level, blocked).Path(*cfg.CommonEntryCell, u.EntryCell, behavior.Cell{}, 0); len(p) > 0 {
+				t.Fatalf("unintended exterior access to %s: %v", u.ID, p)
 			}
 		}
-		if !portal {
-			t.Fatalf("route bypassed common entry: %s %v", u.ID, path)
+		return
+	}
+	// Private cells: each door has its own approach in the open hall, and its
+	// queue stands in a line in front of that door, not in front of another.
+	arrivals := []behavior.Cell{}
+	for _, edge := range r.world.Life.Edges {
+		if edge.To == level {
+			arrivals = append(arrivals, edge.Entry)
 		}
-		blocked := map[behavior.Cell]bool{{X: 10, Y: 44}: true, {X: 10, Y: 45}: true}
-		if p := m.Space(level, blocked).Path(cfg.CommonEntryCell, u.EntryCell, behavior.Cell{}, 0); len(p) > 0 {
-			t.Fatalf("unintended exterior access to %s: %v", u.ID, p)
+	}
+	if len(arrivals) == 0 {
+		t.Fatal("level needs its public arrivals")
+	}
+	doors := map[string]sanitaryUnit{}
+	taken := map[behavior.Cell]string{}
+	for _, u := range cfg.Units {
+		key := u.cellKey()
+		if u.PortID == "" || !u.Door {
+			t.Fatalf("%s has no own door", u.ID)
 		}
+		if first, ok := doors[key]; ok {
+			if first.EntryCell != u.EntryCell || first.VisualIndex != u.VisualIndex || !reflect.DeepEqual(first.WaitCells, u.WaitCells) {
+				t.Fatalf("%s and %s share a door but not its approach", first.ID, u.ID)
+			}
+			continue
+		}
+		doors[key] = u
+		for _, c := range append([]behavior.Cell{u.EntryCell}, u.WaitCells...) {
+			if other, ok := taken[c]; ok {
+				t.Fatalf("cell %v serves both %s and %s", c, other, key)
+			}
+			taken[c] = key
+			if !m.Walks(level, c) {
+				t.Fatalf("%s approach %v is not floor", key, c)
+			}
+		}
+	}
+	if len(doors) < 2 {
+		t.Fatal("private cells collapsed into one door")
+	}
+	for key, u := range doors {
+		for _, start := range arrivals {
+			if len(m.Space(level, nil).Path(start, u.EntryCell, behavior.Cell{}, 0)) == 0 {
+				t.Fatalf("%s unreachable from arrival %v", key, start)
+			}
+		}
+		previous := u.EntryCell
+		for _, c := range u.WaitCells {
+			if d := (c.X-previous.X)*(c.X-previous.X) + (c.Y-previous.Y)*(c.Y-previous.Y); d != 1 {
+				t.Fatalf("%s queue leaves its door at %v", key, c)
+			}
+			previous = c
+		}
+	}
+}
+
+// Units behind one door share it: one door state, one occupant, one queue.
+func TestSanitaryCellSharesDoorAndQueue(t *testing.T) {
+	r, wc := sanitaryFixture(t, "wc")
+	cfg := r.world.SanitaryServices
+	if wc.PortID == "" {
+		t.Skip("shared-entrance content")
+	}
+	r.state.Life.SecondsPerTick = 1
+	var basin sanitaryUnit
+	for _, u := range cfg.Units {
+		if u.cellKey() == wc.cellKey() && u.Kind == "basin" {
+			basin = u
+		}
+	}
+	if basin.ID == "" {
+		t.Fatal("the WC cell has no own basin")
+	}
+	sanitaryUsing(t, r, wc)
+	id := "char.market_granny"
+	npc := r.state.Life.Actor(id)
+	npc.Trip = nil
+	npc.ResidenceID = ""
+	npc.Level = wc.LevelID
+	npc.Position = sanitaryHallCell(r, wc)
+	npc.Position.X += 2
+	npc.Goal = npc.Position
+	npc.Path, npc.PendingPath, npc.Body = nil, nil, nil
+	npc.Manual, npc.CombatHold = false, false
+	if err := r.sanitaryRequest(id, basin.ID); err != nil {
+		t.Fatal(err)
+	}
+	p := r.state.Sanitary.Users[id]
+	if p.Phase != "queued" || p.WaitAt == nil || *p.WaitAt != wc.WaitCells[0] || npc.OverrideAt != wc.WaitCells[0] || len(npc.Path) == 0 {
+		t.Fatalf("basin of an occupied cell did not wait at its door: %+v at=%v", p, npc.OverrideAt)
+	}
+	if len(r.state.Sanitary.Doors) != 1 {
+		t.Fatalf("one cell got several doors: %v", r.state.Sanitary.Doors)
+	}
+	if err := r.validateSanitary(r.state); err != nil {
+		t.Fatal(err)
+	}
+	// The queue fills to its limit at this door and refuses one more.
+	others := []string{"char.market_resident_01", "char.market_resident_09"}
+	for i, other := range others {
+		a := r.state.Life.Actor(other)
+		a.Trip, a.ResidenceID, a.Level = nil, "", wc.LevelID
+		a.Position = behavior.Cell{X: npc.Position.X + 1 + i, Y: npc.Position.Y}
+		a.Goal = a.Position
+		a.Path, a.PendingPath, a.Body = nil, nil, nil
+		a.Manual, a.CombatHold = false, false
+		before := len(r.state.Sanitary.Users)
+		err := r.sanitaryRequest(other, wc.ID)
+		if (before < cfg.QueueLimit) != (err == nil) {
+			t.Fatalf("queue limit of a cell: users=%d err=%v", before, err)
+		}
+	}
+	// Walk the waiting person to the door, then let the WC finish: the basin is next.
+	for i := 0; i < 400 && r.state.Sanitary.Users[playerActorID].Phase != "closing"; i++ {
+		r.state.Tick++
+		r.state.Inventory.Advance(r.state.Tick)
+		if err := r.advanceLifeFrameBy(1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if q := r.state.Sanitary.Users[id]; q.Phase != "queued" || r.state.Life.Actor(id).Position != wc.WaitCells[0] || !r.state.Life.Actor(id).CombatHold {
+		t.Fatalf("waiting person is not standing at the door: %+v pos=%v", q, r.state.Life.Actor(id).Position)
+	}
+	moved := false
+	for i := 0; i < 400 && r.state.Sanitary.Users[id].Phase != "using"; i++ {
+		// The hero leaves the doorstep once out, as a player would; standing on it keeps the door's queue waiting.
+		if hero := r.state.Life.Actor(playerActorID); !moved && !r.sanitaryReserved(playerActorID) {
+			hero.Position = behavior.Cell{X: wc.EntryCell.X + 4, Y: wc.EntryCell.Y}
+			hero.Goal = hero.Position
+			moved = true
+		}
+		r.state.Tick++
+		r.state.Inventory.Advance(r.state.Tick)
+		if err := r.advanceLifeFrameBy(1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if r.state.Sanitary.Users[id].Phase != "using" || r.state.Life.Actor(id).ServiceAttachment != basin.ID {
+		t.Fatalf("the queue at the door was not admitted: %+v", r.state.Sanitary.Users[id])
+	}
+	if err := r.validateSanitary(r.state); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A person picks a free door; with every door taken, the shortest queue.
+func TestSanitaryNPCPicksFreeOrShortestDoor(t *testing.T) {
+	r, _ := sanitaryFixture(t, "basin")
+	cfg := r.world.SanitaryServices
+	if cfg.CommonEntryCell != nil {
+		t.Skip("shared-entrance content")
+	}
+	basins := []sanitaryUnit{}
+	for _, u := range cfg.Units {
+		if u.Kind == "basin" {
+			basins = append(basins, u)
+		}
+	}
+	if len(basins) < 2 {
+		t.Fatal("needs several private basins")
+	}
+	r.state.Sanitary.Users = map[string]sanitaryUser{}
+	serial := uint64(0)
+	occupy := func(id string, u sanitaryUnit, phase string) {
+		serial++
+		r.state.Sanitary.Users[id] = sanitaryUser{ActorID: id, UnitID: u.ID, Phase: phase, Serial: serial}
+	}
+	// Every door but the last is taken; the last one is free.
+	for i, u := range basins[:len(basins)-1] {
+		occupy("held."+u.ID, u, "using")
+		if i == 0 {
+			occupy("queue."+u.ID, u, "queued")
+		}
+	}
+	r.state.Sanitary.Serial = serial
+	units := append([]sanitaryUnit(nil), cfg.unitsAt(basins[0].LevelID)...)
+	pick := func() string {
+		best, bestLoad := "", 1<<30
+		for _, u := range units {
+			if u.Kind == "wc" {
+				continue
+			}
+			if n, _ := r.sanitaryCellLoad(u.ID, ""); n < bestLoad {
+				best, bestLoad = u.ID, n
+			}
+		}
+		return best
+	}
+	if got := pick(); got != basins[len(basins)-1].ID {
+		t.Fatalf("free door not first: %s", got)
+	}
+	occupy("held."+basins[len(basins)-1].ID, basins[len(basins)-1], "using")
+	if got := pick(); r.world.SanitaryServices.unit(got).cellKey() == basins[0].cellKey() {
+		t.Fatalf("picked the door with the longer queue: %s", got)
+	}
+	// The real request path: an ordinary NPC on its hygiene goal takes the free door.
+	r.state.Sanitary.Users = map[string]sanitaryUser{}
+	for _, u := range basins[:len(basins)-1] {
+		occupy("held."+u.ID, u, "using")
+	}
+	held := map[string]bool{}
+	for id := range r.state.Sanitary.Users {
+		held[id] = true
+	}
+	id := "char.market_granny"
+	npc := r.state.Life.Actor(id)
+	npc.Trip, npc.ResidenceID, npc.Level = nil, "", basins[0].LevelID
+	npc.Position = sanitaryHallCell(r, basins[0])
+	npc.Position.X += 3
+	npc.Goal = npc.Position
+	npc.Path, npc.PendingPath, npc.Body = nil, nil, nil
+	npc.Manual, npc.CombatHold = false, false
+	npc.Brain.Place = behavior.LifeAffordance{ID: cfg.ManagedAffordance, Kind: "hygiene"}
+	npc.Brain.BreakKind = ""
+	r.world.SanitaryServices.NPCHygiene = true
+	for _, a := range r.state.Life.Actors {
+		if a.ID != id && !held[a.ID] && a.Brain.Place.ID == cfg.ManagedAffordance {
+			a.Brain.Place = behavior.LifeAffordance{}
+		}
+	}
+	r.sanitaryNPCRequests()
+	p, ok := r.state.Sanitary.Users[id]
+	if !ok || r.world.SanitaryServices.unit(p.UnitID).cellKey() != basins[len(basins)-1].cellKey() || p.Phase != "approach" {
+		t.Fatalf("NPC did not take the free door: %+v", p)
 	}
 }
 func TestSanitaryWoundsAdvanceAndStaffBudget(t *testing.T) {
@@ -684,7 +921,8 @@ func TestHubServicesOwnLevelTopology(t *testing.T) {
  const level="level.c7_transport_hub"
  if _,ok:=r.world.Life.Locations[level];!ok { t.Skip("no transport hub in this project") }
  wc,med:=r.world.SanitaryServices,r.world.MedicalCapsules
- if len(wc.Units)!=7 || len(med.Units)!=2 || len(wc.unitsAt(level))!=4 || len(med.unitsAt(level))!=2 { t.Fatal("primary and hub catalogs were mixed") }
+ if len(wc.Units)==0 || len(med.Units)!=2 || len(wc.unitsAt(level))==0 || len(med.unitsAt(level))!=2 { t.Fatal("primary and hub catalogs were mixed") }
+ for _,u:=range wc.Units { if u.LevelID==level { t.Fatal("hub unit in the primary catalog") } }
  arrivals:=[]behavior.Cell{}
  for _,edge:=range r.world.Life.Edges { if edge.To==level { arrivals=append(arrivals,edge.Entry) } }
  if len(arrivals)<2 { t.Fatal("hub needs its authored public arrivals") }
@@ -698,8 +936,10 @@ func TestHubServicesOwnLevelTopology(t *testing.T) {
    if path:=m.Space(level,map[behavior.Cell]bool{at:true}).Path(start,at,behavior.Cell{},0);len(path)>0 { t.Fatalf("%s bypassed blocked own approach: %v",id,path) }
   }
  }
+ doors:=map[string]bool{}
  for _,u:=range wc.unitsAt(level) {
-  if u.LevelID!=level || wc.unit(u.ID)==nil { t.Fatal("wrong WC level/index") };check(u.ID,u.EntryCell,u.EntryPose,u.InsidePose)
+  if u.LevelID!=level || wc.unit(u.ID)==nil { t.Fatal("wrong WC level/index") }
+  if !doors[u.cellKey()] { doors[u.cellKey()]=true;check(u.ID,u.EntryCell,u.EntryPose,u.InsidePose) }
   if err:=r.sanitaryRequest(playerActorID,u.ID);err==nil { t.Fatal("cross-level WC reservation accepted") }
  }
  for _,u:=range med.unitsAt(level) {

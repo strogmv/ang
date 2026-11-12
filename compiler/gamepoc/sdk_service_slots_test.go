@@ -45,11 +45,11 @@ func TestSDKServiceCatalogsKeepIndependentLevelTopology(t *testing.T) {
 	s.SourceUnit = "old"
 	s.Reason = "existing authored door"
 	world := cuecontext.New().Encode(map[string]any{"sdk_service_slots": []SDKServiceSlot{s}})
-	wc := SanitaryCatalog{CommonEntryCell: Point{X: 100, Y: 100}, Units: []SanitaryUnit{{ID: "old", Kind: "wc", LevelID: "primary", Provider: "policy.wc"}}}
+	wc := SanitaryCatalog{CommonEntryCell: &Point{X: 100, Y: 100}, QueueLimit: 3, Units: []SanitaryUnit{{ID: "old", Kind: "wc", LevelID: "primary", Provider: "svc.latrine_use", NameKey: "wc", ServiceSeconds: 240, WaterML: 3000, MaxWaitSeconds: 600}}}
 	if err := appendSDKSanitary(world, c, &wc); err != nil {
 		t.Fatal(err)
 	}
-	if len(wc.Units) != 1 || wc.Units[0].LevelID != "primary" || wc.CommonEntryCell != (Point{X: 100, Y: 100}) || len(wc.Levels["room"]) != 1 || wc.Levels["room"][0].Provider != "policy.wc" {
+	if len(wc.Units) != 1 || wc.Units[0].LevelID != "primary" || *wc.CommonEntryCell != (Point{X: 100, Y: 100}) || len(wc.Levels["room"]) != 1 || wc.Levels["room"][0].Provider != "svc.latrine_use" || wc.Levels["room"][0].PortID != "door" {
 		t.Fatal("SDK WC joined or changed primary installation", wc)
 	}
 	s.Kind = "medical"
@@ -68,5 +68,55 @@ func TestSDKServiceCatalogsKeepIndependentLevelTopology(t *testing.T) {
 	world = cuecontext.New().Encode(map[string]any{"sdk_service_slots": []SDKServiceSlot{s, other}})
 	if _, err := sdkServiceSlots(world, "wc"); err == nil {
 		t.Fatal("one physical door accepted for two services")
+	}
+}
+
+// One SDK door is one private cell: its WC, own basin and shower share the door;
+// a repeated kind behind a door, a cell without a WC or two cells on one
+// approach are refused.
+func TestSDKSanitaryCellsShareOneDoor(t *testing.T) {
+	c, s := sdkServiceDoorFixture()
+	s.Reason = "existing authored door"
+	donor := SanitaryUnit{LevelID: "primary", NameKey: "x", ServiceSeconds: 60, WaterML: 1000, MaxWaitSeconds: 600}
+	primary := SanitaryCatalog{CommonEntryCell: &Point{X: 100, Y: 100}, QueueLimit: 3}
+	var slots []SDKServiceSlot
+	for _, kind := range []string{"wc", "basin", "shower"} {
+		u := donor
+		u.ID, u.Kind, u.Provider = "old."+kind, kind, map[string]string{"wc": "svc.latrine_use", "basin": "svc.basin_wash", "shower": "svc.shower_3min"}[kind]
+		primary.Units = append(primary.Units, u)
+		slot := s
+		slot.ID, slot.Kind, slot.SourceUnit = "cell."+kind, kind, u.ID
+		slots = append(slots, slot)
+	}
+	world := cuecontext.New().Encode(map[string]any{"sdk_service_slots": slots})
+	cat := primary
+	if err := appendSDKSanitary(world, c, &cat); err != nil {
+		t.Fatal(err)
+	}
+	if units := cat.Levels["room"]; len(units) != 3 || units[0].PortID != "door" || units[1].EntryCell != units[0].EntryCell || units[2].VisualIndex != units[0].VisualIndex || !units[1].Door {
+		t.Fatalf("cell units do not share their door: %+v", units)
+	}
+	twice := append(append([]SDKServiceSlot(nil), slots...), slots[0])
+	twice[3].ID = "cell.wc.again"
+	if _, err := sdkServiceSlots(cuecontext.New().Encode(map[string]any{"sdk_service_slots": twice}), "wc"); err == nil {
+		t.Fatal("two WCs accepted behind one door")
+	}
+	units := cat.Levels["room"]
+	noWC := []SanitaryUnit{units[1], units[2]}
+	if validatePrivateCells(noWC, "room", 3, nil) == nil {
+		t.Fatal("cell without a WC accepted")
+	}
+	other := units[0]
+	other.ID, other.PortID, other.VisualIndex = "other.wc", "door.2", 1
+	if validatePrivateCells(append(append([]SanitaryUnit(nil), units...), other), "room", 3, nil) == nil {
+		t.Fatal("two cells on one approach accepted")
+	}
+	split := append([]SanitaryUnit(nil), units...)
+	split[1].WaitCells = []Point{{X: 3, Y: 5}}
+	if validatePrivateCells(split, "room", 3, nil) == nil {
+		t.Fatal("units of one cell with different queues accepted")
+	}
+	if err := validatePrivateCells(units, "room", 3, nil); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -25,12 +25,24 @@ type sanitaryUnit struct {
 	ServiceSeconds int64         `json:"service_seconds"`
 	WaterML        int64         `json:"water_ml"`
 	MaxWaitSeconds int64         `json:"max_wait_seconds"`
+	// A private cell: units behind one SDK door share its approach, door and
+	// occupancy; the queue waits on WaitCells in front of that door.
+	PortID    string          `json:"port_id,omitempty"`
+	WaitCells []behavior.Cell `json:"wait_cells,omitempty"`
+}
+
+// cellKey names one occupancy: the private cell's door, or the unit itself.
+func (u sanitaryUnit) cellKey() string {
+	if u.PortID != "" {
+		return u.LevelID + "/" + u.InstanceID + "/" + u.PortID
+	}
+	return u.ID
 }
 type sanitaryCatalog struct {
 	Levels map[string][]sanitaryUnit `json:"levels,omitempty"`
 	PrefabResource     string         `json:"prefab_resource"`
-	CommonEntryCell    behavior.Cell  `json:"common_entry_cell"`
-	CommonEntryPose    medicalPose    `json:"common_entry_pose"`
+	CommonEntryCell    *behavior.Cell `json:"common_entry_cell,omitempty"`
+	CommonEntryPose    *medicalPose   `json:"common_entry_pose,omitempty"`
 	ServiceAvailable   bool           `json:"service_available"`
 	AvailabilitySource string         `json:"availability_source"`
 	ManagedAffordance  string         `json:"managed_affordance"`
@@ -56,6 +68,8 @@ type sanitaryUser struct {
 	WaterRemainder  int64  `json:"water_remainder"`
 	PriorManual     bool   `json:"prior_manual"`
 	ExitBlocked     bool   `json:"exit_blocked"`
+	// The wait cell this queued person walks to or stands on, at its door.
+	WaitAt *behavior.Cell `json:"wait_at,omitempty"`
 }
 type sanitaryState struct {
 	Serial    uint64                  `json:"serial"`
@@ -71,6 +85,10 @@ func (s sanitaryState) clone() sanitaryState {
 		u = map[string]sanitaryUser{}
 	}
 	for k, v := range s.Users {
+		if v.WaitAt != nil {
+			at := *v.WaitAt
+			v.WaitAt = &at
+		}
 		u[k] = v
 	}
 	s.Users = u
@@ -111,6 +129,25 @@ func (c *sanitaryCatalog) unit(id string) *sanitaryUnit {
  for _,units:=range c.Levels { for i:=range units { if units[i].ID==id { return &units[i] } } }
  return nil
 }
+// door finds a unit behind the door saved under key (its cell key).
+func (c *sanitaryCatalog) door(key string) *sanitaryUnit {
+	if c == nil {
+		return nil
+	}
+	for i := range c.Units {
+		if c.Units[i].Door && c.Units[i].cellKey() == key {
+			return &c.Units[i]
+		}
+	}
+	for _, units := range c.Levels {
+		for i := range units {
+			if units[i].Door && units[i].cellKey() == key {
+				return &units[i]
+			}
+		}
+	}
+	return nil
+}
 func (r *Runtime) sanitaryReserved(id string) bool { _, ok := r.state.Sanitary.Users[id]; return ok }
 func (r *Runtime) sanitaryOwnsActor(id string) bool {
 	p, ok := r.state.Sanitary.Users[id]
@@ -136,13 +173,28 @@ func (r *Runtime) serviceAttached(id string) bool {
 func (r *Runtime) sanitaryManaged(id, place string) bool {
 	return r.state.Life.Actor(id) != nil && r.world.SanitaryServices != nil && place == r.world.SanitaryServices.ManagedAffordance
 }
-func (r *Runtime) sanitaryBusy(unit, except string) bool {
+// sanitaryCellLoad counts everyone holding or waiting for the unit's cell.
+func (r *Runtime) sanitaryCellLoad(unit, except string) (load int, busy bool) {
+	cfg := r.world.SanitaryServices
+	u := cfg.unit(unit)
+	if u == nil {
+		return 0, false
+	}
+	key := u.cellKey()
 	for id, p := range r.state.Sanitary.Users {
-		if id != except && p.UnitID == unit && p.Phase != "queued" {
-			return true
+		if id == except {
+			continue
+		}
+		if other := cfg.unit(p.UnitID); other != nil && other.cellKey() == key {
+			load++
+			busy = busy || p.Phase != "queued"
 		}
 	}
-	return false
+	return load, busy
+}
+func (r *Runtime) sanitaryBusy(unit, except string) bool {
+	_, busy := r.sanitaryCellLoad(unit, except)
+	return busy
 }
 func (r *Runtime) sanitaryDoorTarget(u sanitaryUnit, to float64) {
 	if !u.Door {
@@ -151,11 +203,11 @@ func (r *Runtime) sanitaryDoorTarget(u sanitaryUnit, to float64) {
 	if r.state.Sanitary.Doors == nil {
 		r.state.Sanitary.Doors = map[string]medicalDoor{}
 	}
-	d := r.state.Sanitary.Doors[u.ID]
+	d := r.state.Sanitary.Doors[u.cellKey()]
 	if d.To == to {
 		return
 	}
-	r.state.Sanitary.Doors[u.ID] = medicalDoor{StartNS: r.simNS(), EndNS: r.simNS() + int64(r.world.SanitaryServices.DoorSeconds*1e9), From: medicalDoorValue(d, r.simNS()), To: to}
+	r.state.Sanitary.Doors[u.cellKey()] = medicalDoor{StartNS: r.simNS(), EndNS: r.simNS() + int64(r.world.SanitaryServices.DoorSeconds*1e9), From: medicalDoorValue(d, r.simNS()), To: to}
 }
 func (r *Runtime) sanitaryPhase(p *sanitaryUser, phase string, duration float64) {
 	p.Phase = phase
@@ -179,7 +231,7 @@ func (r *Runtime) sanitaryHoldUsers() {
 		if a := r.state.Life.Actor(id); a != nil {
 			sanitaryRestoreDutyBreak(a, p, false)
 		}
-		if p.Phase == "approach" {
+		if p.Phase == "approach" || r.sanitaryWaitWalking(id, p) {
 			continue
 		}
 		if a := r.state.Life.Actor(id); a != nil {
@@ -196,14 +248,70 @@ func (r *Runtime) sanitaryHoldUsers() {
 		}
 	}
 }
+// A queued person with a wait cell is walking until standing on it.
+func (r *Runtime) sanitaryWaitWalking(id string, p sanitaryUser) bool {
+	a := r.state.Life.Actor(id)
+	return p.Phase == "queued" && p.WaitAt != nil && a != nil && !a.CombatHold
+}
+
+// The k-th queued person of a cell (by serial) waits on its k-th wait cell.
+func (r *Runtime) sanitaryWaitTarget(p sanitaryUser, u sanitaryUnit) *behavior.Cell {
+	if len(u.WaitCells) == 0 {
+		return nil
+	}
+	cfg := r.world.SanitaryServices
+	ahead := 0
+	for _, other := range r.state.Sanitary.Users {
+		if other.Phase == "queued" && other.Serial < p.Serial {
+			if ou := cfg.unit(other.UnitID); ou != nil && ou.cellKey() == u.cellKey() {
+				ahead++
+			}
+		}
+	}
+	at := u.WaitCells[min(ahead, len(u.WaitCells)-1)]
+	return &at
+}
+
+// sanitaryWait sends a queued person to its wait cell at the door, or holds
+// it where it stands when that cell cannot be reached now.
+func (r *Runtime) sanitaryWait(p *sanitaryUser, u sanitaryUnit) {
+	target := r.sanitaryWaitTarget(*p, u)
+	a := r.state.Life.Actor(p.ActorID)
+	if target == nil || a == nil {
+		return
+	}
+	if p.WaitAt != nil && *p.WaitAt == *target {
+		if a.CombatHold || a.Position != *target || len(a.Path) > 0 || a.Body != nil && a.Body.Moving {
+			return
+		}
+		a.Body = nil
+		a.CombatHold = true
+		a.OverrideLevel = ""
+		a.OverrideEdge = ""
+		return
+	}
+	if r.sanitaryWalk(p, u, *target, "sanitary.phase.queued") != nil {
+		p.WaitAt = nil
+		return
+	}
+	p.WaitAt = target
+}
 func (r *Runtime) sanitaryApproach(p *sanitaryUser, u sanitaryUnit) error {
+	if err := r.sanitaryWalk(p, u, u.EntryCell, "sanitary.phase.approach"); err != nil {
+		return err
+	}
+	p.WaitAt = nil
+	r.sanitaryPhase(p, "approach", 0)
+	return nil
+}
+func (r *Runtime) sanitaryWalk(p *sanitaryUser, u sanitaryUnit, to behavior.Cell, label string) error {
 	a := r.state.Life.Actor(p.ActorID)
 	if a == nil || !a.OnFloor() || a.Level != u.LevelID {
 		return textError{Key: "sanitary.error.unavailable"}
 	}
 	m := r.state.Life.GateModel(r.world.Life)
-	path := m.Space(a.Level, r.state.Life.BlockedCells(a.Level, a.ID)).Path(a.Position, u.EntryCell, behavior.Cell{}, 0)
-	if a.Position != u.EntryCell && len(path) == 0 {
+	path := m.Space(a.Level, r.state.Life.BlockedCells(a.Level, a.ID)).Path(a.Position, to, behavior.Cell{}, 0)
+	if a.Position != to && len(path) == 0 {
 		return textError{Key: "sanitary.error.path"}
 	}
 	before := r.state.Life.Clone()
@@ -211,23 +319,22 @@ func (r *Runtime) sanitaryApproach(p *sanitaryUser, u sanitaryUnit) error {
 	a.Manual = true
 	a.RestFootprint = nil
 	a.OverrideLevel = a.Level
-	a.OverrideAt = u.EntryCell
+	a.OverrideAt = to
 	a.OverrideEdge = ""
 	a.Arrived = false
 	a.Path = path
 	a.PendingPath = nil
-	a.Goal = u.EntryCell
+	a.Goal = to
 	a.MoveStartTick = r.lifeMotionTick()
 	a.Activity = "walking"
-	a.Label = "sanitary.phase.approach"
+	a.Label = label
 	if a.ID == playerActorID && m.BodyCapable(a.Level) {
 		r.state.Life.EnsureHeroBody(m)
-		if !r.state.Life.HeroBodyRouteTo(m, u.EntryCell) {
+		if !r.state.Life.HeroBodyRouteTo(m, to) {
 			r.state.Life = before
 			return textError{Key: "sanitary.error.path"}
 		}
 	}
-	r.sanitaryPhase(p, "approach", 0)
 	return nil
 }
 func (r *Runtime) sanitaryRequest(id, unit string) error {
@@ -247,12 +354,7 @@ func (r *Runtime) sanitaryRequest(id, unit string) error {
 	if !combatWounds.Status(combatBody(c)).CanWalk {
 		return textError{Key: "medical.error.cannot_walk"}
 	}
-	count := 0
-	for _, p := range r.state.Sanitary.Users {
-		if p.UnitID == unit {
-			count++
-		}
-	}
+	count, _ := r.sanitaryCellLoad(unit, id)
 	if count >= cfg.QueueLimit || r.state.Sanitary.Serial == ^uint64(0) {
 		return textError{Key: "sanitary.error.busy"}
 	}
@@ -265,6 +367,9 @@ func (r *Runtime) sanitaryRequest(id, unit string) error {
 		if err := r.sanitaryApproach(&p, *u); err != nil {
 			return err
 		}
+	}
+	if p.Phase == "queued" {
+		r.sanitaryWait(&p, *u)
 	}
 	a = r.state.Life.Actor(id)
 	a.Manual = true
@@ -418,6 +523,9 @@ func (r *Runtime) advanceSanitaryServices() error {
 			if r.sanitaryQueueHead(p) && !r.sanitaryBusy(u.ID, id) {
 				_ = r.sanitaryApproach(&p, *u) // A blocked doorway keeps the FIFO lease until its deadline.
 			}
+			if p.Phase == "queued" {
+				r.sanitaryWait(&p, *u)
+			}
 		case "approach":
 			if a.Position == u.EntryCell && len(a.Path) == 0 && (a.Body == nil || !a.Body.Moving) {
 				a.Body = nil
@@ -494,8 +602,13 @@ func (r *Runtime) sanitaryNPCRequests() {
 		if a.ID == playerActorID || a.Manual || !a.OnFloor() || a.CombatHold || r.serviceReserved(a.ID) || a.Brain.Place.ID != cfg.ManagedAffordance || !r.cartServiceReady(a.ID) {
 			continue
 		}
+		// A free door first, otherwise the door with the shortest queue.
 		units := append([]sanitaryUnit(nil), cfg.unitsAt(a.Level)...)
-		sort.SliceStable(units, func(i, j int) bool { return !r.sanitaryBusy(units[i].ID, a.ID) && r.sanitaryBusy(units[j].ID, a.ID) })
+		load := map[string]int{}
+		for _, u := range units {
+			load[u.ID], _ = r.sanitaryCellLoad(u.ID, a.ID)
+		}
+		sort.SliceStable(units, func(i, j int) bool { return load[units[i].ID] < load[units[j].ID] })
 		for _, u := range units {
 			if cfg.ServiceAvailable && u.Kind != "wc" && u.LevelID == a.Level {
 				if a.Brain.BreakKind == "hygiene" {
@@ -521,8 +634,10 @@ func (r *Runtime) sanitaryNPCRequests() {
 }
 
 func (r *Runtime) sanitaryQueueHead(p sanitaryUser) bool {
+	cfg := r.world.SanitaryServices
+	u := cfg.unit(p.UnitID)
 	for _, other := range r.state.Sanitary.Users {
-		if other.UnitID == p.UnitID && other.Serial < p.Serial {
+		if ou := cfg.unit(other.UnitID); ou != nil && u != nil && ou.cellKey() == u.cellKey() && other.Serial < p.Serial {
 			return false
 		}
 	}

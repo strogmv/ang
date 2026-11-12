@@ -37,10 +37,13 @@ type sanitaryUnitView struct {
 	ExitBlocked       bool         `json:"exit_blocked"`
 	RequestEnabled    bool         `json:"request_enabled"`
 	CancelEnabled     bool         `json:"cancel_enabled"`
+	// The private cell of this unit is taken (by this or another of its units).
+	CellOccupied bool `json:"cell_occupied"`
 }
 
+// Behind a closed door nobody is seen; an open basin is in public view.
 func sanitaryPrivate(p sanitaryUser, u sanitaryUnit) bool {
-	return u.Kind != "basin" && (p.Phase == "sealing" || p.Phase == "using" || p.Phase == "opening_exit")
+	return u.Door && (p.Phase == "sealing" || p.Phase == "using" || p.Phase == "opening_exit")
 }
 func (r *Runtime) sanitaryPose(p sanitaryUser, u sanitaryUnit) medicalPose {
 	t := 0.0
@@ -85,8 +88,10 @@ func (r *Runtime) appendSanitaryServices(msg *pb.PocGameState, hero *behavior.Li
 		out.HeroHygienePPM = hero.Brain.Needs[2]
 		out.AvailabilitySource = cfg.AvailabilitySource
 		out.PrefabResource = cfg.PrefabResource
-		sharedEntrance := len(cfg.Units)>0 && hero.Level==cfg.Units[0].LevelID
-		if sharedEntrance { out.CommonEntryPose = &cfg.CommonEntryPose }
+		sharedEntrance := cfg.CommonEntryCell != nil && cfg.CommonEntryPose != nil && len(cfg.Units) > 0 && hero.Level == cfg.Units[0].LevelID
+		if sharedEntrance {
+			out.CommonEntryPose = cfg.CommonEntryPose
+		}
 		own, hasOwn := r.state.Sanitary.Users[playerActorID]
 		if hasOwn {
 			out.HeroUnitID = own.UnitID
@@ -100,16 +105,24 @@ func (r *Runtime) appendSanitaryServices(msg *pb.PocGameState, hero *behavior.Li
 			if !(sharedEntrance && viewSees(msg.PlayerView, int32(cfg.CommonEntryCell.X), int32(cfg.CommonEntryCell.Y))) && !viewSees(msg.PlayerView, int32(u.EntryCell.X), int32(u.EntryCell.Y)) && (!hasOwn || own.UnitID != u.ID) {
 				continue
 			}
-			d := r.state.Sanitary.Doors[u.ID]
+			d := r.state.Sanitary.Doors[u.cellKey()]
 			v := sanitaryUnitView{DoorMotion: u.DoorMotion, ID: u.ID, InstanceID: u.InstanceID, VisualIndex: u.VisualIndex, Kind: u.Kind, Name: r.localText(locale, u.NameKey, u.NameKey), Phase: "idle", Available: cfg.ServiceAvailable, EntryPose: u.EntryPose, InsidePose: u.InsidePose, Door: d, DoorProgress: medicalDoorValue(d, r.simNS()), UseDuration: u.ServiceSeconds, CumulativeWaterML: r.state.Sanitary.WaterML[u.ID], RequestEnabled: cfg.ServiceAvailable && !r.state.Paused && !r.serviceReserved(playerActorID) && hero.OnFloor() && !hero.CombatHold}
 			for id, p := range r.state.Sanitary.Users {
 				if p.UnitID != u.ID {
+					if other := cfg.unit(p.UnitID); other != nil && other.cellKey() == u.cellKey() {
+						if p.Phase == "queued" {
+							v.QueueCount++
+						} else {
+							v.CellOccupied = true
+						}
+					}
 					continue
 				}
 				if p.Phase == "queued" {
 					v.QueueCount++
 					continue
 				}
+				v.CellOccupied = true
 				v.Phase = p.Phase
 				v.Occupied = true
 				v.PhaseStartNS = p.PhaseStartNS
@@ -132,7 +145,7 @@ func (r *Runtime) appendSanitaryServices(msg *pb.PocGameState, hero *behavior.Li
 				v.CancelEnabled = !r.state.Paused
 			}
 			count := v.QueueCount
-			if v.Occupied {
+			if v.CellOccupied {
 				count++
 			}
 			if count >= cfg.QueueLimit {
@@ -187,7 +200,7 @@ func (r *Runtime) validateSanitary(s state) error {
 	busy := map[string]bool{}
 	count := map[string]int{}
 	for id, d := range s.Sanitary.Doors {
-		u := cfg.unit(id)
+		u := cfg.door(id)
 		if u == nil || !u.Door || d.StartNS < 0 || d.StartNS > now || d.EndNS != d.StartNS+int64(cfg.DoorSeconds*1e9) || math.IsNaN(d.From) || math.IsInf(d.From, 0) || d.From < 0 || d.From > 1 || (d.To != 0 && d.To != 1) {
 			return fmt.Errorf("invalid sanitary door")
 		}
@@ -209,11 +222,12 @@ func (r *Runtime) validateSanitary(s state) error {
 			return fmt.Errorf("invalid sanitary user")
 		}
 		serials[p.Serial] = true
-		count[u.ID]++
+		cell := u.cellKey()
+		count[cell]++
 		if p.ReturnBySecond > 0 && (id == playerActorID || a.Brain.BreakReturnAt != p.ReturnBySecond || a.Brain.BreakStarted > p.RequestedSecond || a.Brain.BreakUntil-a.Brain.BreakStarted != r.world.Life.Brain.HygieneSeconds || a.Brain.BreakReturnAt > a.Brain.BreakUntil || a.Brain.BreakKind != "" && a.Brain.BreakKind != "hygiene" || !r.world.Life.Walks(a.Brain.BreakPost.Level, a.Brain.BreakPost.At)) {
 			return fmt.Errorf("sanitary duty break lost its saved budget/post")
 		}
-		if count[u.ID] > cfg.QueueLimit {
+		if count[cell] > cfg.QueueLimit {
 			return fmt.Errorf("sanitary queue overflow")
 		}
 		duration := 0.0
@@ -236,7 +250,7 @@ func (r *Runtime) validateSanitary(s state) error {
 			return fmt.Errorf("invalid sanitary phase duration")
 		}
 		if u.Door {
-			d := s.Sanitary.Doors[u.ID]
+			d := s.Sanitary.Doors[cell]
 			switch p.Phase {
 			case "entry", "exit":
 				if d.To != 1 || medicalDoorValue(d, p.PhaseStartNS) != 1 {
@@ -260,13 +274,29 @@ func (r *Runtime) validateSanitary(s state) error {
 			return fmt.Errorf("sanitary use before entry")
 		}
 		if p.Phase != "queued" {
-			if busy[u.ID] {
+			if busy[cell] {
 				return fmt.Errorf("duplicate sanitary occupancy")
 			}
-			busy[u.ID] = true
+			busy[cell] = true
+		}
+		if p.WaitAt != nil {
+			known := false
+			for _, at := range u.WaitCells {
+				known = known || at == *p.WaitAt
+			}
+			if !known || p.Phase != "queued" {
+				return fmt.Errorf("invalid sanitary wait cell")
+			}
+		}
+		// A queued person walking to its wait cell moves like an approach,
+		// toward exactly that cell; everyone else in the service stands still.
+		// Life clears the override on arrival, before the service holds the person there.
+		walking := p.Phase == "queued" && p.WaitAt != nil && !a.CombatHold
+		if walking && !(a.OverrideLevel == u.LevelID && a.OverrideAt == *p.WaitAt) && !(a.OverrideLevel == "" && a.Position == *p.WaitAt && len(a.Path) == 0) {
+			return fmt.Errorf("invalid sanitary wait walk")
 		}
 		attached := sanitaryPhaseAttached(p.Phase)
-		if attached != (a.ServiceAttachment == u.ID) || !attached && a.ServiceAttachment != "" || !a.Manual || p.Phase != "approach" && (!a.CombatHold || len(a.Path) > 0 || a.Body != nil) || attached && (a.Trip != nil || a.ResidenceID != "" || a.Position != u.EntryCell) {
+		if attached != (a.ServiceAttachment == u.ID) || !attached && a.ServiceAttachment != "" || !a.Manual || p.Phase != "approach" && !walking && (!a.CombatHold || len(a.Path) > 0 || a.Body != nil) || attached && (a.Trip != nil || a.ResidenceID != "" || a.Position != u.EntryCell) {
 			return fmt.Errorf("invalid sanitary actor ownership")
 		}
 		if _, ok := s.Medical.Patients[id]; ok {
