@@ -51,6 +51,14 @@ type TrainCabinLook struct {
 	GlassRoughness    float64  `json:"glass_roughness"`
 	// Cloth colours of the crowd: the hall visitors' kinds (market_visitors_link.gd), by share.
 	Looks []TrainCabinCrowdLook `json:"looks"`
+	// Base colours that replace a lit interior material's own (the stock keeps its mesh; the look is data).
+	Recolors []TrainCabinRecolor `json:"recolors"`
+}
+
+// TrainCabinRecolor names one interior source material (substring match, like the roles) and its new base colour.
+type TrainCabinRecolor struct {
+	Material string `json:"material"`
+	Albedo   string `json:"albedo"`
 }
 
 type TrainCabinCrowdLook struct {
@@ -139,6 +147,26 @@ func (c TrainMotionCatalog) validateCabin() error {
 	for _, look := range l.Looks {
 		if !trainCabinLookID.MatchString(look.Look) || look.Share <= 0 || look.Share > 1000 {
 			return fmt.Errorf("cabin crowd look %q needs an id and a positive share", look.Look)
+		}
+	}
+	if len(l.Recolors) > 16 {
+		return fmt.Errorf("cabin look has more than 16 recolours")
+	}
+	seen := map[string]bool{}
+	for _, r := range l.Recolors {
+		interior := false
+		for _, name := range l.InteriorMaterials {
+			interior = interior || name == r.Material
+		}
+		if !interior {
+			return fmt.Errorf("cabin recolour %q is not one of the interior materials", r.Material)
+		}
+		if seen[r.Material] {
+			return fmt.Errorf("cabin recolour %q is given twice", r.Material)
+		}
+		seen[r.Material] = true
+		if !trainCabinColor.MatchString(r.Albedo) {
+			return fmt.Errorf("cabin recolour colour %q is not #RRGGBB", r.Albedo)
 		}
 	}
 	return nil
