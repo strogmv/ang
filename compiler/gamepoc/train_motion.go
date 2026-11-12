@@ -35,6 +35,8 @@ type TrainMotionCatalog struct {
 	Points            []TrainRoutePoint  `json:"points"`
 	Modules           []TrainModule      `json:"modules"`
 	Bindings          []TrainBinding     `json:"bindings"`
+	// Train v3: who rides inside each passenger car and how it is lit (optional; legacy catalogues omit it).
+	Cabin *TrainCabin `json:"cabin,omitempty"`
 }
 
 // Timetable data is copied from transit.c7_loop by CUE, never assigned here.
@@ -103,6 +105,9 @@ func readTrainMotion(world cue.Value, life json.RawMessage) (*TrainMotionCatalog
 		return nil, fmt.Errorf("world.train_motion: %w", err)
 	}
 	if err = c.validate(life); err != nil {
+		return nil, fmt.Errorf("world.train_motion: %w", err)
+	}
+	if err = c.deriveCabinRiderModule(life); err != nil {
 		return nil, fmt.Errorf("world.train_motion: %w", err)
 	}
 	keys := append([]string{c.NameKey}, trainHintKeys(c)...)
@@ -285,7 +290,7 @@ func (c TrainMotionCatalog) validate(life json.RawMessage) error {
 	if len(levels) < 3 {
 		return fmt.Errorf("at least three distinct level bindings required")
 	}
-	return nil
+	return c.validateCabin()
 }
 
 func trainHintKeys(c TrainMotionCatalog) []string {

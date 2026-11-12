@@ -91,6 +91,10 @@ func clientResource(c Compiled) ([]byte, error) {
 	// Immutable model calibration only; routes and hidden station poses stay server-owned.
 	if c.TrainMotion != nil {
 		view["train_modules"] = c.TrainMotion.Modules
+		// Train v3: places and look of the passenger cars' insides; counts stay server-owned (live frames).
+		if c.TrainMotion.Cabin != nil {
+			view["train_cabin"] = map[string]any{"train_id": c.TrainMotion.TrainID, "cabin": c.TrainMotion.Cabin}
+		}
 	}
 	// World text (demo-hub v11-text) only when the world has inscriptions: earlier projects keep their resource.
 	if c.WorldTextDrawn != nil {

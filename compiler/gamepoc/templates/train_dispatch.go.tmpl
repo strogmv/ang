@@ -32,6 +32,8 @@ type trainDispatchState struct {
  Rate float64
  Skipped int64
  Completed int64
+ // Train v3: real Life riders who departed with the active passenger run, per module (car of their door).
+ Riders []int `json:"Riders,omitempty"`
 }
 func(t trainTimetable)next(now int64,freight bool)int64{
  offset:=t.OffsetSeconds
@@ -84,7 +86,7 @@ func(r *Runtime)advanceTrainMotion(previousGame int64){
    if at<eventNS{member=i;eventNS=at}
   }
   if member<0{break}
-  if s.Active!=0&&c.finishNS(*s)<=eventNS{s.Active=0;s.Completed++}
+  if s.Active!=0&&c.finishNS(*s)<=eventNS{s.Active=0;s.Completed++;s.Riders=nil}
   departure:=s.Next[member]
   s.Next[member]=c.Timetable.next(departure+1,member==1)
   if float64(departure)-c.leadSeconds(member==1,rate)<float64(previousGame)-.000001{s.Skipped++;continue}
@@ -94,9 +96,9 @@ func(r *Runtime)advanceTrainMotion(previousGame int64){
    passengerStart:=previousNS+int64((float64(s.Next[0])-c.leadSeconds(false,rate)-float64(previousGame))/rate*1e9)
    if eventNS+int64(c.length()/c.SpeedMPS*1e9)>passengerStart{s.Skipped++;continue}
   }
-  s.Active=member+1;s.StartNS=eventNS;s.DepartNS=0;if member==0{s.DepartNS=eventNS+int64((c.approachSeconds()+c.BerthDwellSeconds)*1e9)};s.Departure=departure;s.Run++
+  s.Active=member+1;s.Riders=nil;s.StartNS=eventNS;s.DepartNS=0;if member==0{s.DepartNS=eventNS+int64((c.approachSeconds()+c.BerthDwellSeconds)*1e9)};s.Departure=departure;s.Run++
  }
- if s.Active!=0&&c.finishNS(*s)<=now{s.Active=0;s.Completed++}
+ if s.Active!=0&&c.finishNS(*s)<=now{s.Active=0;s.Completed++;s.Riders=nil}
  s.LastNS=now
 }
 
@@ -154,6 +156,10 @@ func(r *Runtime)validateTrainDispatch(saved state)error{
  for member,due:=range s.Next{if due<0||c.Timetable.next(due,member==1)!=due{return fmt.Errorf("saved train slot is outside its timetable")}}
  if s.Active==1&&s.DepartNS!=s.StartNS+int64((c.approachSeconds()+c.BerthDwellSeconds)*1e9){return fmt.Errorf("saved passenger run has no fixed physical stand")}
  if s.Active==2&&s.DepartNS!=0{return fmt.Errorf("saved freight run has a passenger stand")}
+ if len(s.Riders)>0{
+  if c.Cabin==nil||s.Active!=1||len(s.Riders)!=len(c.Modules){return fmt.Errorf("saved train riders outside an active passenger run")}
+  for _,v:=range s.Riders{if v<0||v>c.cabinCapacity(){return fmt.Errorf("saved train riders exceed the car")}}
+ }
  if s.Active!=0{if c.Timetable.next(s.Departure,s.Active==2)!=s.Departure{return fmt.Errorf("saved active departure outside timetable")};d,v,_,_:=c.dispatchPose(s,now);if d<0||d>c.length()||v<0||v>c.SpeedMPS+.0001{return fmt.Errorf("saved train pose outside route")}}
  return nil
 }

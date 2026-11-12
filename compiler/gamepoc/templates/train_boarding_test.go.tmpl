@@ -4,6 +4,8 @@ package poc
 import (
 	"angelsdemons/server/internal/behavior"
 	pb "angelsdemons/server/internal/transport/grpc/pb/game/v1"
+	"encoding/json"
+	"math"
 	"reflect"
 	"testing"
 )
@@ -254,5 +256,164 @@ func TestUnobservedNPCPreservesOriginalLifeSlot(t *testing.T) {
 	}
 	if !reflect.DeepEqual(before.Accounts, r.state.Inventory.Accounts) {
 		t.Fatal("unobserved NPC changed hero accounts")
+	}
+}
+
+// Train v3: the people in the cars come from the server only — the real Life riders who boarded at the berth,
+// in the car of their door, for the whole run and across a save, plus background passengers by the hour of the
+// departure, the seed and the car. Idle runs and freight carry nobody.
+func TestTrainCabinCountsRealRidersAndBackground(t *testing.T) {
+	r, _, id := observedNPCBoardingFixture(t)
+	c := r.world.TrainMotion
+	if c.Cabin == nil {
+		t.Skip("this world has no passenger cabin")
+	}
+	door := c.cabinRiderIndex()
+	if door < 0 {
+		t.Fatal("cabin rider module was not derived from the berth exit")
+	}
+	r.client = &connection{}
+	putVisibleBerth(r)
+	empty := r.trainMotionSnapshot().Trains
+	if len(empty) < 2 {
+		t.Fatal("passenger and freight stock expected")
+	}
+	r.state.Life.AdvanceWithTravelBy(r.lifeTravelModel(), r.state.Life.Tick+1, 1, nil, r.admitLifeTravel)
+	if _, ok := r.state.TrainPassengers[id]; !ok {
+		t.Fatal("observed NPC did not board the visible train")
+	}
+	check := func(label string, modules []trainModuleState, riders []int) {
+		t.Helper()
+		for i, m := range modules {
+			if m.Riders != riders[i] {
+				t.Fatal(label, ": riders are not in the car of their door", i, m.Riders, riders[i])
+			}
+			total := min(m.Riders+c.cabinBackground(r.state.Seed, r.state.TrainDispatch.Departure, i), c.cabinCapacity())
+			if m.Seated+m.Standing != total || m.Seated > len(c.Cabin.Seats) || m.Standing > len(c.Cabin.Standing) || (m.Standing > 0 && m.Seated != len(c.Cabin.Seats)) {
+				t.Fatal(label, ": car counts are not riders plus background", i, m.Riders, m.Seated, m.Standing, total)
+			}
+		}
+	}
+	want := make([]int, len(c.Modules))
+	for i, m := range empty[0].Modules {
+		want[i] = m.Riders
+	}
+	want[door]++
+	berthed := r.trainMotionSnapshot().Trains
+	check("berthed", berthed[0].Modules, want)
+	for _, m := range berthed[1].Modules {
+		if m.Riders+m.Seated+m.Standing != 0 {
+			t.Fatal("freight stock carries passengers")
+		}
+	}
+	p := r.state.TrainPassengers[id]
+	r.state.Tick = (p.DepartNS + r.tickNS() - 1) / r.tickNS()
+	r.advanceTrainPassengers(1)
+	if a := r.state.Life.Actor(id); a.Trip == nil || len(r.state.TrainPassengers) != 0 {
+		t.Fatal("rider did not depart with the train")
+	}
+	check("departed", r.trainMotionSnapshot().Trains[0].Modules, want)
+	if err := r.validateTrainDispatch(r.state); err != nil {
+		t.Fatal("departed riders do not validate:", err)
+	}
+	// The hero is a real rider too; his boarded wait and his departed ride both survive a save.
+	h, _ := visibleBoardingFixture(t)
+	h.client = &connection{}
+	putVisibleBerth(h)
+	h.state.Life.BeginControlledTravel(h.lifeTravelModel(), h.admitLifeTravel)
+	hp, ok := h.state.TrainPassengers[playerActorID]
+	if !ok {
+		t.Fatal("hero did not board the visible train")
+	}
+	heroWant := make([]int, len(c.Modules))
+	heroWant[door] = 1
+	// Boarded: the whole game is saved and loaded (TrainPassengers keep the rider).
+	slot := h.world.Config.SaveSlots[0]
+	if err := h.writeSave(slot, h.snapshotState()); err != nil {
+		t.Fatal(err)
+	}
+	loaded, _, err := h.readSave(slot)
+	if err != nil {
+		t.Fatal("boarded", err)
+	}
+	h.state = loaded
+	for i, m := range h.trainMotionSnapshot().Trains[0].Modules {
+		if m.Riders != heroWant[i] {
+			t.Fatal("boarded: saved rider is not in the car of the door", i, m.Riders)
+		}
+	}
+	// Departed: the rider now lives in TrainDispatch.Riders; that saved field survives its JSON and validation.
+	// (The fixture jumps the tick without the Life clock, so a full save of this moment is not a game state.)
+	h.state.Tick = (hp.DepartNS + h.tickNS() - 1) / h.tickNS()
+	h.advanceTrainPassengers(1)
+	if h.state.Life.Actor(playerActorID).Trip == nil || len(h.state.TrainDispatch.Riders) != len(c.Modules) {
+		t.Fatal("hero ride was not kept with the run")
+	}
+	raw, err := json.Marshal(h.state.TrainDispatch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dispatch trainDispatchState
+	if err := json.Unmarshal(raw, &dispatch); err != nil || !reflect.DeepEqual(dispatch, h.state.TrainDispatch) {
+		t.Fatal("departed riders do not survive the saved dispatch", err)
+	}
+	h.state.TrainDispatch = dispatch
+	if err := h.validateTrainDispatch(h.state); err != nil {
+		t.Fatal("departed riders do not validate:", err)
+	}
+	for i, m := range h.trainMotionSnapshot().Trains[0].Modules {
+		if m.Riders != heroWant[i] {
+			t.Fatal("departed: rider is not in the car of the door", i, m.Riders)
+		}
+	}
+	corrupt := r.state
+	corrupt.TrainDispatch.Riders = []int{1}
+	if r.validateTrainDispatch(corrupt) == nil {
+		t.Fatal("saved riders of the wrong cars were accepted")
+	}
+	corrupt.TrainDispatch.Riders = append([]int(nil), r.state.TrainDispatch.Riders...)
+	corrupt.TrainDispatch.Active = 0
+	if r.validateTrainDispatch(corrupt) == nil {
+		t.Fatal("saved riders outside an active run were accepted")
+	}
+	// An idle route carries nobody; the next accepted run starts empty.
+	idle := r.state.TrainDispatch
+	idle.Active = 0
+	idle.Riders = nil
+	r.state.TrainDispatch = idle
+	for _, train := range r.trainMotionSnapshot().Trains {
+		for _, m := range train.Modules {
+			if m.Riders+m.Seated+m.Standing != 0 {
+				t.Fatal("idle stock carries passengers")
+			}
+		}
+	}
+	// Background: the same seed gives the same people; the hours give few at night and most after the shifts.
+	night, peak, varied := 0, 0, false
+	for hour := 0; hour < 24; hour++ {
+		departure := int64(hour*3600 + 300)
+		for i := range c.Modules {
+			n := c.cabinBackground(r.state.Seed, departure, i)
+			if n != c.cabinBackground(r.state.Seed, departure, i) || n < 0 || n > c.cabinCapacity() {
+				t.Fatal("background passengers are not a stable count of the car")
+			}
+			if n != c.cabinBackground(r.state.Seed+1, departure, i) {
+				varied = true
+			}
+			mean := float64(c.Cabin.BackgroundPerCarByHour[hour])
+			spread := float64(c.Cabin.SpreadPermille) / 1000
+			if float64(n) < math.Floor(mean*(1-spread))-0.5 || float64(n) > math.Ceil(mean*(1+spread))+0.5 {
+				t.Fatal("background passengers outside the hour's spread", hour, n, mean)
+			}
+			if hour < 5 || hour >= 22 {
+				night += n
+			}
+			if hour == 7 || hour == 15 || hour == 19 {
+				peak += n
+			}
+		}
+	}
+	if !varied || night*2 >= peak {
+		t.Fatal("background passengers ignore the seed or the hours", varied, night, peak)
 	}
 }

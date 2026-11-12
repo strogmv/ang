@@ -270,7 +270,7 @@ func TestTrainMotionRuntimeTrajectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	files := map[string]string{"go.mod": "module angelsdemons/server\n\ngo 1.24\n", "train.go": string(source), "runtime.go": `package poc
- type state struct{TrainDispatch trainDispatchState;Epoch string;Tick,PhaseNS int64; Life struct{Seconds int64;Enabled bool}}
+ type state struct{TrainDispatch trainDispatchState;Epoch string;Tick,PhaseNS,Seed int64; Life struct{Seconds int64;Enabled bool};TrainPassengers map[string]struct{Run int64}}
  type Runtime struct{world struct{TrainMotion *trainMotionCatalog};state state}
  func(r *Runtime)tickNS()int64{return 100000000}
  func(r *Runtime)simNS()int64{return r.state.Tick*100000000+r.state.PhaseNS}

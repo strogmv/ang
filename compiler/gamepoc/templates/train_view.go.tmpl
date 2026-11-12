@@ -10,7 +10,7 @@ func(r *Runtime)appendTrainMotion(view *pb.PocLifeView,level,locale string){
  for _,train:=range s.Trains{
   t:=&pb.PocRailTrain{TrainId:train.TrainID,Run:train.Run,Phase:train.Phase,DistanceM:train.DistanceM,SpeedMps:train.SpeedMPS,DoorsOpen:train.DoorsOpen,DoorProgress:train.DoorProgress,WheelTravelM:train.WheelTravelM,NextLocationKey:train.NextLocationKey,NextLocationEtaSeconds:train.NextLocationETASeconds}
   for _,module:=range train.Modules{
-   m:=&pb.PocRailModule{Id:module.ID}
+   m:=&pb.PocRailModule{Id:module.ID,Riders:int32(module.Riders),Seated:int32(module.Seated),Standing:int32(module.Standing)}
    for _,binding:=range module.Bindings{if binding.LevelID==level{m.Bindings=append(m.Bindings,&pb.PocRailBinding{LevelId:level,Visible:binding.Visible,X:binding.X,Y:binding.Y,Z:binding.Z,YawDegrees:binding.YawDegrees})}}
    if len(m.Bindings)>0{t.Modules=append(t.Modules,m)}
   }

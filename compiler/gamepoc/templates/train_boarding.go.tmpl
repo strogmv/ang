@@ -41,6 +41,10 @@ func(r *Runtime)advanceTrainPassengers(delta int64){
  for id,p:=range r.state.TrainPassengers{
   if ns<p.DepartNS{continue}
   e:=r.world.Life.Edge(p.Edge);if e==nil{continue}
+  // Train v3: the rider stays visible as one of the people in the car of the door for the rest of the run.
+  if c,s:=r.world.TrainMotion,&r.state.TrainDispatch;c!=nil&&s.Active==1&&p.Run==s.Run{
+   if door:=c.cabinRiderIndex();door>=0{if len(s.Riders)!=len(c.Modules){s.Riders=make([]int,len(c.Modules))};s.Riders[door]=min(s.Riders[door]+1,c.cabinCapacity())}
+  }
   departure:=r.state.Life.Seconds+delta
   if a:=r.state.Life.Actor(id);a!=nil{a.BoardedEdge="";a.Trip=&behavior.LifeTrip{Edge:e.ID,Departure:departure,Arrival:departure+e.TravelSeconds};a.WaitingDeparture=departure;a.Path=nil;a.PendingPath=nil;a.Body=nil;a.Activity="transit";a.Label="Едет на монорельсе"}else if a:=r.populationTrainActor(id);a!=nil{a.BoardedEdge="";a.Materialized=false;a.Trip=&behavior.PopulationTrip{Edge:e.ID,Departure:departure,Arrival:departure+e.TravelSeconds};a.WaitingDeparture=departure;a.Activity="transit"}
   delete(r.state.TrainPassengers,id)
