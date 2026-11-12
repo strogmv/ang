@@ -3,9 +3,11 @@
 // persons — no name, no story, no saved life: a kind, a purse from the outside account, a shopping list, a route
 // entry -> stalls -> exit. The host here:
 //   - admits them by the calendar and the seed (the day's arrivals are a pure function of seed and day);
-//   - walks at most max_bodies of them over the static floor, a cell every move_ticks server ticks (bodies of the Life
-//     are not asked and not blocked); a visitor who finds no free body buys at once, unseen, by the same list — the
-//     day's trade does not depend on the calendar rate;
+//   - walks at most max_bodies of them over the floor, a cell every move_ticks server ticks; a visitor who finds no free
+//     body buys at once, unseen, by the same list — the day's trade does not depend on the calendar rate;
+//   - walkers v1: a body is solid (walkers.go.tmpl). He asks the next cell before stepping into it (the Life's people, the
+//     hero's body and next steps, the service cabinet, the other walkers); a taken cell makes him wait a little, then go
+//     round, step aside or give the place up; he never enters work cells of a fixture and steps aside for the hero;
 //   - buys through the ordinary inventory purchase (a stall's showcase, a vending panel) or the peddlers' sale: the
 //     goods and the money really move; what is bought leaves the sector with the visitor (ledger by definition), what
 //     is left of the purse goes back to the outside account;
@@ -59,7 +61,8 @@ type visitorTarget struct {
 		X float64 `json:"x"`
 		Y float64 `json:"y"`
 	} `json:"face,omitempty"`
-	TakeTicks int64 `json:"take_ticks,omitempty"`
+	TakeTicks  int64         `json:"take_ticks,omitempty"`
+	DwellTicks *visitorRange `json:"dwell_ticks,omitempty"`
 }
 type visitorLot struct {
 	Item string `json:"item"`
@@ -81,6 +84,7 @@ type visitorCatalog struct {
 	DwellTicks  visitorRange `json:"dwell_ticks"`
 	LeaveSecond int64        `json:"leave_second"`
 	MaxStops    int          `json:"max_stops"`
+	WalkStops   int          `json:"walk_stops"`
 	Outside     struct {
 		Owner   string `json:"owner"`
 		Account string `json:"account"`
@@ -120,6 +124,12 @@ type visitorBody struct {
 	Stops  []visitorStop `json:"stops,omitempty"`
 	Bought int64         `json:"bought,omitempty"`
 	Held   int64         `json:"held,omitempty"` // ticks he has waited before a cell that is shut now (a gate leaf)
+	// walkers v1: in transit from At into Path[0] (he holds both cells, Wait ticks left), ticks he has waited before a body,
+	// the walker (serial+1) he is giving way to, the server tick he came in
+	Going   bool  `json:"going,omitempty"`
+	Blocked int64 `json:"blocked,omitempty"`
+	Yield   int64 `json:"yield,omitempty"`
+	Since   int64 `json:"since,omitempty"`
 }
 
 // The ledger of the visitors' trade since the game began (never sent to the client).
@@ -136,6 +146,14 @@ type visitorLedger struct {
 	Units     map[string]int64 `json:"units,omitempty"`     // units sold, by seller
 	Turnover  map[string]int64 `json:"turnover,omitempty"`  // minor units paid, by seller
 	PeakBodies int             `json:"peak_bodies"`
+	// walkers v1: walkers who reached their way out, the longest visit of them (server ticks), walkers let out where they
+	// stood because no way out was free (never expected: the acceptance counts it), side steps and detours
+	Out       int64 `json:"out,omitempty"`
+	Longest   int64 `json:"longest_ticks,omitempty"`
+	Stuck     int64 `json:"stuck,omitempty"`
+	Asides    int64 `json:"asides,omitempty"`
+	Detours   int64 `json:"detours,omitempty"`
+	GaveUp    int64 `json:"gave_up,omitempty"`
 }
 type visitorState struct {
 	Last     int64            `json:"last_second"` // arrivals up to this Life second are admitted
@@ -188,6 +206,11 @@ type visitorRuntime struct {
 	// so a remembered walk is always what a fresh search would find — a save continues the same
 	paths map[[2]behavior.Cell][]behavior.Cell
 	floor uint64
+	// walkers v1: the scratch of the searches for a way round (reused, never saved)
+	searchSeen  []uint32
+	searchPrev  []int32
+	searchQueue []behavior.Cell
+	searchStamp uint32
 	targets   map[string]int
 	category  map[string][]int
 	// units for sale on every showcase, by definition (rebuilt when the inventory changes)
@@ -303,7 +326,7 @@ func (r *Runtime) visitorPath(from, to behavior.Cell) ([]behavior.Cell, bool) {
 	if p, ok := c.paths[key]; ok {
 		return p, len(p) > 0
 	}
-	p := r.world.Life.Space(r.world.Visitors.Level, nil).Path(from, to, behavior.Cell{}, 0)
+	p := r.world.Life.SpaceFor(r.world.Visitors.Level, nil, "").Path(from, to, behavior.Cell{}, 0)
 	if len(c.paths) > 1<<14 {
 		c.paths = map[[2]behavior.Cell][]behavior.Cell{}
 	}
@@ -364,9 +387,11 @@ func (r *Runtime) visitorChoose(serial int64, n int, category string) (string, b
 				continue
 			}
 			a := r.state.Life.Actor(p.Actor)
+			held := r.state.Life.BlockedCells(v.Level, "")
 			for _, d := range []behavior.Cell{{X: 0, Y: 1}, {X: 1, Y: 0}, {X: 0, Y: -1}, {X: -1, Y: 0}} {
 				at := behavior.Cell{X: a.Position.X + d.X, Y: a.Position.Y + d.Y}
-				if r.world.Life.Walks(v.Level, at) {
+				// walkers v1: a free cell beside him, never the cell he is heading for (his stop)
+				if r.world.Life.WalksFor(v.Level, at, "") && !held[at] && at != a.Goal {
 					open = append(open, spot{"peddler:" + p.Shop, at})
 					break
 				}
@@ -399,6 +424,19 @@ func (r *Runtime) visitorChoose(serial int64, n int, category string) (string, b
 // visitorSpotAmong (torgomat v2): a place with its own standing cells (a terminal's panel row): the first of them the fewest
 // walkers stand on or head for.
 func (r *Runtime) visitorSpotAmong(spots []inv.Cell) behavior.Cell {
+	taken := r.visitorSpotsTaken()
+	best := behavior.Cell{X: spots[0].X, Y: spots[0].Y}
+	for _, c := range spots[1:] {
+		if cell := (behavior.Cell{X: c.X, Y: c.Y}); taken[cell] < taken[best] {
+			best = cell
+		}
+	}
+	return best
+}
+
+// visitorSpotsTaken: the standing cells walkers stand on or head for (walkers v1: and the cells the Life's people stand on —
+// a resident buying at the same counter, a seller's helper; people do not stand inside each other).
+func (r *Runtime) visitorSpotsTaken() map[behavior.Cell]int {
 	taken := map[behavior.Cell]int{}
 	for _, b := range r.state.Visitors.Bodies {
 		if b.Phase == "leave" {
@@ -410,13 +448,10 @@ func (r *Runtime) visitorSpotAmong(spots []inv.Cell) behavior.Cell {
 		}
 		taken[spot]++
 	}
-	best := behavior.Cell{X: spots[0].X, Y: spots[0].Y}
-	for _, c := range spots[1:] {
-		if cell := (behavior.Cell{X: c.X, Y: c.Y}); taken[cell] < taken[best] {
-			best = cell
-		}
+	for at := range r.state.Life.BlockedCells(r.world.Visitors.Level, "") {
+		taken[at]++
 	}
-	return best
+	return taken
 }
 
 // visitorTargetOf: the selling place a walker is at (nil for a peddler or none).
@@ -430,20 +465,13 @@ func (r *Runtime) visitorTargetOf(id string) *visitorTarget {
 
 // visitorSpot: where a walker stands at a selling place — the customer's cell or a cell beside it along the counter,
 // the one the fewest walkers stand on or head for (people do not stand inside each other).
+// Walkers v1, addendum 1: the customer's cell is also where the people of the hall buy (their place at the counter); a
+// walker who stands there for a minute would keep them waiting beside it, so he takes it only when every cell beside is
+// more crowded than it.
 func (r *Runtime) visitorSpot(at behavior.Cell) behavior.Cell {
 	v := r.world.Visitors
-	taken := map[behavior.Cell]int{}
-	for _, b := range r.state.Visitors.Bodies {
-		if b.Phase == "leave" {
-			continue
-		}
-		spot := b.At
-		if len(b.Path) > 0 {
-			spot = b.Path[len(b.Path)-1]
-		}
-		taken[spot]++
-	}
-	best, least := at, taken[at]
+	taken := r.visitorSpotsTaken()
+	best, least := at, taken[at]+1
 	for _, dx := range []int{1, -1, 2, -2} {
 		spot, near := behavior.Cell{X: at.X + dx, Y: at.Y}, behavior.Cell{X: at.X + dx/absInt(dx), Y: at.Y}
 		// the cell between must be floor too: a spot behind a post or a wall is another place
@@ -677,6 +705,11 @@ func (r *Runtime) visitorArrive(day int64, a visitorArrival) {
 			break
 		}
 	}
+	// walkers v1: he steps in on a free cell at his entry (or right beside it); a crowded entry is like no free body
+	start, free := r.visitorEntryCell(entry)
+	if !free {
+		slot = 0
+	}
 	if slot == 0 {
 		// no free body: he is in and out unseen, with the same list
 		if len(stops) == 0 || !r.visitorMove(v.Outside.Account, r.visitorAccount(v.Slots[0]), purse) {
@@ -697,8 +730,17 @@ func (r *Runtime) visitorArrive(day int64, a visitorArrival) {
 	}
 	s.Ledger.Walked++
 	s.Ledger.PurseIn += purse
-	at := v.Entries[entry].At
-	b := visitorBody{Serial: serial, Slot: slot, Kind: kind, Exit: exit, At: behavior.Cell{X: at.X, Y: at.Y}, Phase: "walk", Stops: stops}
+	// walkers v1, addendum 1: a visible walker walks to walk_stops places of his list and stays at each a while; what else he
+	// came for he has bought on his way in, unseen (the day's trade does not change with the look of the hall)
+	if v.WalkStops > 0 && len(stops) > v.WalkStops {
+		for i := v.WalkStops; i < len(stops); i++ {
+			if target, at, ok := r.visitorChoose(serial, i, stops[i].Category); ok {
+				r.visitorBuy(v.Slots[slot], serial, i, target, at, stops[i].Units)
+			}
+		}
+		stops = stops[:v.WalkStops]
+	}
+	b := visitorBody{Serial: serial, Slot: slot, Kind: kind, Exit: exit, At: start, Phase: "walk", Stops: stops, Since: r.state.Tick}
 	r.visitorHead(&b)
 	s.Bodies = append(s.Bodies, b)
 	if len(s.Bodies) > s.Ledger.PeakBodies {
@@ -709,6 +751,12 @@ func (r *Runtime) visitorArrive(day int64, a visitorArrival) {
 // visitorHead: the next thing of the list that has an open selling place he can walk to; with none left, the way out.
 func (r *Runtime) visitorHead(b *visitorBody) {
 	v := r.world.Visitors
+	// a walker in transit keeps the cell he is stepping into: the new way starts there
+	from, prefix := b.At, []behavior.Cell(nil)
+	if b.Going && len(b.Path) > 0 {
+		from, prefix = b.Path[0], []behavior.Cell{b.Path[0]}
+	}
+	b.Blocked, b.Yield = 0, 0
 	for len(b.Stops) > 0 {
 		st := b.Stops[0]
 		b.Stops = b.Stops[1:]
@@ -717,16 +765,16 @@ func (r *Runtime) visitorHead(b *visitorBody) {
 		if !ok {
 			continue
 		}
-		path, ok := r.visitorPath(b.At, at)
-		if !ok {
+		path, ok := r.visitorPath(from, at)
+		if !ok && from != at {
 			continue
 		}
-		b.Phase, b.Target, b.Units, b.Path = "walk", target, st.Units, append([]behavior.Cell(nil), path...)
+		b.Phase, b.Target, b.Units, b.Path = "walk", target, st.Units, append(append([]behavior.Cell(nil), prefix...), path...)
 		return
 	}
 	exit := v.Entries[b.Exit].At
-	path, _ := r.visitorPath(b.At, behavior.Cell{X: exit.X, Y: exit.Y})
-	b.Phase, b.Target, b.Units, b.Path = "leave", "", 0, append([]behavior.Cell(nil), path...)
+	path, _ := r.visitorPath(from, behavior.Cell{X: exit.X, Y: exit.Y})
+	b.Phase, b.Target, b.Units, b.Path = "leave", "", 0, append(append([]behavior.Cell(nil), prefix...), path...)
 }
 
 // advanceVisitors: one server tick of the hall's visitors (the calendar may have moved by many seconds).
@@ -762,10 +810,14 @@ func (r *Runtime) advanceVisitors() error {
 	clock := now % 86400
 	closing := clock >= v.CloseSecond || clock < v.OpenSecond
 	out := clock >= v.LeaveSecond || clock < v.OpenSecond
+	// walkers v1: one pass in the order of the serials; every walker asks the cells as they are after those before him
+	sort.Slice(s.Bodies, func(i, j int) bool { return s.Bodies[i].Serial < s.Bodies[j].Serial })
+	w := r.walkersPass()
 	kept := s.Bodies[:0]
 	for _, b := range s.Bodies {
 		slot := v.Slots[b.Slot]
 		if out {
+			w.release(b)
 			r.visitorLeave(slot)
 			continue
 		}
@@ -773,13 +825,29 @@ func (r *Runtime) advanceVisitors() error {
 			b.Stops = nil
 			r.visitorHead(&b)
 		}
+		if b.Going {
+			if b.Wait > 0 {
+				b.Wait--
+				kept = append(kept, b)
+				continue
+			}
+			// he has stepped into the cell he held
+			w.free(b.At, b.Serial)
+			b.At, b.Path, b.Going = b.Path[0], b.Path[1:], false
+		}
+		// the hero (or the cabinet) is about to take his cell, or a person of the hall waits for it: he steps aside, at a
+		// stall too
+		if (w.priority[b.At] || w.wanted[b.At]) && r.visitorStepAside(&b, w, nil) {
+			kept = append(kept, b)
+			continue
+		}
 		if b.Wait > 0 {
 			b.Wait--
 			kept = append(kept, b)
 			continue
 		}
 		if len(b.Path) > 0 {
-			if !r.world.Life.Walks(v.Level, b.Path[0]) {
+			if !r.world.Life.WalksFor(v.Level, b.Path[0], "") {
 				// the next cell is shut now (a gate leaf): he waits; after a while he looks for another way to the same
 				// place, and with none he gives the place up (on the way out — he is let out where he stands)
 				b.Held++
@@ -788,6 +856,8 @@ func (r *Runtime) advanceVisitors() error {
 					if path, ok := r.visitorPath(b.At, b.Path[len(b.Path)-1]); ok {
 						b.Path = append([]behavior.Cell(nil), path...)
 					} else if b.Phase == "leave" {
+						w.release(b)
+						s.Ledger.Stuck++
 						r.visitorLeave(slot)
 						continue
 					} else {
@@ -798,16 +868,39 @@ func (r *Runtime) advanceVisitors() error {
 				continue
 			}
 			b.Held = 0
-			b.At = b.Path[0]
-			b.Path = b.Path[1:]
-			b.Wait = v.MoveTicks - 1
+			if b.Phase == "leave" && len(b.Path) == 1 && !r.walkerOpen(w, b.Path[0], b.Serial) {
+				// the last cell of his way out is taken (somebody steps in there): he is at the way out
+				b.Path = nil
+			}
+		}
+		if len(b.Path) > 0 {
+			if r.walkerOpen(w, b.Path[0], b.Serial) {
+				w.take(b.Path[0], b.Serial)
+				b.Going, b.Wait, b.Blocked, b.Yield = true, v.MoveTicks-1, 0, 0
+				kept = append(kept, b)
+				continue
+			}
+			// a body stands in the next cell
+			b.Blocked++
+			if !r.visitorPass(&b, w) && b.Phase == "leave" && b.Blocked > visitorStuckTicks {
+				// no way out for minutes: let out where he stands (counted; the acceptance expects none)
+				w.release(b)
+				s.Ledger.Stuck++
+				r.visitorLeave(slot)
+				continue
+			}
 			kept = append(kept, b)
 			continue
 		}
 		switch b.Phase {
 		case "walk": // at the stall: he looks, then buys
 			b.Phase = "stand"
-			b.Wait = v.DwellTicks.Min + int64(r.visitorDraw(b.Serial, fmt.Sprintf("dwell.%d", len(b.Stops)))%uint64(v.DwellTicks.Max-v.DwellTicks.Min+1))
+			// walkers v1, addendum 1: he looks at the showcase (or trades) standing still, as long as the place asks
+			dwell := v.DwellTicks
+			if t := r.visitorTargetOf(b.Target); t != nil && t.DwellTicks != nil {
+				dwell = *t.DwellTicks
+			}
+			b.Wait = dwell.Min + int64(r.visitorDraw(b.Serial, fmt.Sprintf("dwell.%d", len(b.Stops)))%uint64(dwell.Max-dwell.Min+1))
 		case "stand":
 			got := r.visitorBuy(slot, b.Serial, len(b.Stops), b.Target, b.At, b.Units)
 			b.Bought += got
@@ -820,6 +913,11 @@ func (r *Runtime) advanceVisitors() error {
 		case "take":
 			r.visitorHead(&b)
 		default: // at the way out
+			w.release(b)
+			s.Ledger.Out++
+			if d := r.state.Tick - b.Since; b.Since > 0 && d > s.Ledger.Longest {
+				s.Ledger.Longest = d
+			}
 			r.visitorLeave(slot)
 			continue
 		}
@@ -915,9 +1013,10 @@ func (r *Runtime) appendVisitors(view *pb.PocLifeView, hero *behavior.LifeActor,
 			continue
 		}
 		row := &pb.PocVisitor{Id: b.Serial, Look: r.world.Visitors.Kinds[b.Kind].Look, X: int32(b.At.X), Y: int32(b.At.Y), NextX: int32(b.At.X), NextY: int32(b.At.Y), Phase: b.Phase}
-		if len(b.Path) > 0 {
+		if b.Going && len(b.Path) > 0 {
+			// walkers v1: only a walker in transit is drawn on his way into the next cell; one who waits stands
 			row.NextX, row.NextY, row.StepTicks = int32(b.Path[0].X), int32(b.Path[0].Y), int32(b.Wait+1)
-		} else if t := r.visitorTargetOf(b.Target); t != nil && t.Face != nil && (b.Phase == "stand" || b.Phase == "take") {
+		} else if t := r.visitorTargetOf(b.Target); len(b.Path) == 0 && t != nil && t.Face != nil && (b.Phase == "stand" || b.Phase == "take") {
 			row.FaceX, row.FaceY = t.Face.X, t.Face.Y
 		}
 		view.Visitors = append(view.Visitors, row)
@@ -937,8 +1036,9 @@ func (r *Runtime) validateVisitorSave(s state) error {
 	}
 	slots := map[int]bool{}
 	for _, b := range s.Visitors.Bodies {
-		if b.Slot < 1 || b.Slot >= len(v.Slots) || slots[b.Slot] || b.Kind < 0 || b.Kind >= len(v.Kinds) || b.Exit < 0 || b.Exit >= len(v.Entries) || b.Wait < 0 || b.Wait > max(v.DwellTicks.Max, r.visitorMaxTake())+v.MoveTicks ||
-			(b.Phase != "walk" && b.Phase != "stand" && b.Phase != "take" && b.Phase != "leave") || b.At.X < 0 || b.At.Y < 0 || len(b.Stops) > v.MaxStops || b.Units < 0 || b.Bought < 0 || b.Held < 0 || b.Held > visitorHoldTicks {
+		if b.Slot < 1 || b.Slot >= len(v.Slots) || slots[b.Slot] || b.Kind < 0 || b.Kind >= len(v.Kinds) || b.Exit < 0 || b.Exit >= len(v.Entries) || b.Wait < 0 || b.Wait > max(v.DwellTicks.Max, r.visitorMaxTake(), r.visitorMaxDwell())+v.MoveTicks ||
+			(b.Phase != "walk" && b.Phase != "stand" && b.Phase != "take" && b.Phase != "leave") || b.At.X < 0 || b.At.Y < 0 || len(b.Stops) > v.MaxStops || b.Units < 0 || b.Bought < 0 || b.Held < 0 || b.Held > visitorHoldTicks ||
+			(b.Going && len(b.Path) == 0) || b.Blocked < 0 || b.Blocked > visitorStuckTicks+1 || b.Yield < 0 || b.Since < 0 || b.Since > s.Tick {
 			return errors.New("invalid visitor")
 		}
 		slots[b.Slot] = true
@@ -965,6 +1065,17 @@ func (r *Runtime) visitorLinked(a, b behavior.Cell) bool {
 		}
 	}
 	return false
+}
+
+// visitorMaxDwell: the longest look of any place with its own (a saved walker may be in it).
+func (r *Runtime) visitorMaxDwell() int64 {
+	var m int64
+	for _, t := range r.world.Visitors.Targets {
+		if t.DwellTicks != nil {
+			m = max(m, t.DwellTicks.Max)
+		}
+	}
+	return m
 }
 
 // visitorMaxTake: the longest wait after paying of any place (a saved walker may be in it).

@@ -56,6 +56,8 @@ type VisitorTarget struct {
 	Spots     []inv.Cell   `json:"spots,omitempty"`
 	Face      *VisitorFace `json:"face,omitempty"`
 	TakeTicks int64        `json:"take_ticks,omitempty"`
+	// walkers v1, addendum 1: how long a walker looks here before he buys (a terminal: a short look; none = the catalog's)
+	DwellTicks *VisitorRange `json:"dwell_ticks,omitempty"`
 }
 type VisitorFace struct {
 	X float64 `json:"x"`
@@ -81,7 +83,9 @@ type VisitorCatalog struct {
 	DwellTicks  VisitorRange `json:"dwell_ticks"`
 	LeaveSecond int64        `json:"leave_second"`
 	MaxStops    int          `json:"max_stops"`
-	Outside     struct {
+	// walkers v1, addendum 1: the places a visible walker walks to; the rest of his list he buys at once, unseen
+	WalkStops int `json:"walk_stops"`
+	Outside   struct {
 		Owner   string `json:"owner"`
 		Account string `json:"account"`
 		Balance int64  `json:"balance"`
@@ -168,8 +172,9 @@ func applyVisitors(c *Compiled) error {
 		hours += h
 	}
 	if hours < 1 || p.PerDay < 1 || p.PerDay > 20000 || p.MaxBodies < 1 || p.MaxBodies > 200 || p.MoveTicks < 1 || p.MoveTicks > 30 ||
-		p.DwellTicks.Min < 1 || p.DwellTicks.Max < p.DwellTicks.Min || p.DwellTicks.Max > 6000 || p.MaxStops < 1 || p.MaxStops > 8 {
-		return fail("per_day, max_bodies, move_ticks, dwell_ticks or max_stops out of range")
+		p.DwellTicks.Min < 1 || p.DwellTicks.Max < p.DwellTicks.Min || p.DwellTicks.Max > 6000 || p.MaxStops < 1 || p.MaxStops > 8 ||
+		p.WalkStops < 1 || p.WalkStops > p.MaxStops {
+		return fail("per_day, max_bodies, move_ticks, dwell_ticks, max_stops or walk_stops out of range")
 	}
 	if len(p.Entries) < 2 || len(p.Kinds) < 1 || len(p.Targets) < 1 || p.PeddlerCategory == "" {
 		return fail("needs two entries, a kind, a target and the peddlers' category")
@@ -193,6 +198,9 @@ func applyVisitors(c *Compiled) error {
 		}
 		if t.TakeTicks < 0 || t.TakeTicks > 600 || (t.Face != nil && t.Face.X == 0 && t.Face.Y == 0) {
 			return fail("target %q: the wait after paying must be 0..600 ticks and a facing must point somewhere", t.ID)
+		}
+		if d := t.DwellTicks; d != nil && (d.Min < 1 || d.Max < d.Min || d.Max > 6000) {
+			return fail("target %q: its own look must be 1..6000 ticks", t.ID)
 		}
 		for _, c := range t.Spots {
 			if !walk(c) || manhattanCells(c, t.At) > 2 {

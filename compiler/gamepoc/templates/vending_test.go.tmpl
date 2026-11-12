@@ -6,6 +6,7 @@ package poc
 import (
 	"encoding/json"
 	"math"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -499,6 +500,42 @@ func TestVendingCabinetDocksAtTheEndAndLoadsInTurn(t *testing.T) {
 	}
 	home := stander.Position
 	stander.Position, stander.Path = behavior.Cell{X: block.X, Y: block.Y}, nil
+	// walkers v1: bodies are solid and the cabinet never drives through anybody. The day of the people does not run in this
+	// stand, so whoever the morning left in the cabinet's lane (the night shift asleep in its bay) is moved off the lane to
+	// the nearest free floor; the one stander stays.
+	lane := map[behavior.Cell]bool{}
+	for _, leg := range []*vendingLeg{rb.OutLeg, rb.BackLeg} {
+		for i := range leg.Points {
+			for _, c := range r.vendingRobotLegBody(leg, i, nil) {
+				lane[c] = true
+			}
+		}
+	}
+	for _, c := range r.vendingRobotBodyAt(rb.Dock.X, rb.Dock.Y, nil) {
+		lane[c] = true
+	}
+	for i := range r.state.Life.Actors {
+		a := &r.state.Life.Actors[i]
+		if a == stander || a.Level != v.Level || !a.OnFloor() || !lane[a.Position] {
+			continue
+		}
+		taken := r.state.Life.BlockedCells(v.Level, a.ID)
+		queue, seen := []behavior.Cell{a.Position}, map[behavior.Cell]bool{a.Position: true}
+		for head := 0; head < len(queue); head++ {
+			c := queue[head]
+			if !lane[c] && !taken[c] && r.world.Life.Walks(v.Level, c) {
+				a.Position, a.Goal, a.Path = c, c, nil
+				break
+			}
+			for _, d := range []behavior.Cell{{X: 1}, {Y: 1}, {X: -1}, {Y: -1}} {
+				n := behavior.Cell{X: c.X + d.X, Y: c.Y + d.Y}
+				if !seen[n] && r.world.Life.Walks(v.Level, n) {
+					seen[n] = true
+					queue = append(queue, n)
+				}
+			}
+		}
+	}
 	var phases []string
 	order := []string{}
 	walk := func(x, y float64) bool {
@@ -583,7 +620,7 @@ func TestVendingCabinetDocksAtTheEndAndLoadsInTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	loaded, _, err := r2.readSave(r2.world.Config.SaveSlots[0])
-	if err != nil || loaded.Vending.Robot != saved.Vending.Robot {
+	if err != nil || !reflect.DeepEqual(loaded.Vending.Robot, saved.Vending.Robot) {
 		t.Fatalf("save/load lost the cabinet: %v %+v %+v", err, loaded.Vending.Robot, saved.Vending.Robot)
 	}
 	bad := r2.snapshotState()

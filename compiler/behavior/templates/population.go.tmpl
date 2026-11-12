@@ -248,7 +248,7 @@ func (s PopulationState) Occupied() map[string]map[Cell]bool {
 	return occupied
 }
 func populationCellFree(l LifeModel, level string, at Cell, occupied map[string]map[Cell]string, id string) bool {
-	return l.Walks(level, at) && (occupied[level][at] == "" || occupied[level][at] == id)
+	return l.WalksFor(level, at, "") && (occupied[level][at] == "" || occupied[level][at] == id)
 }
 func populationReserve(occupied map[string]map[Cell]string, level string, at Cell, id string) {
 	if occupied[level] == nil {
@@ -647,7 +647,7 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
 				continue
 			}
 			avoid:=map[Cell]bool(nil);if environment.NewPathAvoid!=nil{avoid=environment.NewPathAvoid(*a)}
-            space:=l.Space(a.Level,avoid);space.Occupied=func(at Cell)bool{id:=occupied[a.Level][at];return id!=""&&id!=a.ID}
+            space:=l.SpaceFor(a.Level,avoid,"");space.Occupied=func(at Cell)bool{id:=occupied[a.Level][at];return id!=""&&id!=a.ID}
             a.Path=space.Path(a.Position,goal,Cell{},0)
 			a.MoveStartTick = tick
 			if len(a.Path) > 0 {

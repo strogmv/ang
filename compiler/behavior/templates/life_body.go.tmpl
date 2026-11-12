@@ -431,7 +431,7 @@ func (g lifeBodyGeom) move(b *LifeBody, dx, dy, r float64, others map[Cell]bool)
 }
 
 // bodyOthers: navigation cells held by every other person of the level.
-func (s LifeState) bodyOthers(a *LifeActor) map[Cell]bool {
+func (s LifeState) bodyOthers(m LifeModel, a *LifeActor) map[Cell]bool {
 	out := map[Cell]bool{}
 	for i := range s.Actors {
 		o := &s.Actors[i]
@@ -457,6 +457,11 @@ func (s LifeState) bodyOthers(a *LifeActor) map[Cell]bool {
 			out[o.Path[0]] = true
 		}
 	}
+	// walkers v1: the host's bodies (hall visitors, the service cabinet) and the work cells of other people's fixtures
+	for at := range s.Dynamic[a.Level] {
+		out[at] = true
+	}
+	m.ForbiddenCells(a.Level, a.ID, out)
 	return out
 }
 
@@ -480,7 +485,7 @@ func (s *LifeState) integrateBody(m LifeModel, a *LifeActor, until int64) {
 		b.Moving = false
 		return
 	}
-	others := s.bodyOthers(a)
+	others := s.bodyOthers(m, a)
 	r := m.HeroBody.RadiusMM
 	v := m.bodyWalkPerMilli(a.Level)
  if a.WoundPaceMMS>0{v=math.Min(v,float64(a.WoundPaceMMS)/1000)}
@@ -708,7 +713,7 @@ func (s *LifeState) HeroBodyViewRoute(m LifeModel) []LifeBodyPoint {
  g,ok:=m.bodyGeom(a.Level);if !ok{return nil}
  ux,uy,d,ok:=g.intention(b,m.HeroBody.FollowStopMM);if !ok{return nil}
  left:=math.Min(d,m.HeroBody.LookaheadMM)
- trial:=*b;others:=s.bodyOthers(a);var points []LifeBodyPoint
+ trial:=*b;others:=s.bodyOthers(m,a);var points []LifeBodyPoint
  for left>.5 {
   span:=math.Min(left,lifeBodySubMM);x,y:=trial.X,trial.Y
   g.move(&trial,ux*span,uy*span,m.HeroBody.RadiusMM,others)
@@ -729,7 +734,7 @@ func (s *LifeState) bodyIntent(m LifeModel, g lifeBodyGeom, a *LifeActor) {
 	if len(corridor) == 0 {
 		return
 	}
-	if s.bodyOthers(a)[corridor[0]] {
+	if s.bodyOthers(m, a)[corridor[0]] {
 		a.PendingPath = corridor
 	} else {
 		a.Path = corridor
@@ -786,7 +791,7 @@ func (s *LifeState) RouteHeroBody(m LifeModel, target Cell, x, y float64, point,
 		return false
 	}
 	g, ok := m.bodyGeom(a.Level)
-	if !ok || !m.Space(a.Level, nil).CanStand(target) {
+	if !ok || !m.SpaceFor(a.Level, nil, a.ID).CanStand(target) {
 		return false
 	}
 	if !s.routeBody(m, g, a, target, x, y, point, run) {
@@ -811,7 +816,7 @@ func (s *LifeState) routeBody(m LifeModel, g lifeBodyGeom, a *LifeActor, target 
 	b := a.Body
 	var cells []Cell
 	if target != a.Position {
-		cells = m.Space(a.Level, nil).Path(a.Position, target, Cell{}, 0)
+		cells = m.SpaceFor(a.Level, nil, a.ID).Path(a.Position, target, Cell{}, 0)
 		if len(cells) == 0 {
 			return false
 		}
@@ -953,16 +958,19 @@ func (s *LifeState) advanceHeroBody(m LifeModel, a *LifeActor, tick int64, yield
 			if a.OverrideLevel == "" {
 				a.Label = "Ждёт проход"
 			}
-		} else if cells := m.Space(a.Level, s.observedTraffic(m, a.ID, a.Level)).Path(a.Position, b.Target, Cell{}, 0); len(cells) > 0 || a.Position == b.Target {
-			final := b.Route[len(b.Route)-1]
-			if route, ok := g.pull(b, cells, nil); ok {
+		} else {
+			// walkers v1: the new string is pulled round the seen bodies too, not straight back through them
+			observed := s.observedTraffic(m, a.ID, a.Level)
+			cells := m.SpaceFor(a.Level, observed, a.ID).Path(a.Position, b.Target, Cell{}, 0)
+			if len(cells) == 0 && a.Position != b.Target {
+				b.Replans++
+				b.Stalled = lifeBodyStallMM * .5
+			} else if route, ok := g.pull(b, cells, observed); ok {
+				final := b.Route[len(b.Route)-1]
 				route[len(route)-1].X, route[len(route)-1].Y = final.X, final.Y
 				b.Route, b.Replans = route, b.Replans+1
 				b.Stalled = lifeBodyStallMM * .5
 			}
-		} else {
-			b.Replans++
-			b.Stalled = lifeBodyStallMM * .5
 		}
 	}
 	s.bodyIntent(m, g, a)

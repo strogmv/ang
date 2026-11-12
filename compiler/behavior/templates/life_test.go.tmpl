@@ -651,3 +651,21 @@ func TestLifeBodyHeldFollowReportsNetMotionAndStopsImmediately(t *testing.T){
  if err:=s.SteerHeroBody(m,"stop",0,0,false,2);err!=nil{t.Fatal(err)}
  if a.Body.Moving||a.Body.Mode!=""{t.Fatal("accepted stop advertised movement until another tick")}
 }
+
+// Walkers v1: the work cells of a fixture (a seller's place behind a counter) are floor only for its own people; a stranger,
+// a visitor ("") and the hero go round or stay out. A host body (Dynamic) is occupancy like a person.
+func TestLifeWorkCellsAreOnlyForTheirWorkersAndHostBodiesAreSolid(t *testing.T){
+ m:=lifeFixture();m.Actors=m.Actors[:2]
+ a:=m.Locations["a"];a.Work=[]LifeWorkArea{{ID:"counter",Cells:[]Cell{{2,0},{2,1}},Workers:[]string{"one"}}};m.Locations["a"]=a
+ for _,indexed:=range []bool{false,true}{
+  if indexed{m.IndexWork()}
+  if !m.WalksFor("a",Cell{2,1},"one")||m.WalksFor("a",Cell{2,1},"two")||m.WalksFor("a",Cell{2,1},"")||!m.WalksFor("a",Cell{2,2},"two"){t.Fatalf("indexed %v: work cells for the wrong people",indexed)}
+  if p:=m.SpaceFor("a",nil,"two").Path(Cell{0,1},Cell{4,1},Cell{},0);len(p)!=6{t.Fatalf("indexed %v: a stranger's way %v does not go round the work cells",indexed,p)}
+  if p:=m.SpaceFor("a",nil,"one").Path(Cell{0,1},Cell{4,1},Cell{},0);len(p)!=4{t.Fatalf("indexed %v: the worker's way %v",indexed,p)}
+  if m.SpaceFor("a",nil,"two").CanStand(Cell{2,0}){t.Fatal("a stranger may stand in the work cells")}
+  forbidden:=map[Cell]bool{};m.ForbiddenCells("a","two",forbidden);if len(forbidden)!=2{t.Fatalf("forbidden cells %v",forbidden)}
+ }
+ s:=m.Start();s.Dynamic=map[string]map[Cell]bool{"a":{{3,2}:true}}
+ if !s.occupied("a",Cell{3,2},"one")||!s.BlockedCells("a","one")[Cell{3,2}]{t.Fatal("a host body is not occupancy")}
+ if s.occupied("b",Cell{3,2},"one"){t.Fatal("a host body on another level")}
+}

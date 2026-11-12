@@ -33,10 +33,10 @@ func(s LifeState)observedDuties(m LifeModel,requester,level string)map[Cell]bool
  return blocked
 }
 func(s LifeState)controlledBaseline(m LifeModel,requester,level string,from,to Cell,blocked map[Cell]bool)[]Cell{
- route:=m.Space(level,blocked).Path(from,to,Cell{},0)
+ route:=m.SpaceFor(level,blocked,requester).Path(from,to,Cell{},0)
  // If there is no physical bypass, preserve the accepted goal and wait at
  // contact. Knowing a post is occupied is not permission to move its worker.
- if len(route)==0&&from!=to{return m.Space(level,nil).Path(from,to,Cell{},0)}
+ if len(route)==0&&from!=to{return m.SpaceFor(level,nil,requester).Path(from,to,Cell{},0)}
  return route
 }
 // Keep short selected flanks through brief waits. A previously saved crowd
@@ -191,7 +191,7 @@ func(s *LifeState)resumeAutonomousPopulationTraffic(m LifeModel,tick int64){
   attempts++;route:=s.yieldRoute(m,a.Level,a.Position,a.Goal,tick,a.ID)
   // A blocked distant goal must not freeze the free prefix of a local route.
   // Only one free next cell is accepted; actual contact still negotiates below.
-  if len(route)==0{route=m.Space(a.Level,s.courtesyPopulationPassage(m,*a)).Path(a.Position,a.Goal,Cell{},0)}
+  if len(route)==0{route=m.SpaceFor(a.Level,s.courtesyPopulationPassage(m,*a),"").Path(a.Position,a.Goal,Cell{},0)}
   if len(route)==0{continue}
   next:=route[0];if !s.occupied(a.Level,next,a.ID){a.Path=[]Cell{next};a.MoveStartTick=tick;a.Activity="walking";s.syncTrafficBody(len(s.Actors)+index);continue}
   s.yieldPopulationFor(m,a.Level,next,tick,a.ID,route...)
@@ -219,7 +219,7 @@ func(s LifeState)courtesyRelayAware(m LifeModel,requester,level string,wanted,la
 func(s LifeState)MoveRoute(m LifeModel,requester,level string,from,target Cell,tick int64)([]Cell,bool){
  blocked:=map[Cell]bool(nil)
  if !s.courtesyRequester(requester){blocked=s.blocked(level,requester)}
- space:=m.Space(level,blocked)
+ space:=m.SpaceFor(level,blocked,requester)
  if !space.CanStand(target){return nil,false}
  if from==target{return nil,true}
  route:=space.Path(from,target,Cell{},0);if len(route)==0{return nil,false}
@@ -241,6 +241,8 @@ func(s LifeState)observedTraffic(m LifeModel,requester,level string)map[Cell]boo
  }
  for _,a:=range s.Actors{if a.OnFloor(){mark(a.ID,a.Level,a.Position,a.Path)}}
  for _,a:=range s.Population.Actors{if a.Materialized&&a.Trip==nil{mark(a.ID,a.Level,a.Position,a.Path)}}
+ // walkers v1: the host's bodies (a visitor, the service cabinet of 3 x 4 cells) are seen whole within a few steps
+ if actor:=s.Actor(requester);actor!=nil&&actor.OnFloor()&&actor.Level==level{for at:=range s.Dynamic[level]{if Distance(actor.Position,at)<=8{blocked[at]=true}}}else{for at:=range s.Dynamic[level]{if s.courtesyAware(m,requester,level,at){blocked[at]=true}}}
  return blocked
 }
 
@@ -295,7 +297,7 @@ func(s *LifeState)controlledRoute(m LifeModel,a *LifeActor,destination Cell,tick
  for _,other:=range s.Actors{if other.ID!=a.ID&&other.Level==a.Level&&other.OnFloor()&&len(other.Path)>0&&(other.Position==next||other.Path[0]==next)&&s.courtesyAware(m,a.ID,a.Level,other.Position){return nil}}
  for _,other:=range s.Population.Actors{if other.Materialized&&other.Level==a.Level&&other.Trip==nil&&len(other.Path)>0&&(other.Position==next||other.Path[0]==next)&&s.courtesyAware(m,a.ID,a.Level,other.Position){return nil}}
  if *yieldBudget>0&&s.courtesyAware(m,a.ID,a.Level,next)&&s.yieldPopulationFor(m,a.Level,next,tick,a.ID,route...){*yieldBudget = *yieldBudget - 1;return nil}
- route=m.Space(a.Level,s.observedTraffic(m,a.ID,a.Level)).Path(a.Position,destination,Cell{},0)
+ route=m.SpaceFor(a.Level,s.observedTraffic(m,a.ID,a.Level),a.ID).Path(a.Position,destination,Cell{},0)
  // A nearby stationary body cannot justify circling the whole room. Retain
  // the accepted goal and wait when no proportionate local bypass is free.
  baseline:=s.controlledBaseline(m,a.ID,a.Level,a.Position,destination,s.observedDuties(m,a.ID,a.Level))

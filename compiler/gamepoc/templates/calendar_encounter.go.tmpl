@@ -115,7 +115,8 @@ func(r *Runtime)encounterEscortPlace(a,g *behavior.LifeActor)(EncounterPlace,boo
  if len(a.Path)>0&&a.Path[0].X!=a.Position.X{dirs[0],dirs[1]=dirs[1],dirs[0]}
  for _,d:=range dirs{
   at:=behavior.Cell{X:a.Position.X+d.X,Y:a.Position.Y+d.Y}
-  if !r.world.Life.Walks(a.Level,at){continue}
+  // walkers v1: a cell the guard may stand on — not inside somebody's stall (work cells), not under a visitor or the cabinet
+  if !r.world.Life.WalksFor(a.Level,at,g.ID)||r.state.Life.Dynamic[a.Level][at]{continue}
   occupied:=false
   for _,other:=range r.state.Life.Actors{if other.ID!=g.ID&&other.OnFloor()&&other.Level==a.Level&&other.Position==at{occupied=true;break}}
   if occupied{continue}

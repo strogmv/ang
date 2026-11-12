@@ -114,7 +114,7 @@ func visitorFixture(t *testing.T) Compiled {
 	m.Shopfronts = []inv.Shopfront{{ID: "shop", Owner: "char.t", Service: inv.DeliveryPoint{Level: "level.hall", At: inv.Cell{X: 2, Y: 0}}, DisplayStore: "shop/display", ReserveStore: "shop/reserve", OpenSecond: 7 * 3600, CloseSecond: 21 * 3600}}
 	m.Sources = []inv.Source{{ID: "stock.a", Definition: "item.thing", Quantity: 6, Condition: 1000000, Owner: "char.t", ForSale: true, Location: inv.Location{Kind: "store", Store: "shop/display"}}}
 	v := &VisitorCatalog{Level: "level.hall", OpenSecond: 6 * 3600, CloseSecond: 8 * 3600, PerDay: 100, Hours: []int64{2, 1}, MaxBodies: 3, MoveTicks: 3,
-		DwellTicks: VisitorRange{Min: 10, Max: 20}, LeaveSecond: 8*3600 + 600, MaxStops: 2, PeddlerCategory: "junk",
+		DwellTicks: VisitorRange{Min: 10, Max: 20}, LeaveSecond: 8*3600 + 600, MaxStops: 2, WalkStops: 1, PeddlerCategory: "junk",
 		Entries: []VisitorEntry{{ID: "a", At: inv.Cell{X: 0, Y: 1}}, {ID: "b", At: inv.Cell{X: 7, Y: 1}}},
 		Kinds: []VisitorKind{{ID: "worker", Look: "copper", Share: 1, Purse: VisitorRange{Min: 100, Max: 300}, Entries: []VisitorShare{{ID: "a", Share: 1}},
 			Wants: []VisitorWant{{Category: "food", ChancePermille: 500, Units: VisitorRange{Min: 1, Max: 2}}}}},
@@ -184,6 +184,10 @@ func TestVisitorsAddSlotsTheOutsideAccountAndTheConsignments(t *testing.T) {
 		{"standing cell far away", "standing cell", func(c *Compiled) { c.Visitors.Targets[0].Spots = []inv.Cell{{X: 6, Y: 1}} }},
 		{"facing nowhere", "facing", func(c *Compiled) { c.Visitors.Targets[0].Face = &VisitorFace{} }},
 		{"endless wait after paying", "wait after paying", func(c *Compiled) { c.Visitors.Targets[0].TakeTicks = 601 }},
+		// walkers v1, addendum 1: a walker walks to at least one and at most max_stops places; a place's own look is bounded
+		{"walkers who walk nowhere", "walk_stops", func(c *Compiled) { c.Visitors.WalkStops = 0 }},
+		{"more walks than a list", "walk_stops", func(c *Compiled) { c.Visitors.WalkStops = 3 }},
+		{"an endless look", "own look", func(c *Compiled) { c.Visitors.Targets[0].DwellTicks = &VisitorRange{Min: 10, Max: 9000} }},
 	}
 	for _, tc := range cases {
 		c := visitorFixture(t)

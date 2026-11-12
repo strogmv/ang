@@ -34,7 +34,7 @@ func(s LifeState) indexedOccupied(level string,at Cell,except string)bool{
 // Classify only queried cells. The index survives ticks; willingness is evaluated
 // against current duty, cooldown, relation and requester, never cached across them.
 func(s *LifeState) yieldCell(m LifeModel,level string,at Cell,tick int64,who string,autonomous bool)(bool,lifeYieldResident,bool){
- s.syncTrafficCurrent();hard,found:=false,false;resident:=lifeYieldResident{};best:=-1
+ s.syncTrafficCurrent();hard,found:=s.Dynamic[level][at],false;resident:=lifeYieldResident{};best:=-1
  for _,index:=range s.traffic.cells[trafficCell{level,at}]{
   b:=s.traffic.bodies[index]
   if index<len(s.Actors){a:=s.Actors[index];repair,repairing:=s.maintenanceStep(m,a.ID);atWork:=repairing&&a.Level==repair.Level&&a.Position==repair.At
@@ -52,7 +52,9 @@ func(s *LifeState)cachedPopulationEnvironment()PopulationEnvironment{
  owned:=s.beginTraffic();defer s.endTraffic(owned)
  if s.populationEnv==nil{s.populationEnv=&PopulationEnvironment{Occupied:map[string]map[Cell]bool{},GoalClaims:map[string]map[Cell]bool{}}}
  env:=s.populationEnv;env.SecondsPerTick=s.SecondsPerTick;env.Trips=env.Trips[:0]
- for level,cells:=range env.Occupied{for at:=range cells{present:=false;for _,i:=range s.traffic.cells[trafficCell{level,at}]{if i<len(s.Actors){present=true;break}};if !present{delete(cells,at)}}}
+ for level,cells:=range env.Occupied{for at:=range cells{present:=s.Dynamic[level][at];for _,i:=range s.traffic.cells[trafficCell{level,at}]{if i<len(s.Actors){present=true;break}};if !present{delete(cells,at)}}}
+ // walkers v1: the host's bodies (hall visitors, the service cabinet) are external occupancy of the crowd too
+ for level,cells:=range s.Dynamic{if env.Occupied[level]==nil{env.Occupied[level]=map[Cell]bool{}};for at:=range cells{env.Occupied[level][at]=true}}
  for _,cells:=range env.GoalClaims{clear(cells)}
  for _,a:=range s.Actors{
   if a.ResidenceID!=""{continue};if a.Trip!=nil{env.Trips=append(env.Trips,*a.Trip);continue}

@@ -93,6 +93,9 @@ func (r *Runtime) lifeStep() error {
 	return r.completeHeroTravel()
 }
 func (r *Runtime) advanceLifeFrameBy(delta int64) error {
+ // walkers v1: the host's bodies (visitors, the service cabinet) are occupancy of everything this frame asks before the
+ // Life moves — the same after a load as in a game that never stopped (the field is not saved)
+ r.state.Life.Dynamic = r.walkersDynamic(true, true)
  previousTrainGame:=r.state.Life.Seconds
  r.advanceTrainPassengers(delta)
  r.advanceLiftingDecks(r.state.Life.Seconds+delta)
@@ -116,6 +119,8 @@ func (r *Runtime) advanceLifeFrameBy(delta int64) error {
 	r.applyWoundLifeLimits()
  r.checkLifeEquipment()
 	r.state.Life.EnsureHeroBody(r.state.Life.GateModel(r.world.Life))
+	// walkers v1: the host's bodies (visitors, the service cabinet) are occupancy of the Life's people this frame
+	r.state.Life.Dynamic = r.walkersDynamic(true, true)
 	r.state.Life.AdvanceWithTravelBy(r.lifeTravelModel(), r.state.Tick, delta, r.installLifePart, r.admitLifeTravel)
  r.advanceTrainMotion(previousTrainGame)
 	r.state.Life.EnsureHeroBody(r.state.Life.GateModel(r.world.Life))
@@ -143,6 +148,7 @@ func (r *Runtime) advanceLifeFrameBy(delta int64) error {
 	if err := r.advanceVisitors(); err != nil {
 		return err
 	}
+	r.state.Life.Dynamic = r.walkersDynamic(true, true)
 	if err := r.advanceCrafting(delta); err != nil {
 		return err
 	}

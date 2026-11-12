@@ -150,6 +150,13 @@ func TestHeroBodySteersStraightAtAnyAngle(t *testing.T) {
 						free = false
 					}
 				}
+				// walkers v1: every square the body really keeps clear of is an occupied square — a person's next step and
+				// rest or route footprint, the host's bodies (a hall visitor, the service cabinet) — not only where people stand
+				for at := range r.state.Life.BlockedCells(hero.Level, playerActorID) {
+					if near(at) {
+						free = false
+					}
+				}
 			})
 			if math.Abs(along-9*perTick) < 1 && free {
 				if dev > 1 {

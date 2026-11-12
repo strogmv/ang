@@ -270,6 +270,7 @@ func New(data, token string) (*Runtime, error) {
  if err:=r.world.Stealth.Validate(r.world.Life,r.world.CombatLife);err!=nil{return nil,err}
  if err:=r.world.CombatRuntime.ValidateInventory(r.world.Inventory);err!=nil{return nil,err}
 	r.world.Life.Walkable = r.world.Walkable
+	r.world.Life.IndexWork()
 	if len(r.world.Life.Actors) > 0 {
 		if err := r.world.Life.Validate(); err != nil {
 			return nil, err

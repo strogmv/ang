@@ -160,6 +160,13 @@ type vendingRobotState struct {
 	Moved  bool   `json:"moved,omitempty"`  // goods moved into that module
 	Waits  int64  `json:"waits,omitempty"`  // times it found a body in its lane (ledger)
 	Waited bool   `json:"waited,omitempty"` // it stands before a body now
+	// walkers v1: a way round a body that stood in its lane for give_way_seconds — the cells it drives through, the last one
+	// the leg's cell Rejoin; Off: it stands on At, a cell of that way, not on its leg
+	Detour  []inv.Cell `json:"detour,omitempty"`
+	Rejoin  int        `json:"rejoin,omitempty"`
+	Off     bool       `json:"off,omitempty"`
+	At      inv.Cell   `json:"at,omitempty"`
+	Detours int64      `json:"detours,omitempty"` // ways round it found (ledger)
 }
 type vendingBuyback struct {
 	Day   int64 `json:"day"`
@@ -185,6 +192,10 @@ func (s vendingState) clone() vendingState {
 			out.Buyback[id] = b
 		}
 	}
+	// walkers v1: the cabinet's round is part of the snapshot too (a save by day used to lose it, and the next tick filled
+	// every module again, unseen)
+	out.Robot = s.Robot
+	out.Robot.Detour = append([]inv.Cell(nil), s.Robot.Detour...)
 	return out
 }
 
@@ -573,12 +584,15 @@ func (r *Runtime) advanceVending() error {
 			r.setVendingUnitState(u.ID, s)
 		}
 	}
+	// walkers v1: the cabinet asks the cells of the people and of the walkers as they are now (its own body is not asked)
+	r.state.Life.Dynamic = r.walkersDynamic(true, false)
 	return r.advanceVendingRobot()
 }
 
 // advanceVendingRobot (addendum 1): the cabinet leaves its bay so that it has coupled when the first module's window opens,
-// drives its route a cell at a time (it waits while a body stands in the next cell; after give_way_seconds the body has
-// stepped aside), couples at the docking port on the block's end, loads the modules in the refill order — each its
+// drives its route a cell at a time (walkers v1: it drives into the next cell only when its body there is free — the hero,
+// a person of the hall, the crowd and the visitors are solid, and the walkers step aside for it; it never drives through
+// anybody, it waits), couples at the docking port on the block's end, loads the modules in the refill order — each its
 // seconds_per_unit, the shelves filling one by one in fill_seconds — uncouples and drives home. A round the clock skipped
 // whole (a new game, a long load) is done unseen: every module filled to its par at once. Nothing is created: the goods come
 // from the module's own locked cassette.
@@ -615,28 +629,43 @@ func (r *Runtime) advanceVendingRobot() error {
 				return nil
 			}
 			*s = vendingRobotState{Day: day, Phase: "out", Since: depart, Waits: s.Waits}
+			r.vendingRobotSetOff(s, rb.OutLeg)
 		case "out", "back":
 			leg := rb.OutLeg
 			if s.Phase == "back" {
 				leg = rb.BackLeg
 			}
-			last := len(leg.Cells) - 1
-			for s.Cell < last {
+			for {
+				nx, ny, more := r.vendingRobotNext(s, leg)
+				if !more {
+					break
+				}
+				if s.Waited {
+					// standing before a body: it drives on once its body in the next cell is free; after give_way_seconds it
+					// looks for a way round the body and joins its leg again further on (never through anybody)
+					if r.vendingBlockedAt(nx, ny) {
+						if now-s.Since >= rb.GiveWaySeconds {
+							if r.vendingRobotGoRound(s, leg) {
+								s.Waited, s.Since = false, now
+								continue
+							}
+							// no way round now: the next search in 30 game seconds
+							s.Since = now - rb.GiveWaySeconds + 30
+						}
+						return nil
+					}
+					s.Waited, s.Since = false, now
+				}
 				due := s.Since + rb.CellSeconds
 				if now < due {
 					return nil
 				}
-				if r.vendingBlocked(leg.Cells[s.Cell+1]) && now-due < rb.GiveWaySeconds {
-					if !s.Waited {
-						s.Waits++
-					}
+				r.vendingRobotStep(s)
+				s.Since = due
+				if nx, ny, more := r.vendingRobotNext(s, leg); more && r.vendingBlockedAt(nx, ny) {
 					s.Waited = true
-					return nil
+					s.Waits++
 				}
-				if s.Waited {
-					due = now
-				}
-				s.Cell, s.Since, s.Waited = s.Cell+1, due, false
 			}
 			if s.Phase == "out" {
 				s.Phase, s.Cell = "couple", 0
@@ -679,6 +708,7 @@ func (r *Runtime) advanceVendingRobot() error {
 				return nil
 			}
 			s.Phase, s.Cell, s.Since = "back", 0, s.Since+rb.CoupleSeconds
+			r.vendingRobotSetOff(s, rb.BackLeg)
 		default:
 			*s = vendingRobotState{}
 			return nil
@@ -720,30 +750,30 @@ func (r *Runtime) vendingUnitIndex(id string) (int, bool) {
 	return -1, false
 }
 
-// vendingBlocked: a body stands where the cabinet's body would be in that cell — the cell and clearance_cells round it (the
-// hero, a person of the hall, a resident of the population, a visitor).
-func (r *Runtime) vendingBlocked(c inv.Cell) bool {
+// vendingBlocked: a body holds a cell where the cabinet's body would be at the i-th point of its leg (vendingRobotBodyAt).
+// Walkers v1: the Life's occupancy as it is now — the hero's body, a person of the hall and the next cell he steps into, a
+// resident of the population, a visitor and the cell he steps into.
+func (r *Runtime) vendingBlocked(leg *vendingLeg, i int) bool {
+	p := leg.Points[min(i, len(leg.Points)-1)]
+	return r.vendingBlockedAt(p[0], p[1])
+}
+func (r *Runtime) vendingBlockedAt(x, y float64) bool {
 	v := r.world.Vending
-	k := v.Robot.ClearanceCells
-	near := func(at behavior.Cell) bool { return absInt(at.X-c.X) <= k && absInt(at.Y-c.Y) <= k }
-	for _, a := range r.state.Life.Actors {
-		if a.Level == v.Level && a.OnFloor() && near(a.Position) {
+	held := r.state.Life.BlockedCells(v.Level, "")
+	for _, at := range r.vendingRobotBodyAt(x, y, nil) {
+		if held[at] {
 			return true
-		}
-	}
-	for _, a := range r.state.Life.Population.Actors {
-		if a.Level == v.Level && a.Trip == nil && near(a.Position) {
-			return true
-		}
-	}
-	if r.world.Visitors.Level == v.Level {
-		for _, b := range r.state.Visitors.Bodies {
-			if near(b.At) {
-				return true
-			}
 		}
 	}
 	return false
+}
+
+// vendingRobotSetOff: at the start of a leg the cabinet stands in its first cell; it drives off only into a free body.
+func (r *Runtime) vendingRobotSetOff(s *vendingRobotState, leg *vendingLeg) {
+	if leg != nil && len(leg.Cells) > 1 && r.vendingBlocked(leg, 1) {
+		s.Waited = true
+		s.Waits++
+	}
 }
 
 // vendingRefill moves goods of the system from the cassette to the showcase (nothing is created): step k fills shelf k —
@@ -902,8 +932,12 @@ func (r *Runtime) vendingRobotPose() (*pb.PocVendingRobot, bool) {
 		if s.Phase == "back" {
 			leg = rb.BackLeg
 		}
-		a := leg.Points[min(s.Cell, len(leg.Points)-1)]
-		b := leg.Points[min(s.Cell+1, len(leg.Points)-1)]
+		// walkers v1: from where it stands to the next cell of its leg or of its way round
+		hx, hy := r.vendingRobotHere(&s, leg)
+		a, b := [2]float64{hx, hy}, [2]float64{hx, hy}
+		if nx, ny, more := r.vendingRobotNext(&s, leg); more {
+			b = [2]float64{nx, ny}
+		}
 		f := 0.0
 		if !s.Waited {
 			f = math.Max(0, math.Min(1, float64(now-s.Since)/float64(rb.CellSeconds)))
@@ -1035,6 +1069,23 @@ func (r *Runtime) validateVendingSave(s state) error {
 			leg = rb.BackLeg
 		}
 		if leg == nil || st.Cell < 0 || st.Cell >= len(leg.Cells) {
+			return errVendingSave
+		}
+		if len(st.Detour) > 0 {
+			if st.Rejoin <= st.Cell || st.Rejoin >= len(leg.Cells) || st.Detour[len(st.Detour)-1] != leg.Cells[st.Rejoin] || len(st.Detour) > 4096 {
+				return errVendingSave
+			}
+			from := leg.Cells[st.Cell]
+			if st.Off {
+				from = st.At
+			}
+			for _, c := range st.Detour {
+				if absInt(c.X-from.X)+absInt(c.Y-from.Y) != 1 {
+					return errVendingSave
+				}
+				from = c
+			}
+		} else if st.Off || st.Rejoin != 0 {
 			return errVendingSave
 		}
 	case "load":

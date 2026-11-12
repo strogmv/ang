@@ -844,6 +844,13 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	if err := applyVisitors(&out); err != nil {
 		return out, nil, err
 	}
+	fixtures, err := readFixtures(world)
+	if err != nil {
+		return out, nil, err
+	}
+	if err := applyFixtures(&out, fixtures); err != nil {
+		return out, nil, err
+	}
 	if err := applyCrafting(&out, craftingIn); err != nil {
 		return out, nil, err
 	}
@@ -1229,6 +1236,8 @@ func generatePOC(project string, legacyUnity bool) error {
 		"peddlers.go.tmpl":                      filepath.Join(project, "internal/poc/peddlers.gen.go"),
 		"visitors.go.tmpl":                      filepath.Join(project, "internal/poc/visitors.gen.go"),
 		"visitors_test.go.tmpl":                 filepath.Join(project, "internal/poc/visitors_generated_test.go"),
+		"walkers.go.tmpl":                       filepath.Join(project, "internal/poc/walkers.gen.go"),
+		"walkers_test.go.tmpl":                  filepath.Join(project, "internal/poc/walkers_generated_test.go"),
 		"cart_parking.go.tmpl":                  filepath.Join(project, "internal/poc/cart_parking.gen.go"),
 		"cargo_convoys.go.tmpl":                 filepath.Join(project, "internal/poc/cargo_convoys.gen.go"),
 		"cargo_convoys_test.go.tmpl":            filepath.Join(project, "internal/poc/cargo_convoys_generated_test.go"),
