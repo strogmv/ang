@@ -216,7 +216,15 @@ func (r *Runtime) advanceCraftSupply() error {
 				front = &r.world.Inventory.Shopfronts[i]
 			}
 		}
-		if front == nil || day < front.OpenSecond || day >= front.OpenSecond+s.Supply.WindowMinutes*60 || !r.storefrontOpen(s.Shop) {
+		// cargo to the market v1: a lot that reached the stall's locker after opening is laid out when it comes
+		start := int64(0)
+		if front != nil {
+			start = front.OpenSecond
+			if landed := r.cargoLotLanded(s.Shop); landed > 0 && landed%86400 > start {
+				start = landed % 86400
+			}
+		}
+		if front == nil || day < start || day >= start+s.Supply.WindowMinutes*60 || !r.storefrontOpen(s.Shop) {
 			continue
 		}
 		ids := make([]string, 0)

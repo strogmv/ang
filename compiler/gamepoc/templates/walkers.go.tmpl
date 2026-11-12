@@ -59,6 +59,8 @@ func (r *Runtime) walkersDynamic(visitors, cabinet bool) map[string]map[behavior
 		for _, c := range r.vendingRobotCells() {
 			add(r.world.Vending.Level, c)
 		}
+		// cargo to the market v1: the convoy, the parked trailers and the crane's band while it carries one
+		r.cargoBodies(add)
 	}
 	return out
 }

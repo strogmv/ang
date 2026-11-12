@@ -844,6 +844,9 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	if err := applyVisitors(&out); err != nil {
 		return out, nil, err
 	}
+	if err := applyCargoLots(&out); err != nil {
+		return out, nil, err
+	}
 	fixtures, err := readFixtures(world)
 	if err != nil {
 		return out, nil, err

@@ -306,6 +306,47 @@ func applyFixtures(c *Compiled, in *FixtureCatalog) error {
 	if err := json.Unmarshal(life["edges"], &edges); err != nil {
 		return err
 	}
+	// Cargo to the market v1 (12.11): a stand of the cargo convoys is a zone of the floor with work cells for its crew —
+	// the cells the crew stands at while it works there (the posts of the run's legs on the stand's level).
+	standCrew := map[string]map[string]bool{}
+	if cat := c.CargoConvoys; cat != nil {
+		for _, st := range cat.Stands {
+			cells := map[Point]bool{}
+			for _, v := range cat.Convoys {
+				for _, run := range v.Runs {
+					for _, leg := range run.Legs {
+						if leg.Level != st.LevelID || (leg.StandID != st.ID && leg.StandID != "") {
+							continue
+						}
+						if leg.StandID == "" && leg.Kind != "drive" {
+							continue
+						}
+						for i, post := range leg.Posts {
+							if post.At == nil || i >= len(v.Crew) {
+								continue
+							}
+							cells[Point{X: post.At.X, Y: post.At.Y}] = true
+							if standCrew[st.ID] == nil {
+								standCrew[st.ID] = map[string]bool{}
+							}
+							standCrew[st.ID][v.Crew[i].ID] = true
+						}
+					}
+				}
+			}
+			if len(cells) == 0 {
+				continue
+			}
+			area := lifeWorkArea{ID: st.ID}
+			for p := range cells {
+				area.Cells = append(area.Cells, p)
+			}
+			sort.Slice(area.Cells, func(i, j int) bool {
+				return area.Cells[i].Y < area.Cells[j].Y || area.Cells[i].Y == area.Cells[j].Y && area.Cells[i].X < area.Cells[j].X
+			})
+			work[st.LevelID] = append(work[st.LevelID], area)
+		}
+	}
 	areaAt := map[string]map[Point]int{}
 	for level, areas := range work {
 		sort.Slice(areas, func(i, j int) bool { return areas[i].ID < areas[j].ID })
@@ -334,6 +375,16 @@ func applyFixtures(c *Compiled, in *FixtureCatalog) error {
 	for _, a := range actors {
 		for _, s := range a.Steps {
 			hire(s.Level, s.At, a.ID)
+		}
+	}
+	for level, areas := range work {
+		for i, a := range areas {
+			for id := range standCrew[a.ID] {
+				for _, p := range a.Cells {
+					hire(level, p, id)
+				}
+			}
+			_ = i
 		}
 	}
 	for _, p := range brain.CounterPosts {

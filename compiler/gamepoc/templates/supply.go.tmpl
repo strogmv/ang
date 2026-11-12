@@ -15,6 +15,7 @@ func(r *Runtime)advanceMarketSupply()error{
  if err:=r.state.Inventory.Advance(r.state.Tick);err!=nil{return err}
  if err:=r.advanceLiftingDeckFreight();err!=nil{return err}
  r.holdUnreadyDeckPickups(poses)
+ r.holdUnreadyCargoPickups(poses)
  return r.state.Inventory.AdvanceCommerce(r.inventoryModelFor(true),r.state.Life.Seconds,poses)
 }
 func(r *Runtime)commerceAccessible(actor string,location inv.Location)bool{
@@ -53,7 +54,7 @@ func(r *Runtime)storefrontOpen(id string)bool{
 // Existing cart approaches retain their previous priority and behavior.
 func(r *Runtime)commerceRouteDetour(a *behavior.LifeActor,wanted behavior.LifeStep)(behavior.LifeStep,bool){
  if step,on:=r.cartRouteDetour(a,wanted);on{return step,true}
- if step,on:=r.cargoCrewDetour(a,wanted);on{return step,true}
+ if step,on:=r.cargoPickupHold(a,wanted);on{return step,true}
  // Preserve the existing need/safety choices; only the proprietor duty waits.
  if !wanted.Obligation&&wanted.Activity!="service"&&wanted.Activity!="work"&&wanted.Activity!="post"{return wanted,false}
  if r.world.LiftingDecks==nil{return wanted,false}
@@ -71,6 +72,23 @@ func(r *Runtime)commerceRouteDetour(a *behavior.LifeActor,wanted behavior.LifeSt
 }
 
 
+// A merchant whose morning lot is still on the cargo run (late at a fast calendar) waits at his locker: an empty locker
+// during the run is not the day's failed attempt, so his delivery does not move to tomorrow.
+func(r *Runtime)holdUnreadyCargoPickups(poses map[string]inv.DeliveryPose){
+ if r.world.CargoConvoys==nil{return}
+ for _,lot:=range r.world.CargoConvoys.Lots{if lot.Kind!="delivery"||!r.cargoLotPending(lot.Shop){continue};p:=poses[lot.Owner];p.Present=false;poses[lot.Owner]=p}
+}
+func(r *Runtime)cargoPickupHold(a *behavior.LifeActor,wanted behavior.LifeStep)(behavior.LifeStep,bool){
+ if r.world.CargoConvoys==nil{return wanted,false}
+ if !wanted.Obligation&&wanted.Activity!="service"&&wanted.Activity!="work"&&wanted.Activity!="post"{return wanted,false}
+ for _,lot:=range r.world.CargoConvoys.Lots{if lot.Kind!="delivery"||lot.Owner!=a.ID{continue}
+  for _,d:=range r.world.Inventory.Deliveries{if d.ID!=lot.Delivery{continue};progress:=r.state.Inventory.Deliveries[d.ID];if progress.Phase!=""||r.state.Life.Seconds<progress.NextDue{continue}
+   dueThisPeriod:=r.state.Life.Seconds/d.PeriodSeconds*d.PeriodSeconds+d.FirstSecond%d.PeriodSeconds
+   // held at the locker while today's lot is on its way, and until he has taken what lies in it
+   if r.state.Life.Seconds<dueThisPeriod||!(r.cargoLotPending(lot.Shop)||r.cargoStock(lot.LockerStore,lot.Owner,"")>0){continue}
+   return behavior.LifeStep{Level:d.Pickup.Level,At:behavior.Cell{X:d.Pickup.At.X,Y:d.Pickup.At.Y},Activity:"rest",Label:"life.merchant.collecting_supply",Obligation:true},true}}
+ return wanted,false
+}
 func(r *Runtime)holdUnreadyDeckPickups(poses map[string]inv.DeliveryPose){
  if r.world.LiftingDecks==nil{return}
  for _,deck:=range r.world.LiftingDecks.Decks{f:=deck.Freight;if f==nil{continue};g:=r.state.LiftingDecks[deck.ID]

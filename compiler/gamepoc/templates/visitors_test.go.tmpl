@@ -247,10 +247,26 @@ func TestVisitorSupplyLaysOutTheStartingStockEveryMorning(t *testing.T) {
 		}
 		return n
 	}
+	// A shop supplied by the cargo convoy (cargo to the market v1, 12.11) keeps the same consignment at the Copper dock
+	// and in the trailers; its supply store is its locker in store 17. The days of stock are counted where they are.
+	reserve := func(shop, store, item string) int64 {
+		n := count(store, item)
+		if r.world.CargoConvoys != nil {
+			for _, lot := range r.world.CargoConvoys.Lots {
+				if lot.Shop == shop && lot.LockerStore == store {
+					n += count(lot.CopperStore, item)
+					for _, trailer := range lot.TrailerStores {
+						n += count(trailer, item)
+					}
+				}
+			}
+		}
+		return n
+	}
 	behind := map[string]int64{}
 	for _, rule := range v.Supply.Rules {
 		for _, lot := range rule.Lots {
-			behind[rule.Shop+"/"+lot.Item] = count(rule.Store, lot.Item)
+			behind[rule.Shop+"/"+lot.Item] = reserve(rule.Shop, rule.Store, lot.Item)
 			if behind[rule.Shop+"/"+lot.Item] != lot.Full*v.Supply.Days {
 				t.Fatalf("%s %s: %d behind the lock, want %d days of %d", rule.Shop, lot.Item, behind[rule.Shop+"/"+lot.Item], v.Supply.Days, lot.Full)
 			}
@@ -271,7 +287,7 @@ func TestVisitorSupplyLaysOutTheStartingStockEveryMorning(t *testing.T) {
 		}
 		laid++
 		for _, lot := range rule.Lots {
-			moved := behind[rule.Shop+"/"+lot.Item] - count(rule.Store, lot.Item)
+			moved := behind[rule.Shop+"/"+lot.Item] - reserve(rule.Shop, rule.Store, lot.Item)
 			if moved < 0 || moved > 3*lot.Full {
 				t.Fatalf("%s %s: %d left the consignment in three mornings (lot %d)", rule.Shop, lot.Item, moved, lot.Full)
 			}

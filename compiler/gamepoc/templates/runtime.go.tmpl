@@ -130,7 +130,7 @@ type worldData struct {
 type state struct {
  LiftingDecks map[string]liftingDeckState
  Turrets []turretWatchState `json:"turrets,omitempty"`
- CargoConvoys map[string]cargoConvoyState `json:",omitempty"`
+ CargoConvoys *cargoState `json:",omitempty"`
 
  TrainDispatch trainDispatchState
  TrainPassengers map[string]trainPassenger

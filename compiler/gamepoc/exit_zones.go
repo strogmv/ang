@@ -34,6 +34,8 @@ type exitZoneLife struct {
 	Edges []struct {
 		ID, From, To, Mode string
 		Exit               locationsdk.Cell
+		// a vehicle-only edge (cargo freight road) is no exit of people: it has no floor zone
+		Vehicle bool `json:"vehicle"`
 	} `json:"edges"`
 }
 
@@ -191,8 +193,11 @@ func (c *ExitZoneCatalog) compile(compiled Compiled) error {
 		sort.Slice(z.Cells, func(i, j int) bool { a, b := z.Cells[i], z.Cells[j]; return a.Y < b.Y || a.Y == b.Y && a.X < b.X })
 	}
 	for _, e := range life.Edges {
-		if !seen[e.ID] {
+		if !seen[e.ID] && !e.Vehicle {
 			return fmt.Errorf("Life edge %q has no exit zone", e.ID)
+		}
+		if seen[e.ID] && e.Vehicle {
+			return fmt.Errorf("vehicle-only Life edge %q has an exit zone", e.ID)
 		}
 	}
 	sort.Slice(c.Zones, func(i, j int) bool { return c.Zones[i].EdgeID < c.Zones[j].EdgeID })

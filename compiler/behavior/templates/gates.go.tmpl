@@ -30,7 +30,14 @@ type LifeGate struct{
  LockAtNight bool `json:"lock_at_night"`
  // Manual placements stay down until an authorized host interaction requests opening.
  Manual bool `json:"manual,omitempty"`
+ // Permits: windows of the day in which a named vehicle with a pass may have the gate raised outside its
+ // schedule (cargo to the market, gate 8 at 04:55–05:30). The vehicle asks (SetGatePermit); the gate then works
+ // by the ordinary warning, motion and obstruction rules.
+ Permits []LifeGatePermit `json:"permits,omitempty"`
 }
+type LifeGatePermit struct{FromSecond int64 `json:"from_second"`;ToSecond int64 `json:"to_second"`;Vehicle string `json:"vehicle"`}
+// Permitted: the vehicle holds a pass for this second of the day.
+func(d LifeGate)Permitted(seconds int64,vehicle string)bool{day:=((seconds%86400)+86400)%86400;for _,p:=range d.Permits{if p.Vehicle==vehicle&&day>=p.FromSecond&&day<p.ToSecond{return true}};return false}
 
 // LifeGateState is saved with Life. A travel segment is absolute: position at
 // motion time t is From→To over [Start,Start+Duration], so a save in the middle
@@ -57,6 +64,8 @@ type LifeGateState struct{
  Lockdown bool `json:"lockdown,omitempty"`
  PowerLost bool `json:"power_lost,omitempty"`
  RequestOpen bool `json:"request_open,omitempty"`
+ // PermitVehicle: a vehicle with a pass waits for or passes the opening (Permits).
+ PermitVehicle string `json:"permit_vehicle,omitempty"`
  Stops int64 `json:"stops,omitempty"`
 }
 
@@ -119,7 +128,7 @@ func(g *LifeGateState)descend(d LifeGate,cause string,pos,t int64){
 // bodies). A body found under a descending gate stops it at that moment; a
 // lowering never starts over a body. Raising never needs an empty opening.
 func(g *LifeGateState)advance(d LifeGate,now,seconds int64,present bool){
- t:=g.Updated;if t>now{t=now};night:=!d.ScheduledOpen(seconds);if d.Manual{night=!g.RequestOpen}
+ t:=g.Updated;if t>now{t=now};night:=!d.ScheduledOpen(seconds);if d.Manual{night=!g.RequestOpen};if night&&g.PermitVehicle!=""&&d.Permitted(seconds,g.PermitVehicle){night=false}
  for i:=0;i<64;i++{
   pos:=g.Position(t);lower:=g.lowerCause(night)
   switch g.State{
@@ -184,6 +193,9 @@ func(s LifeState)gatePresence(level string,d LifeGate)bool{
  cells:=make(map[Cell]bool,len(d.Opening));for _,c:=range d.Opening{cells[c]=true}
  for _,a:=range s.Actors{if a.Level==level&&a.OnFloor()&&(cells[a.Position]||len(a.Path)>0&&cells[a.Path[0]]){return true};if a.Level==level&&a.OnFloor()&&a.Body!=nil{for _,c:=range a.Body.Cells{if cells[c]{return true}}}}
  for _,a:=range s.Population.Actors{if a.Materialized&&a.Trip==nil&&a.Level==level&&(cells[a.Position]||len(a.Path)>0&&cells[a.Path[0]]){return true}}
+ // A host vehicle in the opening (life_riders.go; set by the host every frame, never saved) holds the gate like a
+ // person. The host's other bodies (the hall's visitors) leave by their own rule and do not hold a closing gate.
+ for c:=range s.Vehicles[level]{if cells[c]{return true}}
  return false
 }
 // advanceGates runs once per frame before any body moves, with the calendar
@@ -242,6 +254,9 @@ func cloneGateInputs(in map[string]bool)map[string]bool{if in==nil{return nil};o
 // SetGateRequest latches a manual demand; the next frame uses the same warning,
 // motion and obstruction rules as scheduled gates. The host authorizes access.
 func(s *LifeState)SetGateRequest(m LifeModel,id string,open bool)error{g,ok:=s.Gates[id];d:=m.Gate(id);if !ok||d==nil||!d.Manual{return fmt.Errorf("gate %s is not manual",id)};g.RequestOpen=open;s.Gates[id]=g;return nil}
+// SetGatePermit: a vehicle with a pass asks for the opening ("" withdraws). Only a vehicle named by a permit of the
+// gate may ask; outside its window the request is kept but raises nothing.
+func(s *LifeState)SetGatePermit(m LifeModel,id,vehicle string)error{g,ok:=s.Gates[id];d:=m.Gate(id);if !ok||d==nil{return fmt.Errorf("unknown gate %s",id)};if vehicle!=""{named:=false;for _,p:=range d.Permits{if p.Vehicle==vehicle{named=true}};if !named{return fmt.Errorf("vehicle %s holds no pass for gate %s",vehicle,id)}};g.PermitVehicle=vehicle;s.Gates[id]=g;return nil}
 // Gate returns the definition of a gate and its level.
 func(m LifeModel)Gate(id string)*LifeGate{for _,level:=range m.gateLevels(){gates:=m.Locations[level].Gates;for i:=range gates{if gates[i].ID==id{return &gates[i]}}};return nil}
 func(m LifeModel)GateLevel(id string)string{for _,level:=range m.gateLevels(){for _,d:=range m.Locations[level].Gates{if d.ID==id{return level}}};return ""}
@@ -254,6 +269,7 @@ func(m LifeModel)validateGates()error{
    if d.ID==""||ids[d.ID]||len(d.Opening)==0||len(d.Opening)>256||d.SightClearPPM<1||d.SightClearPPM>GateFull||d.OpenSecond<0||d.OpenSecond>=86400||d.CloseSecond<0||d.CloseSecond>=86400||d.OpenSecond==d.CloseSecond{return fmt.Errorf("invalid gate %s",d.ID)}
    for _,n:=range []int64{d.WarningTicks,d.TravelTicks,d.RetryTicks,d.LockdownWarningTicks,d.LockdownRetryTicks,d.PowerWarningTicks,d.GravityTicks}{if n<1||n>1000000{return fmt.Errorf("invalid gate timing %s",d.ID)}}
    if d.RampTicks<0||2*d.RampTicks>d.TravelTicks{return fmt.Errorf("invalid gate ramp %s",d.ID)}
+   for _,p:=range d.Permits{if p.Vehicle==""||p.FromSecond<0||p.FromSecond>=p.ToSecond||p.ToSecond>86400||d.Manual{return fmt.Errorf("invalid gate permit %s",d.ID)}}
    ids[d.ID]=true
    for _,c:=range d.Opening{if cells[c]||c.Y<0||c.Y>=len(l.Terrain)||c.X<0||c.X>=len(l.Terrain[c.Y]){return fmt.Errorf("invalid gate opening %s",d.ID)};g:=l.Terrain[c.Y][c.X];if g!='.'&&g!='+'&&g!='#'{return fmt.Errorf("gate opening %s is not floor",d.ID)};cells[c]=true}
   }
@@ -266,7 +282,7 @@ func(s LifeState)validateGates(m LifeModel,now int64)error{
  count:=0
  for _,level:=range m.gateLevels(){for _,d:=range m.Locations[level].Gates{count++
   g,ok:=s.Gates[d.ID];if !ok{return fmt.Errorf("missing gate state %s",d.ID)}
-  if !gateStates[g.State]||g.From<0||g.From>GateFull||g.To<0||g.To>GateFull||g.Duration<0||g.Start>now||g.Updated>now||g.Direction< -1||g.Direction>1||g.Stops<0||g.Ramp<0||2*g.Ramp>g.Duration||g.Linear&&g.Ramp!=0||g.RequestOpen&&!d.Manual||(g.Cause!=""&&g.Cause!="schedule"&&g.Cause!="lockdown"&&g.Cause!="power"){return fmt.Errorf("invalid gate state %s",d.ID)}
+  if !gateStates[g.State]||g.From<0||g.From>GateFull||g.To<0||g.To>GateFull||g.Duration<0||g.Start>now||g.Updated>now||g.Direction< -1||g.Direction>1||g.Stops<0||g.Ramp<0||2*g.Ramp>g.Duration||g.Linear&&g.Ramp!=0||g.RequestOpen&&!d.Manual||g.PermitVehicle!=""&&!d.namesVehicle(g.PermitVehicle)||(g.Cause!=""&&g.Cause!="schedule"&&g.Cause!="lockdown"&&g.Cause!="power"){return fmt.Errorf("invalid gate state %s",d.ID)}
   if (g.State=="open")!=(g.Position(g.Updated)>=GateFull&&g.Duration==0)&&g.State!="warning"&&g.State!="stopped"{return fmt.Errorf("gate %s open state differs from its lift",d.ID)}
   if !g.Passable(){cells:=map[Cell]bool{};for _,c:=range d.Opening{cells[c]=true};for _,a:=range s.Actors{if a.Level==level&&a.OnFloor()&&cells[a.Position]{return fmt.Errorf("actor %s under lowered gate %s",a.ID,d.ID)}}}
  }}
@@ -274,3 +290,4 @@ func(s LifeState)validateGates(m LifeModel,now int64)error{
  return nil
 }
 func cloneGates(in map[string]LifeGateState)map[string]LifeGateState{if in==nil{return nil};out:=make(map[string]LifeGateState,len(in));for k,v:=range in{out[k]=v};return out}
+func(d LifeGate)namesVehicle(vehicle string)bool{for _,p:=range d.Permits{if p.Vehicle==vehicle{return true}};return false}

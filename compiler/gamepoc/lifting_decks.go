@@ -169,6 +169,11 @@ func readLiftingDecks(world cue.Value, life json.RawMessage) (*LiftingDeckCatalo
 	hasFreight := false
 	for _, d := range c.Decks {
 		hasFreight = hasFreight || d.Freight != nil
+		// cargo to the market v1: a convoy carries the stalls' lots in its own trailers (world.cargo_convoys); the deck's
+		// loose freight is landed by the machine and never rides inside a convoy
+		if d.Freight != nil && d.Freight.ConvoyID != "" {
+			return nil, fmt.Errorf("world.lifting_decks: deck %s: loose freight cannot ride inside convoy %s", d.ID, d.Freight.ConvoyID)
+		}
 	}
 	if hasFreight {
 		var commerce struct {

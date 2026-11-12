@@ -96,6 +96,7 @@ func (r *Runtime) advanceLifeFrameBy(delta int64) error {
  // walkers v1: the host's bodies (visitors, the service cabinet) are occupancy of everything this frame asks before the
  // Life moves — the same after a load as in a game that never stopped (the field is not saved)
  r.state.Life.Dynamic = r.walkersDynamic(true, true)
+	r.state.Life.Vehicles = r.cargoVehicles()
  previousTrainGame:=r.state.Life.Seconds
  r.advanceTrainPassengers(delta)
  r.advanceLiftingDecks(r.state.Life.Seconds+delta)
@@ -121,6 +122,7 @@ func (r *Runtime) advanceLifeFrameBy(delta int64) error {
 	r.state.Life.EnsureHeroBody(r.state.Life.GateModel(r.world.Life))
 	// walkers v1: the host's bodies (visitors, the service cabinet) are occupancy of the Life's people this frame
 	r.state.Life.Dynamic = r.walkersDynamic(true, true)
+	r.state.Life.Vehicles = r.cargoVehicles()
 	r.state.Life.AdvanceWithTravelBy(r.lifeTravelModel(), r.state.Tick, delta, r.installLifePart, r.admitLifeTravel)
  r.advanceTrainMotion(previousTrainGame)
 	r.state.Life.EnsureHeroBody(r.state.Life.GateModel(r.world.Life))
@@ -149,6 +151,7 @@ func (r *Runtime) advanceLifeFrameBy(delta int64) error {
 		return err
 	}
 	r.state.Life.Dynamic = r.walkersDynamic(true, true)
+	r.state.Life.Vehicles = r.cargoVehicles()
 	if err := r.advanceCrafting(delta); err != nil {
 		return err
 	}
@@ -184,13 +187,23 @@ func (r *Runtime) lifeViewRuntime() *Runtime {
 	v.world.Terrain = r.world.Life.Locations[a.Level].Terrain
 	v.world.Entities = nil
 	v.world.Scene = sceneData{}
+	ridersShown := r.cargoRidersShown(a.Level)
 	for _, person := range r.state.Life.Actors {
-		if person.ID == playerActorID || r.sanitaryPrivateActor(person.ID) || (!person.OnFloor() && !r.serviceAttached(person.ID)) || person.Level != a.Level {
+		// a rider seated on a vehicle on this level is drawn on its seat (the vehicle's view places him); so is one
+		// riding a deck that is in sight of this level with his vehicle
+		deck, onDeck := ridersShown[person.ID]
+		if !onDeck && (person.ID == playerActorID || r.sanitaryPrivateActor(person.ID) || (!person.OnFloor() && !r.serviceAttached(person.ID) && !(person.Mount != nil && person.Trip == nil)) || person.Level != a.Level) {
 			continue
 		}
 		cfg := r.world.Life.Person(person.ID)
 		agent := demoAgent{ID: person.ID, Name: cfg.Name, Position: location(person.Position), Task: person.Activity, Role: person.Label}
+		if onDeck {
+			agent.Position = location(deck)
+		}
 		for _, at := range person.Path {
+			if onDeck {
+				break
+			}
 			agent.Path = append(agent.Path, location(at))
 		}
 		agent.MoveStartNS = r.lifeMotionStartNS(person.MoveStartTick, r.state.Life, r.state.Tick)
@@ -299,7 +312,7 @@ func (r *Runtime) sendLifeState(c *connection) {
 	for _, marker := range r.world.Life.Locations[hero.Level].Markers {
 		exit := false
 		for _, edge := range r.world.Life.Edges {
-			if edge.From == hero.Level && edge.Exit == marker.At {
+			if edge.From == hero.Level && edge.Exit == marker.At && !edge.Vehicle {
 				exit = true
 				break
 			}
@@ -309,7 +322,7 @@ func (r *Runtime) sendLifeState(c *connection) {
 		}
 	}
 	for _, edge := range r.world.Life.Edges {
-		if edge.From == hero.Level && r.lifeExitKnown(edge) {
+		if edge.From == hero.Level && r.lifeExitKnown(edge) && !edge.Vehicle {
 			view.Markers = append(view.Markers, &pb.PocLifeMarker{Name: r.lifeEdgeName(c.locale, edge), X: int32(edge.Exit.X), Y: int32(edge.Exit.Y), EdgeId: edge.ID, TravelSeconds: edge.TravelSeconds})
 		}
 	}
@@ -501,7 +514,7 @@ func (r *Runtime) lifeCommand(q *pb.PocLifeCommand) error {
 		var goal behavior.Cell
 		found := false
 		for _, e := range r.world.Life.Edges {
-			if e.To == q.Destination {
+			if e.To == q.Destination && !e.Vehicle {
 				goal = e.Entry
 				found = true
 				break

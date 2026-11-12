@@ -474,7 +474,7 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
 			if !levelChanged {
 				free = false
 				for _, edge := range l.Edges {
-					if edge.To == a.Level {
+					if edge.To == a.Level && !edge.Vehicle {
 						at, free = populationLanding(l, a.Level, edge.Entry, environment.landingTraffic(*a,a.Level,edge.Entry,occupied), a.ID)
 						if free {
 							break

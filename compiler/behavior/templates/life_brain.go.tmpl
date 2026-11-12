@@ -404,7 +404,7 @@ func(s *LifeState)brainLegEdge(m LifeModel,a *LifeActor,goal string)*LifeEdge{
  if b.LegFrom==a.Level&&b.LegTo==goal{if e:=m.Edge(b.LegEdge);e!=nil&&e.From==a.Level{current=e}}
  if current!=nil&&(a.WaitingDeparture>0&&a.Goal==current.Exit||s.Seconds<b.LegCheck){return current}
  var best *LifeEdge;bestCost:=int64(1<<62)
- for i:=range m.Edges{e:=&m.Edges[i];if e.From!=a.Level{continue};if cost,ok:=s.brainLegCost(m,a,*e,goal);ok&&cost<bestCost{best,bestCost=e,cost}}
+ for i:=range m.Edges{e:=&m.Edges[i];if e.From!=a.Level||e.Vehicle{continue};if cost,ok:=s.brainLegCost(m,a,*e,goal);ok&&cost<bestCost{best,bestCost=e,cost}}
  if current!=nil{if cost,ok:=s.brainLegCost(m,a,*current,goal);ok&&cost<=bestCost+brainLegMargin{best=current}}
  if best==nil{b.LegEdge,b.LegFrom,b.LegTo,b.LegCheck="","","",0;return m.NextEdge(a.Level,goal)}
  // A stale timetable choice of another edge must not delay the new leg.

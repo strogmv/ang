@@ -135,7 +135,7 @@ func TestWayfindingServerPreviewAuthorityPrivacyAndInvalidationNative(t *testing
  import "sort"
  type LifeTrip struct{Edge string}
  type LifeActor struct{ID,Level,OverrideLevel,OverrideEdge,Activity,Label,AdmissionDeniedEdge,ServiceAttachment,BoardedEdge string;Position,Goal,OverrideAt Cell;Path,PendingPath []Cell;Manual,Arrived,CombatHold bool;MoveStartTick,WaitingDeparture int64;Trip *LifeTrip;Visits map[string]int}
- type LifeEdge struct{ID,From,To,Mode,NameKey string;Exit,Entry Cell;TravelSeconds,PeriodSeconds int64}
+ type LifeEdge struct{ID,From,To,Mode,NameKey string;Exit,Entry Cell;TravelSeconds,PeriodSeconds int64;Vehicle bool}
  type LifeLocation struct{Name string;Terrain []string}
  type LifeModel struct{Locations map[string]LifeLocation;Edges []LifeEdge}
  func(m LifeModel)Edge(id string)*LifeEdge{for i:=range m.Edges{if m.Edges[i].ID==id{return &m.Edges[i]}};return nil}

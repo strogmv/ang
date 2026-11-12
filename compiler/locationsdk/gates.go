@@ -89,7 +89,16 @@ type GatePlacement struct {
 	KitID      string       `json:"kit_id"`
 	Manual     bool         `json:"manual,omitempty"`
 	Schedule   GateSchedule `json:"schedule"`
-	Reason     string       `json:"reason"`
+	// Permits: windows of the day in which a named vehicle with a pass may have the gate raised outside its schedule.
+	Permits []GatePermit `json:"permits,omitempty"`
+	Reason  string       `json:"reason"`
+}
+
+// GatePermit is a vehicle's freight pass for one window of the day (seconds of the day, [from, to)).
+type GatePermit struct {
+	FromSecond int64  `json:"from_second"`
+	ToSecond   int64  `json:"to_second"`
+	Vehicle    string `json:"vehicle"`
 }
 
 // RuntimeGate is one compiled placement. Durations are motion units of the Life
@@ -116,6 +125,7 @@ type RuntimeGate struct {
 	CloseSecond          int64        `json:"close_second"`
 	LockAtNight          bool         `json:"lock_at_night"`
 	Manual               bool         `json:"manual,omitempty"`
+	Permits              []GatePermit `json:"permits,omitempty"`
 	Leaves               []GateLeaf   `json:"leaves"`
 	Cables               []GateCable  `json:"cables,omitempty"`
 	Signals              []GateSignal `json:"signals"`
@@ -254,6 +264,11 @@ func compileGates(catalog Catalog, layout Layout, compiled CompiledLevel, tickHz
 		if s.OpenSecond < 0 || s.OpenSecond >= 86400 || s.CloseSecond < 0 || s.CloseSecond >= 86400 || s.OpenSecond == s.CloseSecond {
 			return nil, issue("gate_schedule", path+".schedule", "open and close are distinct seconds of the day")
 		}
+		for _, p := range placement.Permits {
+			if p.Vehicle == "" || p.FromSecond < 0 || p.FromSecond >= p.ToSecond || p.ToSecond > 86400 || placement.Manual {
+				return nil, issue("gate_permit", path+".permits", "a permit names a vehicle and a window [from, to) of one day; a manual gate takes no permit", placement.ID)
+			}
+		}
 		var opening []Cell
 		for _, port := range compiled.Ports {
 			if port.InstanceID == placement.InstanceID && port.ID == kit.PortID {
@@ -279,7 +294,7 @@ func compileGates(catalog Catalog, layout Layout, compiled CompiledLevel, tickHz
 			ClearHeightMM: kit.ClearHeightMM, SightClearPPM: int64(kit.SightClearMM) * 1000000 / int64(kit.ClearHeightMM),
 			WarningTicks: gateTicks(t.Warning, tickHz), TravelTicks: gateTicks(t.Travel, tickHz), RetryTicks: gateTicks(t.Retry, tickHz),
 			LockdownWarningTicks: gateTicks(t.LockdownWarning, tickHz), LockdownRetryTicks: gateTicks(t.LockdownRetry, tickHz), PowerWarningTicks: gateTicks(t.PowerWarning, tickHz),
-			GravityTicks: gateTicks(gravityMS, tickHz), RampTicks: min(gateTicks(t.Ramp, tickHz), gateTicks(t.Travel, tickHz)/2), OpenSecond: s.OpenSecond, CloseSecond: s.CloseSecond, LockAtNight: s.LockAtNight, Manual: placement.Manual,
+			GravityTicks: gateTicks(gravityMS, tickHz), RampTicks: min(gateTicks(t.Ramp, tickHz), gateTicks(t.Travel, tickHz)/2), OpenSecond: s.OpenSecond, CloseSecond: s.CloseSecond, LockAtNight: s.LockAtNight, Manual: placement.Manual, Permits: append([]GatePermit(nil), placement.Permits...),
 			Leaves: append([]GateLeaf{}, kit.Leaves...), Cables: append([]GateCable(nil), kit.Cables...), Signals: append([]GateSignal{}, kit.Signals...),
 		})
 	}

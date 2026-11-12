@@ -13,9 +13,11 @@ import (
  pb "angelsdemons/server/internal/transport/grpc/pb/game/v1"
 )
 func commerceQuantity(s inv.State,store string)int64{var n int64;for _,i:=range s.Items{if i.Location.Kind=="store"&&i.Location.Store==store{n+=i.Quantity}};return n}
-// The finite source may be below, on the deck, or landed at receiving. These
-// are the same units; none are replenished by a calendar event.
-func commerceIncomingQuantity(r *Runtime,d inv.Delivery)int64{n:=commerceQuantity(r.state.Inventory,d.SourceStore);if r.world.LiftingDecks!=nil{for _,deck:=range r.world.LiftingDecks.Decks{if deck.Freight==nil{continue};for _,route:=range deck.Freight.Routes{if route.DeliveryID==d.ID{n+=commerceQuantity(r.state.Inventory,route.CopperStore)+commerceQuantity(r.state.Inventory,route.DeckStore)}}}};return n}
+// The finite source may be below in Copper, in a trailer of the cargo convoy, or landed in the stall's locker (cargo to
+// the market v1); loose deck freight may be below, on the deck or at receiving. These are the same units; none are
+// replenished by a calendar event.
+func commerceIncomingQuantity(r *Runtime,d inv.Delivery)int64{n:=commerceQuantity(r.state.Inventory,d.SourceStore);if r.world.LiftingDecks!=nil{for _,deck:=range r.world.LiftingDecks.Decks{if deck.Freight==nil{continue};for _,route:=range deck.Freight.Routes{if route.DeliveryID==d.ID{n+=commerceQuantity(r.state.Inventory,route.CopperStore)+commerceQuantity(r.state.Inventory,route.DeckStore)}}}}
+ if r.world.CargoConvoys!=nil{for _,lot:=range r.world.CargoConvoys.Lots{if lot.Delivery!=d.ID{continue};n+=commerceQuantity(r.state.Inventory,lot.CopperStore);for _,store:=range lot.TrailerStores{n+=commerceQuantity(r.state.Inventory,store)}}};return n}
 func commerceTotal(s inv.State)int64{var n int64;for _,i:=range s.Items{n+=i.Quantity};return n}
 type merchantHostDelivery struct{ID,Carrier string;Pickup,Dropoff int64;SourceBefore,SourceAfter,ShopBefore,ShopAfter int64;Cargo []inv.Cargo}
 type merchantHostProof struct{Pass bool;Scope,ContentHash string;Start,End,Rate,InitialTotal,FinalTotal int64;PopulationIDs,ReplayTicks,PrivateHomes,Packed,Protected int;Deliveries []merchantHostDelivery}
@@ -95,50 +97,52 @@ func TestStorefrontProjectionHidesClosedStockAndOffscreenShops(t *testing.T){
 }
 
 func TestMarketIncomingHoldWaitsForLandingWithoutHijackingFutureStall(t *testing.T){
- r:=lifeRuntimeFixture(t);if r.world.LiftingDecks==nil{t.Skip("no lifting freight")}
- for _,deck:=range r.world.LiftingDecks.Decks{if deck.Freight==nil{continue};route:=deck.Freight.Routes[0];var delivery inv.Delivery;for _,d:=range r.world.Inventory.Deliveries{if d.ID==route.DeliveryID{delivery=d;break}};a:=r.state.Life.Actor(delivery.Carrier);if a==nil{t.Fatal("missing existing merchant")};wanted:=behavior.LifeStep{Level:delivery.Dropoff.Level,At:behavior.Cell{X:delivery.Dropoff.At.X,Y:delivery.Dropoff.At.Y},Activity:"service"}
-  if _,active:=r.commerceRouteDetour(a,wanted);active{t.Fatal("07:00 new game was hijacked by tomorrow's Copper reserve")}
-  r.state.Life.Seconds=86400+6*3600+30*60
-  held,active:=r.commerceRouteDetour(a,wanted);if !active||held.Level!=delivery.Pickup.Level||held.At!=(behavior.Cell{X:delivery.Pickup.At.X,Y:delivery.Pickup.At.Y}){t.Fatal("late physical cargo did not hold the overdue receiving duty")}
+ r:=lifeRuntimeFixture(t);if r.world.CargoConvoys==nil||len(r.world.CargoConvoys.Convoys)==0{t.Skip("no cargo lots")}
+ v:=r.world.CargoConvoys.Convoys[0];run:=v.Runs[0];unload:=-1;for i,leg:=range run.Legs{if leg.Kind=="unload"{unload=i}};if unload<0{t.Fatal("the cargo run has no unloading")}
+ for _,lot:=range r.world.CargoConvoys.Lots{if lot.Kind!="delivery"{continue};var delivery inv.Delivery;for _,d:=range r.world.Inventory.Deliveries{if d.ID==lot.Delivery{delivery=d}};a:=r.state.Life.Actor(delivery.Carrier);if a==nil{t.Fatal("missing existing merchant")};wanted:=behavior.LifeStep{Level:delivery.Dropoff.Level,At:behavior.Cell{X:delivery.Dropoff.At.X,Y:delivery.Dropoff.At.Y},Activity:"service"}
+  if _,active:=r.commerceRouteDetour(a,wanted);active{t.Fatal("07:00 new game was hijacked by tomorrow's Copper lot")}
+  // tomorrow 06:30: the run of the day is on its way and has not unloaded yet, the lot rides in the hitched trailer
+  r.state.Life.Seconds=86400+6*3600+30*60;c:=r.state.CargoConvoys.Convoys[v.ID];c.Run,c.Day,c.Leg,c.Phase=run.ID,2,unload-2,"go";r.state.CargoConvoys.Convoys[v.ID]=c
+  if _,err:=r.state.Inventory.MoveMachineConsignment(r.inventoryModelFor(true),lot.Owner,lot.CopperStore,lot.TrailerStores[c.Hitched],lot.Definition,lot.Quantity,"test/load/"+lot.Shop);err!=nil{t.Fatal(err)}
+  held,active:=r.commerceRouteDetour(a,wanted);if !active||held.Level!=delivery.Pickup.Level||held.At!=(behavior.Cell{X:delivery.Pickup.At.X,Y:delivery.Pickup.At.Y}){t.Fatal("a late lot did not hold the overdue collecting duty at the locker")}
+  poses:=map[string]inv.DeliveryPose{a.ID:{Level:delivery.Pickup.Level,At:delivery.Pickup.At,Present:true}};r.holdUnreadyCargoPickups(poses);if poses[a.ID].Present{t.Fatal("an empty locker during the run counted as the day's failed pickup")}
   if _,active=r.commerceRouteDetour(a,behavior.LifeStep{Level:a.Level,At:a.Position,Activity:"eat"});active{t.Fatal("cargo waiting overrode an ordinary urgent need")}
   // Once pickup succeeds, the ordinary proprietor route resumes.
   progress:=r.state.Inventory.Deliveries[delivery.ID];progress.Phase="carrying";r.state.Inventory.Deliveries[delivery.ID]=progress
   if _,active=r.commerceRouteDetour(a,wanted);active{t.Fatal("holding continued after real pickup")}
+  return
  }
+ t.Fatal("no delivery lot")
 }
 
-// The whole morning with the real brain: carriers sleep on another level, cross
-// two links to the hub and collect only what has physically landed. The earlier
-// isolated checks moved the carrier by hand and missed a person who never left home.
+// The whole morning with the real brain: carriers sleep on another level, come through gate 7 when it rises and take
+// from their locker only what the convoy has physically put there. The earlier isolated checks moved the carrier by
+// hand and missed a person who never left home.
 func TestMarketIncomingCarriersTravelFromHomeAndCollectLandedCargo(t *testing.T){
  r,err:=New(t.TempDir(),"token");if err!=nil{t.Fatal(err)}
- if r.world.LiftingDecks==nil{t.Skip("no lifting decks")}
- var deck liftingDeckDefinition;for _,d:=range r.world.LiftingDecks.Decks{if d.Freight!=nil{deck=d}};if deck.Freight==nil{t.Skip("no inbound deck freight")}
+ if r.world.CargoConvoys==nil||len(r.world.CargoConvoys.Lots)==0{t.Skip("no cargo lots")}
  if !r.world.Life.Brain.Enabled{t.Skip("content has no enabled brain")}
  cellHero(r);r.state.Active=true;r.state.Speed=1;r.initLife()
- // The living economy trades all day, so only the three freight stores of each
- // route are counted: Copper + deck + receiving stays whole until the carrier takes it.
- held:=func(stores ...string)int64{n:=int64(0);for _,item:=range r.state.Inventory.Items{if item.Location.Kind!="store"{continue};for _,store:=range stores{if item.Location.Store==store{n+=item.Quantity}}};return n}
- before:=map[string]int64{};for _,route:=range deck.Freight.Routes{before[route.DeliveryID]=held(route.CopperStore,route.DeckStore,route.ReceivingStore)}
- morning:=(r.state.Life.Seconds/86400+1)*86400+deck.Freight.FirstSecond
- r.state.Life.SecondsPerTick=30;for r.state.Life.Seconds<morning-600{r.step()}
+ lots:=map[string]cargoLotDefinition{};for _,lot:=range r.world.CargoConvoys.Lots{if lot.Kind=="delivery"{lots[lot.Delivery]=lot}}
+ incoming:=func(lot cargoLotDefinition)int64{n:=commerceQuantity(r.state.Inventory,lot.CopperStore)+commerceQuantity(r.state.Inventory,lot.LockerStore);for _,s:=range lot.TrailerStores{n+=commerceQuantity(r.state.Inventory,s)};return n}
+ before:=map[string]int64{};for id,lot:=range lots{before[id]=incoming(lot)}
+ day:=r.state.Life.Seconds/86400+1;morning:=day*86400
+ r.state.Life.SecondsPerTick=30;for r.state.Life.Seconds<morning+4*3600{r.step()}
  r.state.Life.SecondsPerTick=1
  collected:=map[string]int64{}
- for r.state.Life.Seconds<morning+5400&&len(collected)<len(deck.Freight.Routes){
+ for r.state.Life.Seconds<morning+8*3600&&len(collected)<len(lots){
   r.step()
-  g:=r.state.LiftingDecks[deck.ID]
-  for _,route:=range deck.Freight.Routes{
-   if _,done:=collected[route.DeliveryID];done{continue}
-   if r.state.Inventory.Deliveries[route.DeliveryID].Phase==""{if held(route.CopperStore,route.DeckStore,route.ReceivingStore)!=before[route.DeliveryID]{t.Fatalf("%s: freight stores changed before any pickup",route.DeliveryID)};continue}
-   if g.FreightLandedNS<=0||g.UpdatedNS-g.FreightLandedNS<deck.Freight.ReceivingDwellS*1000000000{t.Fatalf("%s collected before the cargo had landed and dwelt on receiving",route.DeliveryID)}
-   if held(route.CopperStore,route.DeckStore,route.ReceivingStore)!=before[route.DeliveryID]-route.Quantity{t.Fatalf("%s: pickup did not take exactly its consignment",route.DeliveryID)}
-   collected[route.DeliveryID]=r.state.Life.Seconds-morning
+  for id,lot:=range lots{
+   if _,done:=collected[id];done{continue}
+   if r.state.Inventory.Deliveries[id].Phase==""{if incoming(lot)!=before[id]{t.Fatalf("%s: the lot's stores changed before any pickup",id)};continue}
+   if r.cargoLotLanded(lot.Shop)==0{t.Fatalf("%s collected before the lot reached the locker",id)}
+   if incoming(lot)!=before[id]-lot.Quantity{t.Fatalf("%s: pickup did not take exactly its lot",id)}
+   collected[id]=r.state.Life.Seconds-morning
   }
  }
- if len(collected)!=len(deck.Freight.Routes){
-  for _,d:=range r.world.Inventory.Deliveries{if _,done:=collected[d.ID];!done{a:=r.state.Life.Actor(d.Carrier);t.Errorf("%s not collected within 90 game minutes: carrier on %s at %v doing %s",d.ID,a.Level,a.Position,a.Activity)}}
+ if len(collected)!=len(lots){
+  for id,lot:=range lots{if _,done:=collected[id];!done{a:=r.state.Life.Actor(lot.Owner);t.Errorf("%s not collected by 08:00: carrier on %s at %v doing %s",id,a.Level,a.Position,a.Activity)}}
   t.FailNow()
  }
- t.Logf("carriers collected landed cargo, game seconds after the run slot: %v",collected)
+ t.Logf("carriers collected their lots from the lockers, game seconds after midnight: %v",collected)
 }
-

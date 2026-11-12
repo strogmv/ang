@@ -266,6 +266,8 @@ func(r *Runtime)liftingDeckLowerEdgeBusy(d liftingDeckDefinition)bool{
  l:=d.Lower;if l==nil{return false}
  for _,a:=range r.state.Life.Actors{if a.Level!=l.LevelID||!a.OnFloor(){continue};if l.onBarrier(a.Position){return true};if a.Body!=nil{for _,at:=range a.Body.Cells{if l.onBarrier(at){return true}}}}
  for _,a:=range r.state.Life.Population.Actors{if a.Level==l.LevelID&&a.Materialized&&a.Trip==nil&&l.onBarrier(a.Position){return true}}
+ // a vehicle on the barrier line (a convoy driving on) holds the deck like a person
+ for c:=range r.state.Life.Vehicles[l.LevelID]{if l.onBarrier(c){return true}}
  return false
 }
 // Everybody standing on the deck leaves with it; a queued rider must already stand at the edge exit.
@@ -295,6 +297,8 @@ func(r *Runtime)appendLiftingDecks(msg *pb.PocGameState,hero *behavior.LifeActor
   access:=r.screenAccess(msg,behavior.Cell{X:d.Approach.X,Y:d.Approach.Y},[]behavior.Cell{{X:d.Approach.X,Y:d.Approach.Y}});access.UseWorld=true;access.WorldX=d.ControlPlan[0];access.WorldY=d.ControlPlan[1];access.WorldZ=d.ControlPlan[2]
   st:=&pb.PocLiftingDeckState{Id:d.ID,InstanceId:d.InstanceID,Name:r.localText(locale,d.NameKey,d.ID),Phase:g.Phase,Cause:g.Cause,LeavesPpm:p.Leaves,DeckPpm:p.Deck,BarrierPpm:p.Barrier,UnlockPpm:p.Unlock,DamperPpm:p.Damper,ReleasePpm:p.Release,SampleNs:g.UpdatedNS,Run:g.Runs,Skipped:g.Skipped,Stops:g.Stops,Passable:d.ClosedWalkable&&g.walkable(),PhaseText:r.localText(locale,"ui.deck.phase."+g.Phase,g.Phase),SignalRed:g.Phase!="rest"&&g.Phase!="loading",SignalGreen:g.Phase=="loading"&&p.Barrier==0,Beacon:g.Phase!="rest"&&g.Phase!="loading"&&(g.UpdatedNS/max(int64(1),d.Timing.BeaconPeriod*500000))%2==0,Horn:g.Phase=="equalising"||g.Phase=="signal_up"||g.Phase=="signal_down"||g.Phase=="departure_barrier"||g.Phase=="lockdown_warning",RideAvailable:d.TravelEdge!="",TravelEdge:d.TravelEdge,NextRunSecond:g.NextRunSecond,Access:access}
   st.WeightText=r.localText(locale,"ui.deck.weight.unknown","—")
+ // the scale under the deck weighs a convoy standing on it: tug, trailer, the goods inside and the riders
+ if w,ok:=r.cargoDeckWeightG(d);ok&&d.Freight==nil{st.WeightText=strings.ReplaceAll(strconv.FormatFloat(float64(w)/1000,'f',2,64),".",r.localText(locale,"ui.format.decimal_separator","."))}
   if d.Freight!=nil{st.Cargo=r.liftingDeckCargo(d,g);weight:=int64(0);known:=true;for _,cargo:=range st.Cargo{if cargo.Stage!="deck"{continue};if cargo.MassG<0{known=false}else{weight+=cargo.MassG}};if known{st.WeightText=strings.ReplaceAll(strconv.FormatFloat(float64(weight)/1000,'f',2,64),".",r.localText(locale,"ui.format.decimal_separator","."))}
    // Inside a trailer nothing stands loose on the deck: the scale still weighs it, the trailer shows it.
    if r.liftingDeckFreightWithConvoy(d){kept:=st.Cargo[:0];for _,cargo:=range st.Cargo{if cargo.Stage!="deck"{kept=append(kept,cargo)}};st.Cargo=kept}}
@@ -358,9 +362,8 @@ func(r *Runtime)liftingDeckCargo(d liftingDeckDefinition,g liftingDeckState)[]*p
   if row.Quantity==0{continue};sort.Strings(row.ItemIds);if !known{row.MassG=-1};rows=append(rows,row)
  }};return rows
 }
+// Loose freight never rides inside a convoy (the compiler refuses it): the machine lands it.
 func(r *Runtime)liftingDeckFreightWithConvoy(d liftingDeckDefinition)bool{
- if d.Freight==nil||d.Freight.ConvoyID==""||r.world.CargoConvoys==nil{return false}
- for _,v:=range r.world.CargoConvoys.Convoys{if v.ID==d.Freight.ConvoyID{c:=r.state.CargoConvoys[v.ID];return r.cargoConvoyCarries(v,c)||(c.Phase=="lower_on_deck"&&r.state.LiftingDecks[d.ID].FreightRun==r.state.LiftingDecks[d.ID].Runs)}}
  return false
 }
 func(r *Runtime)advanceLiftingDeckFreight()error{
