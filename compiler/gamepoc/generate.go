@@ -158,15 +158,18 @@ type PresentationCamera struct {
 	ZoomMax     float64 `json:"zoom_max"`
 }
 type Art struct {
-	HUD        *HudArt              `json:"hud,omitempty"`
-	Floor      *FloorMaterial       `json:"floor,omitempty"`
-	Scenes     []ArtScene           `json:"scenes"`
-	Painted    []PaintedScene       `json:"painted"`
-	Camera     PresentationCamera   `json:"camera"`
-	Characters CharacterArt         `json:"characters"`
-	Tile       struct{ W, H int }   `json:"tile"`
-	Palette    map[string]string    `json:"palette"`
-	Sprites    map[string]ArtSprite `json:"sprites"`
+	HUD        *HudArt            `json:"hud,omitempty"`
+	Floor      *FloorMaterial     `json:"floor,omitempty"`
+	Scenes     []ArtScene         `json:"scenes"`
+	Painted    []PaintedScene     `json:"painted"`
+	Camera     PresentationCamera `json:"camera"`
+	Characters CharacterArt       `json:"characters"`
+	// 3D looks of people (looks.go): the model, its record and its glowing surfaces; who wears which.
+	Looks       map[string]Look      `json:"looks"`
+	PersonLooks map[string]string    `json:"person_looks"`
+	Tile        struct{ W, H int }   `json:"tile"`
+	Palette     map[string]string    `json:"palette"`
+	Sprites     map[string]ArtSprite `json:"sprites"`
 }
 
 // LoadingScreen is a full-screen picture shown while the server answers a new game or load request (world.loading).
@@ -190,9 +193,11 @@ type Menu struct {
 }
 
 type Compiled struct {
-	ExitZones        *ExitZoneCatalog       `json:"exit_zones,omitempty"`
-	LiftingDecks     *LiftingDeckCatalog    `json:"lifting_decks,omitempty"`
-	TurretWatch      *TurretWatchCatalog    `json:"turret_watch,omitempty"`
+	ExitZones    *ExitZoneCatalog    `json:"exit_zones,omitempty"`
+	LiftingDecks *LiftingDeckCatalog `json:"lifting_decks,omitempty"`
+	TurretWatch  *TurretWatchCatalog `json:"turret_watch,omitempty"`
+	// Access zones (access_zones.go): presentation and checks only until the access runtime exists.
+	AccessZones      []AccessZone           `json:"-"`
 	GodotScenes      []GodotScene           `json:"-"`
 	GodotTargets     []string               `json:"-"`
 	GodotTheme       *GodotTheme            `json:"-"`
@@ -494,6 +499,9 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	if out.TurretWatch, err = readTurretWatch(world, out.Life); err != nil {
 		return out, nil, err
 	}
+	if out.AccessZones, err = readAccessZones(world, out); err != nil {
+		return out, nil, err
+	}
 	if out.TrainMotion, err = readTrainMotion(world, out.Life); err != nil {
 		return out, nil, err
 	}
@@ -738,6 +746,11 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 		return out, nil, err
 	}
 	if err := checkPresentationCamera(out.Art.Camera); err != nil {
+		return out, nil, err
+	}
+	if err := checkLooks(filepath.Dir(project), out.Art, func(id string) bool {
+		return world.LookupPath(cue.MakePath(cue.Str("persons"), cue.Str(id))).Exists()
+	}, out.TurretWatch); err != nil {
 		return out, nil, err
 	}
 	if loading := world.LookupPath(cue.ParsePath("loading")); loading.Exists() {

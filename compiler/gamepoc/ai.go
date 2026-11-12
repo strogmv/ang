@@ -45,7 +45,12 @@ func clientArt(c Compiled) map[string]any {
 		}
 		sprites = append(sprites, map[string]any{"name": n, "shape": s.Shape, "style": s.Style, "height": s.Height, "variants": s.Variants, "weights": weights})
 	}
-	return map[string]any{"hud": c.Art.HUD, "floor": c.Art.Floor, "scenes": clientArtScenes(c.Art.Scenes), "painted": c.Art.Painted, "camera": c.Art.Camera, "tile_w": c.Art.Tile.W, "tile_h": c.Art.Tile.H, "tiles": tiles, "sprites": sprites, "characters": clientCharacters(c.Art.Characters)}
+	art := map[string]any{"hud": c.Art.HUD, "floor": c.Art.Floor, "scenes": clientArtScenes(c.Art.Scenes), "painted": c.Art.Painted, "camera": c.Art.Camera, "tile_w": c.Art.Tile.W, "tile_h": c.Art.Tile.H, "tiles": tiles, "sprites": sprites, "characters": clientCharacters(c.Art.Characters)}
+	// 3D looks of people only in worlds that bind any (looks.go): earlier projects keep their resource.
+	if len(c.Art.Looks) > 0 || len(c.Art.PersonLooks) > 0 {
+		art["looks"], art["person_looks"] = clientLooks(c.Art, c.TurretWatch)
+	}
+	return art
 }
 
 // clientLoading is the view projection of world.loading: a sorted list of screens (Unity JsonUtility has no maps).
@@ -99,6 +104,10 @@ func clientResource(c Compiled) ([]byte, error) {
 	// World text (demo-hub v11-text) only when the world has inscriptions: earlier projects keep their resource.
 	if c.WorldTextDrawn != nil {
 		view["world_text"] = c.WorldTextDrawn
+	}
+	// Access zones (owner 13.11) only in worlds that have them: the floor marking is drawn from these.
+	if len(c.AccessZones) > 0 {
+		view["access_zones"] = clientAccessZones(c.AccessZones)
 	}
 	// Vending terminals (demo-hub v12-vending) only in worlds that have them.
 	if c.Vending != nil {
