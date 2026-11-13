@@ -343,3 +343,97 @@ func clientLooks(a Art, turrets *TurretWatchCatalog) ([]map[string]any, []map[st
 	}
 	return looks, wearers
 }
+
+// PopulationLook binds the people of a crowd who are not persons of the world (the hall visitors of world.visitors: no
+// person id, only the `look` of their kind) to a 3D look (market people v1). Colourways: the look's colourways the
+// wearers are drawn in, each with its share (1..100). The client picks a wearer's colourway from these shares by his id,
+// which is stable for the whole visit, so the same walker always wears the same colours and a crowd is not a line of
+// clones. A population look without a binding (or a look whose model is not packed) keeps the tinted mannequin.
+type PopulationLook struct {
+	Look       string           `json:"look"`
+	Colourways map[string]int64 `json:"colourways"`
+	// HeightM: the wearers' body heights (the look's height_m as a spread): each person's height between Min and Max,
+	// picked by his id; nil — the look's own height_m (or the model as built).
+	HeightM *PopulationHeight `json:"height_m,omitempty"`
+}
+
+// PopulationHeight is a range of adult body heights in metres (the same 1.45-2.05 as a look's height_m).
+type PopulationHeight struct {
+	Min float64 `json:"min"`
+	Max float64 `json:"max"`
+}
+
+var populationName = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+
+// checkPopulationLooks: each binding names a population look that some visitor kind of world.visitors wears (when the
+// world has visitors; a binding nobody wears is a typo), a known 3D look with a zone mask, and one or more of that
+// look's colourways with shares 1..100.
+func checkPopulationLooks(a Art, visitors *VisitorCatalog) error {
+	worn := map[string]bool{}
+	if visitors != nil {
+		for _, k := range visitors.Kinds {
+			worn[k.Look] = true
+		}
+	}
+	for name, p := range a.PopulationLooks {
+		if !populationName.MatchString(name) {
+			return fmt.Errorf("art.population_looks %q: a population look is a plain name (the look of a visitor kind)", name)
+		}
+		if !worn[name] {
+			return fmt.Errorf("art.population_looks %s: no kind of world.visitors wears this look", name)
+		}
+		l, ok := a.Looks[p.Look]
+		if !ok {
+			return fmt.Errorf("art.population_looks %s: unknown look %q", name, p.Look)
+		}
+		if len(l.Colourways) == 0 {
+			return fmt.Errorf("art.population_looks %s: look %s has no colourways (a crowd look needs a zone mask and its colourways)", name, p.Look)
+		}
+		if len(p.Colourways) == 0 {
+			return fmt.Errorf("art.population_looks %s: name the colourways its wearers are drawn in, with their shares", name)
+		}
+		if h := p.HeightM; h != nil {
+			if math.IsNaN(h.Min) || math.IsNaN(h.Max) || h.Min < lookMinHeightM || h.Max > lookMaxHeightM || h.Min > h.Max {
+				return fmt.Errorf("art.population_looks %s: height_m min..max must lie within %g..%g m with min <= max", name, lookMinHeightM, lookMaxHeightM)
+			}
+		}
+		for cw, share := range p.Colourways {
+			if _, ok := l.Colourways[cw]; !ok {
+				return fmt.Errorf("art.population_looks %s: %q is not a colourway of look %s", name, cw, p.Look)
+			}
+			if share < 1 || share > 100 {
+				return fmt.Errorf("art.population_looks %s: the share of colourway %s must be within 1..100", name, cw)
+			}
+		}
+	}
+	return nil
+}
+
+// clientPopulationLooks is the Godot projection: one row per population look (sorted), its look and its colourways with
+// their shares (sorted by name, so the client's pick by id is the same on every machine).
+func clientPopulationLooks(a Art) []map[string]any {
+	names := make([]string, 0, len(a.PopulationLooks))
+	for n := range a.PopulationLooks {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	out := make([]map[string]any, 0, len(names))
+	for _, n := range names {
+		p := a.PopulationLooks[n]
+		cws := make([]string, 0, len(p.Colourways))
+		for cw := range p.Colourways {
+			cws = append(cws, cw)
+		}
+		sort.Strings(cws)
+		rows := make([]map[string]any, 0, len(cws))
+		for _, cw := range cws {
+			rows = append(rows, map[string]any{"id": cw, "share": p.Colourways[cw]})
+		}
+		row := map[string]any{"id": n, "look": p.Look, "colourways": rows}
+		if p.HeightM != nil {
+			row["height_m"] = map[string]float64{"min": p.HeightM.Min, "max": p.HeightM.Max}
+		}
+		out = append(out, row)
+	}
+	return out
+}

@@ -165,11 +165,14 @@ type Art struct {
 	Camera     PresentationCamera `json:"camera"`
 	Characters CharacterArt       `json:"characters"`
 	// 3D looks of people (looks.go): the model, its record and its glowing surfaces; who wears which.
-	Looks       map[string]Look      `json:"looks"`
-	PersonLooks map[string]string    `json:"person_looks"`
-	Tile        struct{ W, H int }   `json:"tile"`
-	Palette     map[string]string    `json:"palette"`
-	Sprites     map[string]ArtSprite `json:"sprites"`
+	Looks       map[string]Look   `json:"looks"`
+	PersonLooks map[string]string `json:"person_looks"`
+	// The crowd (looks.go, market people v1): a population look (the `look` of a visitor kind) -> its 3D look and the
+	// colourways its wearers are drawn in, with their shares.
+	PopulationLooks map[string]PopulationLook `json:"population_looks"`
+	Tile            struct{ W, H int }        `json:"tile"`
+	Palette         map[string]string         `json:"palette"`
+	Sprites         map[string]ArtSprite      `json:"sprites"`
 }
 
 // LoadingScreen is a full-screen picture shown while the server answers a new game or load request (world.loading).
@@ -756,6 +759,9 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	if err := checkLooks(filepath.Dir(project), out.Art, func(id string) bool {
 		return world.LookupPath(cue.MakePath(cue.Str("persons"), cue.Str(id))).Exists()
 	}, out.TurretWatch, out.Biomonitor); err != nil {
+		return out, nil, err
+	}
+	if err := checkPopulationLooks(out.Art, out.Visitors); err != nil {
 		return out, nil, err
 	}
 	if out.Biomonitor != nil {

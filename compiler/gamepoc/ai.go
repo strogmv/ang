@@ -50,6 +50,10 @@ func clientArt(c Compiled) map[string]any {
 	if len(c.Art.Looks) > 0 || len(c.Art.PersonLooks) > 0 {
 		art["looks"], art["person_looks"] = clientLooks(c.Art, c.TurretWatch)
 	}
+	// The crowd's looks (looks.go): only in worlds that bind any, so earlier projects keep their resource.
+	if len(c.Art.PopulationLooks) > 0 {
+		art["population_looks"] = clientPopulationLooks(c.Art)
+	}
 	// The biomonitor's colours, brightness and blinking per tier (biomonitor.go), only in worlds that have the table.
 	if c.Biomonitor != nil {
 		art["biomonitor"] = clientBiomonitor(c.Biomonitor)

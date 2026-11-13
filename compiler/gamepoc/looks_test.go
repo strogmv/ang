@@ -299,3 +299,73 @@ func TestLooksHeightRejected(t *testing.T) {
 		t.Fatalf("height_m 1.92 did not decode: %v", err)
 	}
 }
+
+// The crowd (market people v1): a visitor kind's look bound to a 3D look and the colourways its wearers are drawn in.
+func populationFixture(t *testing.T) (Art, *VisitorCatalog) {
+	t.Helper()
+	_, a, _ := zonedLookFixture(t)
+	a.PopulationLooks = map[string]PopulationLook{"bronze_work": {Look: "look.guard", Colourways: map[string]int64{"B": 3, "A": 1},
+		HeightM: &PopulationHeight{Min: 1.70, Max: 1.84}}}
+	return a, &VisitorCatalog{Kinds: []VisitorKind{{ID: "bronze_fitter", Look: "bronze_work"}, {ID: "copper_worker", Look: "copper"}}}
+}
+
+func TestPopulationLooksAcceptedAndProjected(t *testing.T) {
+	a, visitors := populationFixture(t)
+	if err := checkPopulationLooks(a, visitors); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(clientPopulationLooks(a))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `[{"colourways":[{"id":"A","share":1},{"id":"B","share":3}],"height_m":{"max":1.84,"min":1.7},"id":"bronze_work","look":"look.guard"}]`
+	if string(raw) != want {
+		t.Fatalf("client population looks:\n got %s\nwant %s", raw, want)
+	}
+	if _, ok := clientArt(Compiled{Art: a})["population_looks"]; !ok {
+		t.Fatal("a world that binds a crowd look must get art.population_looks")
+	}
+	if _, ok := clientArt(Compiled{})["population_looks"]; ok {
+		t.Fatal("a world without crowd looks must not get art.population_looks")
+	}
+}
+
+func TestPopulationLooksRejected(t *testing.T) {
+	edit := func(f func(p *PopulationLook)) func(*Art, **VisitorCatalog) {
+		return func(a *Art, _ **VisitorCatalog) {
+			p := a.PopulationLooks["bronze_work"]
+			f(&p)
+			a.PopulationLooks["bronze_work"] = p
+		}
+	}
+	cases := map[string]func(*Art, **VisitorCatalog){
+		"name": func(a *Art, _ **VisitorCatalog) {
+			a.PopulationLooks["Bronze Work"] = a.PopulationLooks["bronze_work"]
+		},
+		"not_worn":          func(a *Art, _ **VisitorCatalog) { a.PopulationLooks["bronze_home"] = a.PopulationLooks["bronze_work"] },
+		"no_visitors":       func(_ *Art, v **VisitorCatalog) { *v = nil },
+		"unknown_look":      edit(func(p *PopulationLook) { p.Look = "look.none" }),
+		"no_colourways":     edit(func(p *PopulationLook) { p.Colourways = nil }),
+		"unknown_colourway": edit(func(p *PopulationLook) { p.Colourways["C"] = 1 }),
+		"share_zero":        edit(func(p *PopulationLook) { p.Colourways["A"] = 0 }),
+		"share_big":         edit(func(p *PopulationLook) { p.Colourways["A"] = 101 }),
+		"height_short":      edit(func(p *PopulationLook) { p.HeightM = &PopulationHeight{Min: 1.40, Max: 1.80} }),
+		"height_tall":       edit(func(p *PopulationLook) { p.HeightM = &PopulationHeight{Min: 1.70, Max: 2.10} }),
+		"height_order":      edit(func(p *PopulationLook) { p.HeightM = &PopulationHeight{Min: 1.84, Max: 1.70} }),
+		"height_nan":        edit(func(p *PopulationLook) { p.HeightM = &PopulationHeight{Min: math.NaN(), Max: 1.80} }),
+		"look_without_mask": func(a *Art, _ **VisitorCatalog) {
+			l := a.Looks["look.guard"]
+			l.Colourways, l.Colourway = nil, ""
+			a.Looks["look.guard"] = l
+		},
+	}
+	for name, spoil := range cases {
+		t.Run(name, func(t *testing.T) {
+			a, visitors := populationFixture(t)
+			spoil(&a, &visitors)
+			if err := checkPopulationLooks(a, visitors); err == nil {
+				t.Fatal("accepted")
+			}
+		})
+	}
+}
