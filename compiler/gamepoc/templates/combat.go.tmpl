@@ -28,6 +28,11 @@ type combatProfile struct {
 type combatLifeSync struct { EncounterID string; Sequence uint64 }
 
 type combatProbe struct{Episode string `json:"episode"`;Hero,Enemy behavior.Cell;WoundScenario string `json:"wound_scenario"`}
+type combatWorldSource struct {
+	Weapon string `json:"weapon"`
+	Skill  int    `json:"skill"`
+	Note   string `json:"note"`
+}
 type combatCatalog struct {
  Starts map[string]struct{Hero,Enemy behavior.Cell} `json:"starts"`
 
@@ -35,6 +40,8 @@ type combatCatalog struct {
 
  WeaponRisk map[string]int `json:"weapon_risk"`
  ShockFallSeconds int64 `json:"shock_fall_seconds"`
+ // Sources of a hit outside combat (applyWorldHit): not people, so not profiles; the weapon names its wound profile.
+ WorldSources map[string]combatWorldSource `json:"world_sources,omitempty"`
 	Rules           behavior.CombatRules             `json:"rules"`
 	DefaultProfile  string                           `json:"default_profile"`
 	Profiles        map[string]combatProfile         `json:"profiles"`

@@ -191,6 +191,7 @@ func (r *Runtime) appendBarks(view *pb.PocLifeView, msg *pb.PocGameState, hero *
 			b.Face, b.Reveal, b.Correction, b.Colour, b.Cps = face.Face, face.Reveal, face.Correction, face.Colour, int32(face.CPS)
 		}
 		if l, _, ok := barkCatalog.Line(sp.Line); ok && sp.Kind == "line" {
+			b.Reaction = l.AtOnce()
 			if fx, ok := l.Fix[loc]; ok {
 				b.FixFrom, b.FixTo, b.FixText = int32(fx.From), int32(fx.To), r.localText(loc, fx.Key, "")
 			}

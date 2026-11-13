@@ -35,6 +35,19 @@ type TurretWatchRule struct {
 	TiltMaxDeg      float64 `json:"tilt_max_deg"`
 	EyeRiseMS       int64   `json:"eye_rise_ms"`
 	EyeFallMS       int64   `json:"eye_fall_ms"`
+	// Fire (step 2 of the access zones, owner 13.11): only at a person in the fire phase of an access zone the post
+	// guards; never on approach. Absent = the turrets only watch.
+	Fire *TurretWatchFire `json:"fire,omitempty"`
+}
+
+// TurretWatchFire: how a post fires — the world hit source of world.combat_runtime (world_sources: its weapon's wound
+// profile, doc 97), the combat target it aims at (rules.targets), one shot per turret every shot_interval_ms while its own
+// aim is within aim_tolerance_deg of the person and it sees him.
+type TurretWatchFire struct {
+	WorldSource     string  `json:"world_source"`
+	Target          string  `json:"target"`
+	ShotIntervalMS  int64   `json:"shot_interval_ms"`
+	AimToleranceDeg float64 `json:"aim_tolerance_deg"`
 }
 
 // TurretWatchLook is presentation only (Godot eye material and its small light).
@@ -72,7 +85,7 @@ type TurretWatchPost struct {
 
 var turretWatchColor = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
 
-func readTurretWatch(world cue.Value, life json.RawMessage) (*TurretWatchCatalog, error) {
+func readTurretWatch(world cue.Value, life, combat json.RawMessage) (*TurretWatchCatalog, error) {
 	v := world.LookupPath(cue.ParsePath("turret_watch"))
 	if !v.Exists() {
 		return nil, nil
@@ -90,7 +103,44 @@ func readTurretWatch(world cue.Value, life json.RawMessage) (*TurretWatchCatalog
 	if err = c.validate(life); err != nil {
 		return nil, fmt.Errorf("world.turret_watch: %w", err)
 	}
+	if err = c.Rule.Fire.validate(combat); err != nil {
+		return nil, fmt.Errorf("world.turret_watch rule.fire: %w", err)
+	}
 	return &c, nil
+}
+
+// validate: the fire source is a world hit source of world.combat_runtime (not a person's profile) with a weapon, the
+// target is one of the combat rules' targets; sane clocks.
+func (f *TurretWatchFire) validate(combat json.RawMessage) error {
+	if f == nil {
+		return nil
+	}
+	if f.ShotIntervalMS < 100 || f.ShotIntervalMS > 10000 || math.IsNaN(f.AimToleranceDeg) || f.AimToleranceDeg <= 0 || f.AimToleranceDeg > 10 {
+		return fmt.Errorf("a shot every 100..10000 ms and an aim tolerance of 0..10 degrees")
+	}
+	var rt struct {
+		WorldSources map[string]struct {
+			Weapon string `json:"weapon"`
+			Skill  int    `json:"skill"`
+		} `json:"world_sources"`
+		Rules struct {
+			Targets map[string]json.RawMessage `json:"targets"`
+		} `json:"rules"`
+	}
+	if len(combat) == 0 {
+		return fmt.Errorf("fire needs world.combat_runtime")
+	}
+	if err := json.Unmarshal(combat, &rt); err != nil {
+		return err
+	}
+	src, ok := rt.WorldSources[f.WorldSource]
+	if !ok || src.Weapon == "" || src.Skill < 0 || src.Skill > 100 {
+		return fmt.Errorf("unknown world source %q of world.combat_runtime (or one without a weapon)", f.WorldSource)
+	}
+	if _, ok := rt.Rules.Targets[f.Target]; !ok {
+		return fmt.Errorf("unknown combat target %q", f.Target)
+	}
+	return nil
 }
 
 // turretWatchMdeg rounds degrees to whole millidegrees, the unit of the server's aim.

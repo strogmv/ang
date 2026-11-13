@@ -343,6 +343,117 @@ func (r *Runtime) storeWoundBody(c behavior.Combatant) {
 	r.state.Wounds.Bodies = append(r.state.Wounds.Bodies, b.Clone())
 	sort.Slice(r.state.Wounds.Bodies, func(i, j int) bool { return r.state.Wounds.Bodies[i].ID < r.state.Wounds.Bodies[j].ID })
 }
+
+// worldHit is a blow from a source of the world outside a fight (doc 97): not a person's action, so there is no encounter,
+// no AP and no turn — the first source is a turret post of an access zone. One rule for every such source: the wound
+// model's ApplyHit on the body the roster keeps (the same body a fight and its after-care use), the weapon's wound profile
+// of a world.combat_runtime world source (not a person's profile), the aim by the combat rules' targets, the angle against the person's facing, the
+// armour he carries. Then the events go to the ledger and to the life (down, dead with the source as the culprit), the
+// body is stored and the ordinary care goes on with it (advanceWoundCare bleeds it on the Life clock, combatCareHold lays
+// a body that cannot stand). No HP: a death comes the ordinary way of the wounds, and it is saved like any other.
+type worldHit struct {
+	Source  string        // the author of the wound (a turret post id): the culprit of a death
+	Fire    string        // world.combat_runtime.world_sources: the source's weapon names the wound profile
+	Target  string        // world.combat_runtime.rules.targets: torso, head, legs …
+	Mode    string        // the attack mode of the wound profile ("" = its "*")
+	From    behavior.Cell // the cell the blow came from (the angle against the person's facing, the side of a fall)
+	Seed    int64
+}
+
+// woundBodyDead: a body the wound model has declared dead (the roster keeps every wounded body).
+func (r *Runtime) woundBodyDead(id string) bool {
+	c, ok := r.state.CombatRoster[id]
+	return ok && len(c.Body) > 0 && combatBody(c).Dead
+}
+
+// applyWorldHit: one blow of a world source on a person on the floor outside an encounter (inside one, the fight owns his
+// body and the blow is refused). A dead body takes nothing more.
+func (r *Runtime) applyWorldHit(target string, h worldHit) (wounds.HitResult, error) {
+	if r.state.Combat.Active && r.state.Combat.Actor(target) != nil {
+		return wounds.HitResult{}, fmt.Errorf("world hit on %s inside an encounter", target)
+	}
+	level, at, present := r.knownCombatLifeActor(target)
+	if !present || level == "" {
+		return wounds.HitResult{}, fmt.Errorf("world hit: %s is not on a floor", target)
+	}
+	source, ok := r.world.CombatRuntime.WorldSources[h.Fire]
+	if !ok || source.Weapon == "" {
+		return wounds.HitResult{}, fmt.Errorf("world hit: unknown world source %q", h.Fire)
+	}
+	spec, ok := r.world.CombatRuntime.Rules.Targets[h.Target]
+	if !ok {
+		return wounds.HitResult{}, fmt.Errorf("world hit: unknown combat target %q", h.Target)
+	}
+	team := "bystander"
+	if target == playerActorID {
+		team = "player"
+	}
+	if old, known := r.state.CombatRoster[target]; known && old.Team != "" {
+		team = old.Team
+	}
+	c := r.combatant(target, team)
+	c.Position = at
+	body := combatBody(c)
+	if body.Dead {
+		return wounds.HitResult{}, nil
+	}
+	hit := wounds.Hit{Author: h.Source, Weapon: source.Weapon, Mode: h.Mode, Part: spec.Part, Zone: spec.Zone, Skill: int64(source.Skill), Seed: h.Seed,
+		Angle: r.woundAttackAngle(behavior.Combatant{Position: h.From}, c)}
+	if hit.Part == "" {
+		hit.Part = "torso"
+	}
+	if spec.Limb == "armed" {
+		hit.Limb = body.ArmedLimb
+	} else {
+		hit.Limb = spec.Limb
+	}
+	if hit.Zone == "arm" && hit.Limb == "" {
+		ids := []string{}
+		for id, l := range combatWounds.Limbs {
+			if l.Zone == hit.Zone {
+				ids = append(ids, id)
+			}
+		}
+		sort.Strings(ids)
+		if len(ids) > 0 {
+			hit.Limb = ids[int(uint64(hit.Seed)%uint64(len(ids)))]
+		}
+	}
+	for _, id := range combatItemKeys(r.state.Inventory) {
+		i := r.state.Inventory.Items[id]
+		if i.Location.Store == inv.ActorStore(target) && i.Location.Slot != "" && r.combatCarried(r.state.Inventory, target, i) {
+			if _, armour := r.world.CombatRuntime.Armor[i.Definition]; armour {
+				hit.Armor = append(hit.Armor, i.Definition)
+			}
+		}
+	}
+	result, err := combatWounds.ApplyHit(&body, hit)
+	if err != nil {
+		return result, err
+	}
+	projectWoundBody(&c, body)
+	c.LastHitFrom = h.From
+	if r.state.CombatRoster == nil {
+		r.state.CombatRoster = map[string]behavior.Combatant{}
+	}
+	if r.state.CombatCare.Clocks == nil {
+		r.state.CombatCare.Clocks = map[string]int64{}
+	}
+	if _, kept := r.state.CombatCare.Clocks[target]; !kept {
+		r.state.CombatCare.Clocks[target] = r.state.Life.Seconds // the body bleeds from now, on the Life clock
+	}
+	r.state.CombatRoster[target] = c
+	r.storeWoundBody(c)
+	r.recordWoundEvents(result.Events)
+	if err := r.dropWoundedWeapon(&c, level); err != nil {
+		return result, err
+	}
+	r.refreshCombatEquipment(r.state.Inventory, &c)
+	r.state.CombatRoster[target] = c
+	r.storeWoundBody(c)
+	r.combatCareHold(c)
+	return result, nil
+}
 func (r *Runtime) dropWoundedWeapon(a *behavior.Combatant, level string) error {
 	if len(a.Body) == 0 || a.BodyCanHold && !(a.Surrendered&&r.world.CombatLife.SurrenderDropsWeapon) {
 		return nil
@@ -383,12 +494,15 @@ func (r *Runtime) recordWoundEvents(events []wounds.Event) {
 		case "down", "dead":
 			if level, at, ok := r.knownCombatLifeActor(e.Body); ok {
 				for _, observer := range r.combatWorldObservers(level, at) {
-					if observer.ID != e.Body && r.combatWorldVisible(observer, at) {
+					// The guard of a post whose turret felled an intruder under its zone's law does not call him a fallen ally.
+					if observer.ID != e.Body && r.combatWorldVisible(observer, at) && !r.lawfulWorldSourceGuard(e.Body, observer.ID) {
 						r.BarkEvent(observer.ID, "ally_down", "ally_down", "")
 					}
 				}
 			}
-			if e.Type == "dead" && e.Culprit != "" && e.Culprit != e.Body {
+			// A world source that fires under the law of its place (a turret post in its zone's fire phase) is the culprit
+			// in the ledger like anyone, but no killing case is opened against a machine doing what the law set it to.
+			if e.Type == "dead" && e.Culprit != "" && e.Culprit != e.Body && !r.lawfulWorldSource(e.Culprit) {
 				found := false
 				for _, old := range r.state.WoundCrimes {
 					found = found || old.Body == e.Body

@@ -139,6 +139,21 @@ type React struct {
 	Subject       string `json:"subject,omitempty"`
 	WithinSeconds int64  `json:"within_seconds"`
 	Negate        bool   `json:"negate,omitempty"`
+	// AtOnce: a reaction, not chatter (a guard's warning). The line is said the frame its fact begins and once for that
+	// onset: no wait of the pack's hazard, no gap, no hourly cap, no place busy and no cap of lines on screen; the speaker
+	// still has to stand at the place, hear-range, period, requires and the other reacts hold, and he does not talk over
+	// himself. Its cooldown is the onset: a new onset of the fact (the fact gone and back) may say it again.
+	AtOnce bool `json:"at_once,omitempty"`
+}
+
+// AtOnce: the line reacts at once (see React.AtOnce): a reaction the player must see, not chatter.
+func (l Line) AtOnce() bool {
+	for _, r := range l.React {
+		if r.AtOnce {
+			return true
+		}
+	}
+	return false
 }
 
 // Anyone is the speaker of a line said by whoever of the line's caste stands at the place (a passer-by, a buyer).
@@ -470,6 +485,9 @@ func (m Model) Validate() error {
 			for _, r := range l.React {
 				if !events[r.Event] {
 					return fmt.Errorf("barks: line %s reacts to unknown event %q", l.ID, r.Event)
+				}
+				if r.AtOnce && r.Negate {
+					return fmt.Errorf("barks: line %s reacts at once to the absence of %q: an absence has no onset", l.ID, r.Event)
 				}
 			}
 			lines[l.ID] = true

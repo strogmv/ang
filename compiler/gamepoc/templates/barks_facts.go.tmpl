@@ -132,6 +132,10 @@ func (r *Runtime) barkFacts(level string) []barks.Fact {
 			add("craft.queue", worker, "", 0)
 		}
 	}
+	// access zones: someone without access caught in the zone (countdown or fire); the guard's warning reacts at once
+	for _, zone := range r.accessZoneFacts(level) {
+		add("zone.access_denied", zone, level, 0)
+	}
 	// the hero's deals with the peddlers (sold, bought, refused): the peddler answers them
 	for _, f := range r.peddlerFacts(level) {
 		add(f.Event, f.Subject, f.Level, f.Since)

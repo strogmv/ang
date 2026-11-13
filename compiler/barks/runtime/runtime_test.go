@@ -519,3 +519,95 @@ func TestExchangeInvalidCatalogRejected(t *testing.T) {
 		t.Fatal("one turn is no exchange")
 	}
 }
+
+// A reaction at once (React.AtOnce): a guard's warning is said the frame its fact begins — not after the pack's random
+// wait, its gap, its hourly cap or the cap of lines on screen — once for that onset, and again only when the fact comes
+// back. Without the fact it is never said; the ordinary hazard never draws it.
+func TestReactAtOnce(t *testing.T) {
+	m := fixture()
+	m.MaxActive = 1
+	m.Castes["char.guard"] = "bronze"
+	m.Events = append(m.Events, Event{ID: "zone.access_denied", Source: "go", Scope: "place"})
+	m.Places = append(m.Places, Place{ID: "zone.lift", Kind: "public", Level: "hub", Rects: []Rect{{70, 70, 80, 80}}, Subjects: []string{"zone.lift"}})
+	warn := Line{ID: "bark.lift.warn", Speaker: "char.guard", Caste: "bronze", To: "hall", When: []string{"all"}, Weight: 1, CooldownSeconds: 3600,
+		React: []React{{Event: "zone.access_denied", WithinSeconds: 60, AtOnce: true}}, Measure: ms("Стой! Сюда нельзя.")}
+	chatter := Line{ID: "bark.lift.chatter", Speaker: "char.guard", Caste: "bronze", To: "hall", When: []string{"all"}, Weight: 1, CooldownSeconds: 600, Measure: ms("Тихо сегодня.")}
+	m.Packs = append(m.Packs, Pack{Place: "zone.lift", Periods: []Period{{ID: "all", From: 0, To: 86400}}, HeroWithinCells: 12, GapSeconds: 3600, MaxPerHour: 1, MeanWaitSeconds: 7200, Lines: []Line{warn, chatter}})
+	m = m.Sorted()
+	if err := m.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	guard := Actor{ID: "char.guard", Level: "hub", At: Cell{75, 75}, OnPost: true}
+	// A line of another place fills the only slot on screen: the warning still comes.
+	porter := Actor{ID: "char.porter", Level: "hub", At: Cell{35, 3}}
+	denied := []Fact{{Event: "zone.access_denied", Subject: "zone.lift", Level: "hub"}}
+	frame := func(tk int64, facts []Fact) Frame {
+		return Frame{Now: 10*3600 + tk, Tick: tk, Seed: 11, Hero: Actor{ID: "char.hero", Level: "hub", At: Cell{74, 76}}, Actors: []Actor{guard, porter}, Facts: facts}
+	}
+	s := State{}
+	said := func(sp []Speech, id string) bool {
+		for _, x := range sp {
+			if x.Line == id {
+				return true
+			}
+		}
+		return false
+	}
+	for tk := int64(1); tk <= 200; tk++ {
+		if said(m.Step(&s, frame(tk, nil)), warn.ID) {
+			t.Fatalf("tick %d: the warning came without its fact", tk)
+		}
+	}
+	// The other place speaking: one line on screen already.
+	s.Active = append(s.Active, Speech{Serial: 999, Kind: "line", Line: "bark.gate.shut", Speaker: "char.porter", Until: 10_000})
+	for _, onset := range []int64{201, 400} {
+		first := m.Step(&s, frame(onset, denied))
+		if !said(first, warn.ID) {
+			t.Fatalf("tick %d: the warning did not come the frame its fact began: %+v", onset, first)
+		}
+		for tk := onset + 1; tk < onset+150; tk++ {
+			if said(m.Step(&s, frame(tk, denied)), warn.ID) {
+				t.Fatalf("tick %d: the warning repeated within one onset of its fact", tk)
+			}
+		}
+		// the fact is gone, then comes back: a new onset
+		for tk := onset + 150; tk < onset+199; tk++ {
+			if said(m.Step(&s, frame(tk, nil)), warn.ID) {
+				t.Fatalf("tick %d: the warning came after its fact was gone", tk)
+			}
+		}
+	}
+	// Determinism: the same frames, the same speeches; the hazard streams of the other packs are not moved.
+	replay := func() []Speech {
+		s := State{}
+		var all []Speech
+		for tk := int64(1); tk < 600; tk++ {
+			var facts []Fact
+			if tk >= 201 && tk < 351 || tk >= 400 && tk < 550 {
+				facts = denied
+			}
+			all = append(all, m.Step(&s, frame(tk, facts))...)
+		}
+		return all
+	}
+	if a, b := replay(), replay(); !reflect.DeepEqual(a, b) {
+		t.Fatal("at-once reactions are not deterministic")
+	}
+	// An absence has no onset.
+	bad := m
+	bad.Packs = append([]Pack(nil), m.Packs...)
+	for i := range bad.Packs {
+		if bad.Packs[i].Place == "zone.lift" {
+			lines := append([]Line(nil), bad.Packs[i].Lines...)
+			for j := range lines {
+				if lines[j].ID == warn.ID {
+					lines[j].React = []React{{Event: "zone.access_denied", WithinSeconds: 60, AtOnce: true, Negate: true}}
+				}
+			}
+			bad.Packs[i].Lines = lines
+		}
+	}
+	if bad.Validate() == nil {
+		t.Fatal("an at-once reaction to an absence was accepted")
+	}
+}

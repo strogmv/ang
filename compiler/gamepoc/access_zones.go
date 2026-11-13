@@ -12,8 +12,10 @@ import (
 
 // AccessZone is world.access_zones (owner 13.11): a zone of a level only some people may enter, a polygon in plan metres
 // beside the turret post that guards it. Its floor marking (an inlaid steel strip with light hatching along the marked
-// edges) is drawn by the client from this data; nobody places it by hand in a scene. The access check (a scan as before a
-// medical capsule, a countdown, the turrets' fire) is the next step: until its runtime exists, `fire` must be "never".
+// edges) is drawn by the client from this data; nobody places it by hand in a scene. Step 2 (templates/access_zone.go.tmpl):
+// everyone who stands in the polygon is scanned as before a medical capsule; without access (a caste, a pass item, the
+// escort of the post's guard) a countdown to leave runs, then — `fire: "after_scan_and_countdown"` — the zone's turrets fire
+// through the wound rules (world.turret_watch rule.fire). Never on approach: no scan, no countdown, no fire.
 type AccessZone struct {
 	ID        string       `json:"id"`
 	LevelID   string       `json:"level_id"`
@@ -46,7 +48,9 @@ type AccessZoneMarking struct {
 
 var accessZoneID = regexp.MustCompile(`^zone\.[a-z0-9_.]+$`)
 
-func readAccessZones(world cue.Value, c Compiled) ([]AccessZone, error) {
+// readAccessZones reads and checks the zones. root is the whole content package: the hub's turret contracts
+// (transport_hub_design.turret_contracts) that promise no fire on approach are read from it.
+func readAccessZones(root, world cue.Value, c Compiled) ([]AccessZone, error) {
 	v := world.LookupPath(cue.ParsePath("access_zones"))
 	if !v.Exists() {
 		return nil, nil
@@ -70,11 +74,41 @@ func readAccessZones(world cue.Value, c Compiled) ([]AccessZone, error) {
 	if err := json.Unmarshal(c.Life, &life); err != nil {
 		return nil, err
 	}
+	var promises []struct {
+		InstanceID string `json:"instance_id"`
+		NoFire     bool   `json:"no_automatic_turret_fire_on_approach"`
+	}
+	if v := root.LookupPath(cue.ParsePath("transport_hub_design.turret_contracts")); v.Exists() {
+		if err := v.Decode(&promises); err != nil {
+			return nil, fmt.Errorf("transport_hub_design.turret_contracts: %w", err)
+		}
+	}
+	noFire := map[string]bool{}
+	for _, p := range promises {
+		noFire[p.InstanceID] = noFire[p.InstanceID] || p.NoFire
+	}
 	seen := map[string]bool{}
 	for _, z := range zones {
 		loc, ok := life.Locations[z.LevelID]
 		if err := checkAccessZone(z, ok, loc.Terrain, loc.CellMM, c.TurretWatch, seen); err != nil {
 			return nil, fmt.Errorf("world.access_zones %s: %w", z.ID, err)
+		}
+		for _, item := range z.Access.PassItems {
+			if _, known := c.Inventory.Definitions[item]; !known {
+				return nil, fmt.Errorf("world.access_zones %s: pass item %s is not an item of the inventory", z.ID, item)
+			}
+		}
+		if z.Fire != "after_scan_and_countdown" {
+			continue
+		}
+		// The promise of the hub contracts (no automatic fire on approach): a promised turret fires only from the fire
+		// phase of its zone, after a scan and a countdown of at least 5 s; the generated runtime has no other shot.
+		for _, t := range z.Turrets {
+			for _, p := range c.TurretWatch.Posts {
+				if p.ID == t && noFire[p.InstanceID] && (z.ScanSeconds <= 0 || z.CountdownSeconds < 5) {
+					return nil, fmt.Errorf("world.access_zones %s: turret %s promises no fire on approach: a scan and a countdown of at least 5 s first", z.ID, t)
+				}
+			}
 		}
 	}
 	return zones, nil
@@ -150,14 +184,16 @@ func checkAccessZone(z AccessZone, levelKnown bool, terrain []string, cellMM int
 		}
 	}
 	// The turrets never fire on approach (transport_hub_design turret contracts): fire only after a failed scan and a
-	// countdown. The runtime of the scan and the fire is not generated yet, so a zone may not ask for it.
+	// countdown (templates/access_zone.go.tmpl), by the turrets' own fire rule (world.turret_watch rule.fire).
 	switch z.Fire {
 	case "never":
 	case "after_scan_and_countdown":
 		if z.ScanSeconds <= 0 || z.CountdownSeconds < 5 {
 			return fmt.Errorf("fire needs a scan and a countdown of at least 5 s: never on approach")
 		}
-		return fmt.Errorf("fire after the scan and the countdown is not generated yet (the zone access runtime): keep fire \"never\"")
+		if turrets.Rule.Fire == nil {
+			return fmt.Errorf("fire after the scan and the countdown needs the turrets' fire rule (world.turret_watch rule.fire)")
+		}
 	default:
 		return fmt.Errorf("fire must be never or after_scan_and_countdown, not %q", z.Fire)
 	}

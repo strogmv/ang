@@ -34,6 +34,7 @@ func (r *Runtime) initLifeState(life behavior.LifeState) {
  r.state.Sanitary=sanitaryState{}
  r.initLiftingDecks()
  r.state.Turrets=nil
+ r.state.AccessZones=nil
  r.initCargoConvoys()
  r.state.TrainDispatch=trainDispatchState{}
  r.state.TrainPassengers=nil
@@ -155,12 +156,14 @@ func (r *Runtime) advanceLifeFrameBy(delta int64) error {
 	if err := r.advanceCrafting(delta); err != nil {
 		return err
 	}
+	r.advanceAccessZones()
 	r.advanceBarks()
 	r.advanceSoundscape()
 	r.awardRepairPractice(previous)
 	r.advancePractice()
 	r.syncLifeHero()
  r.advanceTurretWatch()
+ if err:=r.accessZoneFire();err!=nil{return err}
 	r.syncRegionKnowledge()
  if err:=r.advanceStealth();err!=nil{return err}
  if err:=r.combatLifeAfterFrame();err!=nil{return err}
@@ -262,6 +265,7 @@ func (r *Runtime) sendLifeState(c *connection) {
 		if observer,known:=r.state.Stealth.Observers[agent.ID];known&&observer.Level==hero.Level{a.FaceX=observer.FaceX;a.FaceY=observer.FaceY}
 		r.vendingFaceAgent(a, len(agent.Path) == 0)
  r.encounterAgent(a)
+ r.accessZoneFaceAgent(a)
  msg.SceneAgents = append(msg.SceneAgents, a)
 	}
 	if v := r.deckVolume(); v != nil {
@@ -344,6 +348,7 @@ func (r *Runtime) sendLifeState(c *connection) {
 	r.appendPeddlers(view, hero, msg.PlayerView, c.locale)
 	r.appendVisitors(view, hero, msg.PlayerView)
  r.appendTurretWatch(view, hero, msg.PlayerView)
+ r.appendAccessZones(view, hero, msg.PlayerView)
 <<ANG if .GodotScreens ANG>> r.appendScreenTrade(msg,c.locale);r.appendScreenServices(msg,c.locale) <<ANG end ANG>>
  view.CartParkingJson=r.cartParkingJSON(hero,msg.PlayerView)
  r.appendConversation(msg,c.locale)
@@ -652,6 +657,7 @@ func (r *Runtime) validateLifeSave(s state) error {
  if err:=r.validateTrainPassengers(s);err!=nil{return err}
  if err:=r.validateLiftingDecks(s);err!=nil{return err}
  if err:=r.validateTurretWatch(s);err!=nil{return err}
+ if err:=r.validateAccessZones(s);err!=nil{return err}
  if err:=r.validateCargoConvoys(s);err!=nil{return err}
 	if !s.Active || s.Tick < 0 || s.Speed != 1 || s.PhaseNS < 0 || s.PhaseNS >= r.tickNS() {
 		return errors.New("invalid life clock")

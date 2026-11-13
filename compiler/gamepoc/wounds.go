@@ -59,6 +59,12 @@ func readWounds(world cue.Value) (*woundsInput, error) {
 	if err := fields("combat_runtime.profiles", func(_ string, v cue.Value) error { in.world.Weapons[str(v, "weapon.id")] = true; return nil }); err != nil {
 		return nil, err
 	}
+	// The sources of a hit outside combat (a turret post's fire, applyWorldHit) wound with their own weapon profile too.
+	if world.LookupPath(cue.ParsePath("combat_runtime.world_sources")).Exists() {
+		if err := fields("combat_runtime.world_sources", func(_ string, v cue.Value) error { in.world.Weapons[str(v, "weapon")] = true; return nil }); err != nil {
+			return nil, err
+		}
+	}
 	if err := fields("combat_runtime.armor", func(id string, _ cue.Value) error { in.world.Armor[id] = true; return nil }); err != nil {
 		return nil, err
 	}

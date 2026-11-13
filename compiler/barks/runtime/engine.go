@@ -123,6 +123,7 @@ func (m Model) Step(s *State, f Frame) []Speech {
 		s.Pending = nil
 	}
 	day := f.Now % 86400
+	started = append(started, m.stepAtOnce(s, f, actors, byID, day)...)
 	for i := range m.Packs {
 		pack := &m.Packs[i]
 		if s.audible(f.Tick) >= m.MaxActive {
@@ -153,6 +154,9 @@ func (m Model) Step(s *State, f Frame) []Speech {
 		total := 0
 		for j := range pack.Lines {
 			l := &pack.Lines[j]
+			if l.AtOnce() {
+				continue // a reaction is said by stepAtOnce, never drawn by the hazard
+			}
 			if last, said := s.Lines[l.ID]; said && f.Now < last+l.CooldownSeconds {
 				continue
 			}
@@ -197,6 +201,82 @@ func (m Model) Step(s *State, f Frame) []Speech {
 	}
 	started = append(started, m.stepTalks(s, f, actors, byID, elapsed, day)...)
 	return started
+}
+
+// stepAtOnce: the lines that react at once (React.AtOnce, a guard's warning) whose fact began since they were last said.
+// No random draw: the same frames give the same speech on every run, and the hazard streams of the packs are untouched.
+func (m Model) stepAtOnce(s *State, f Frame, actors []Actor, byID map[string]Actor, day int64) []Speech {
+	var started []Speech
+	for i := range m.Packs {
+		pack := &m.Packs[i]
+		place, ok := m.Place(pack.Place)
+		if !ok || place.Level != f.Hero.Level {
+			continue
+		}
+		for j := range pack.Lines {
+			l := &pack.Lines[j]
+			onset, ok := m.atOnceOnset(s, *l, place, f)
+			if !ok || !m.inPeriod(*pack, l.When, day) {
+				continue
+			}
+			if last, said := s.Lines[l.ID]; said && last >= onset {
+				continue // already said for this onset of its fact
+			}
+			for _, a := range m.speakersOf(*l, place, actors, f.Hero.ID) {
+				if s.speaking(a.ID, f.Tick) || !m.hears(f.Hero, a, pack.HeroWithinCells) || !m.requires(*l, a, byID, f, s) || !m.reacts(s, *l, place, a.ID, f) {
+					continue
+				}
+				sp := m.say(s, *l, a.ID, pack.Place, f)
+				started = append(started, sp)
+				s.Lines[l.ID] = f.Now
+				c := s.Packs[pack.Place]
+				if hour := f.Now / 3600; c.Hour != hour {
+					c.Hour, c.Count = hour, 0
+				}
+				c.Last, c.Busy = f.Now, max(c.Busy, sp.Until)
+				c.Count++
+				s.Packs[pack.Place] = c
+				break
+			}
+		}
+	}
+	return started
+}
+
+// atOnceOnset: the latest onset among the facts an at-once react of the line names at this place (by its subject or the
+// event's scope, as reacts reads them); false when the line has no at-once react or none of its facts holds.
+func (m Model) atOnceOnset(s *State, l Line, place Place, f Frame) (int64, bool) {
+	onset, found := int64(0), false
+	for _, r := range l.React {
+		if !r.AtOnce {
+			continue
+		}
+		ev, ok := m.Event(r.Event)
+		if !ok || ev.Source == "stub" {
+			return 0, false
+		}
+		for _, fact := range f.Facts {
+			if fact.Event != r.Event || (r.Subject != "" && fact.Subject != r.Subject) {
+				continue
+			}
+			if r.Subject == "" && ev.Scope == "place" {
+				match := false
+				for _, sub := range place.Subjects {
+					match = match || sub == fact.Subject
+				}
+				if !match {
+					continue
+				}
+			}
+			if r.Subject == "" && ev.Scope == "world" && fact.Level != "" && fact.Level != place.Level {
+				continue
+			}
+			if at := s.Facts[factKey(fact)]; !found || at > onset {
+				onset, found = at, true
+			}
+		}
+	}
+	return onset, found
 }
 
 // inTalk: this person is in the middle of an exchange: he says nothing else between its turns.

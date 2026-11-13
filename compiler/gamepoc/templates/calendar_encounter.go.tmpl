@@ -244,12 +244,22 @@ func(r *Runtime)encounterCommand(q *pb.PocLifeCommand)error{
  }
  return textError{Key:"error.encounter.unavailable"}
 }
+// guardEscortTarget: the one field «whom this guard leads now» (access zones read it for the escort right). Today its
+// only source is the calendar encounter's escort (forced or refused, within the hold distance); a future escort adds here.
+func(r *Runtime)guardEscortTarget(guard string)string{
+ e:=r.world.CalendarEncounter;if e==nil||guard!=e.Guard{return ""}
+ s:=r.state.CalendarEncounter
+ if s.Phase!="escort"||(s.Outcome!="forced"&&s.Outcome!="refuse"){return ""}
+ actor:=r.state.Life.Actor(e.Actor);g:=r.state.Life.Actor(e.Guard)
+ if actor!=nil&&g!=nil&&actor.Level==g.Level&&behavior.Distance(actor.Position,g.Position)<=e.EscortHold{return e.Actor}
+ return ""
+}
 func(r *Runtime)encounterAgent(a *pb.PocAgentState){
  e:=r.world.CalendarEncounter;if e==nil{return}
  s:=r.state.CalendarEncounter
- if a.Id==e.Guard&&s.Phase=="escort"&&(s.Outcome=="forced"||s.Outcome=="refuse"){
-  actor:=r.state.Life.Actor(e.Actor);guard:=r.state.Life.Actor(e.Guard)
-  if actor!=nil&&guard!=nil&&actor.Level==guard.Level&&behavior.Distance(actor.Position,guard.Position)<=e.EscortHold{a.EncounterEscortTarget=e.Actor;a.FaceX=float64(actor.Position.X-guard.Position.X);a.FaceY=float64(actor.Position.Y-guard.Position.Y)}
+ if target:=r.guardEscortTarget(a.Id);target!=""{
+  actor:=r.state.Life.Actor(target);guard:=r.state.Life.Actor(a.Id)
+  a.EncounterEscortTarget=target;a.FaceX=float64(actor.Position.X-guard.Position.X);a.FaceY=float64(actor.Position.Y-guard.Position.Y)
  }
  if a.Id!=e.Actor{return};pose:=e.IdlePose
  if s.Day>e.FirstDays{pose=e.ReturnIdle;if len(a.Path)>0{pose=e.ReturnWalk}}else if len(a.Path)>0{pose=e.WalkPose}else if s.Phase=="selling"{

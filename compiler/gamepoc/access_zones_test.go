@@ -58,14 +58,15 @@ func TestAccessZoneRejected(t *testing.T) {
 			z.Access.EscortByGuards = false
 		},
 		"unknown_caste": func(z *AccessZone, _ *[]string, _ **TurretWatchCatalog) { z.Access.Castes = []string{"iron"} },
-		// never on approach: fire needs a scan and a countdown, and its runtime is not generated yet
+		// never on approach: fire needs a scan and a countdown
 		"fire_on_approach": func(z *AccessZone, _ *[]string, _ **TurretWatchCatalog) {
 			z.Fire = "after_scan_and_countdown"
 			z.CountdownSeconds = 0
 		},
-		"fire_not_built":  func(z *AccessZone, _ *[]string, _ **TurretWatchCatalog) { z.Fire = "after_scan_and_countdown" },
-		"fire_unknown":    func(z *AccessZone, _ *[]string, _ **TurretWatchCatalog) { z.Fire = "on_approach" },
-		"short_countdown": func(z *AccessZone, _ *[]string, _ **TurretWatchCatalog) { z.CountdownSeconds = 2 },
+		// fire after the countdown needs the turrets' fire rule (world.turret_watch rule.fire)
+		"fire_without_rule": func(z *AccessZone, _ *[]string, _ **TurretWatchCatalog) { z.Fire = "after_scan_and_countdown" },
+		"fire_unknown":      func(z *AccessZone, _ *[]string, _ **TurretWatchCatalog) { z.Fire = "on_approach" },
+		"short_countdown":   func(z *AccessZone, _ *[]string, _ **TurretWatchCatalog) { z.CountdownSeconds = 2 },
 		"marking": func(z *AccessZone, _ *[]string, _ **TurretWatchCatalog) {
 			z.Marking.HatchSpacingM = z.Marking.HatchBarM
 		},
@@ -87,5 +88,45 @@ func TestAccessZoneRejected(t *testing.T) {
 	}
 	if err := checkAccessZone(z, true, terrain, 500, turrets, seen); err == nil {
 		t.Fatal("a duplicate zone id was accepted")
+	}
+}
+
+// Step 2: a zone fires after its scan and countdown by the turrets' fire rule; never without them.
+func TestAccessZoneFiresAfterScanAndCountdown(t *testing.T) {
+	z, terrain, turrets := accessZoneFixture()
+	z.Fire = "after_scan_and_countdown"
+	turrets.Rule.Fire = &TurretWatchFire{WorldSource: "turret_post", Target: "torso", ShotIntervalMS: 600, AimToleranceDeg: 3}
+	if err := checkAccessZone(z, true, terrain, 500, turrets, map[string]bool{}); err != nil {
+		t.Fatal(err)
+	}
+	z.ScanSeconds = 0
+	if err := checkAccessZone(z, true, terrain, 500, turrets, map[string]bool{}); err == nil {
+		t.Fatal("fire without a scan was accepted")
+	}
+}
+
+func TestTurretWatchFireRule(t *testing.T) {
+	combat := json.RawMessage(`{"world_sources":{"turret_post":{"weapon":"turret.dome_junction","skill":70},"empty":{"weapon":""}},"profiles":{"guard":{"weapon":{"id":"unarmed"}}},"rules":{"targets":{"torso":{}}}}`)
+	good := TurretWatchFire{WorldSource: "turret_post", Target: "torso", ShotIntervalMS: 600, AimToleranceDeg: 3}
+	if err := good.validate(combat); err != nil {
+		t.Fatal(err)
+	}
+	var none *TurretWatchFire
+	if err := none.validate(nil); err != nil {
+		t.Fatal("no fire rule must be valid (watching only)")
+	}
+	for name, spoil := range map[string]func(f *TurretWatchFire){
+		"unknown_source": func(f *TurretWatchFire) { f.WorldSource = "sniper" },
+		"person_profile": func(f *TurretWatchFire) { f.WorldSource = "guard" },
+		"no_weapon":      func(f *TurretWatchFire) { f.WorldSource = "empty" },
+		"unknown_target": func(f *TurretWatchFire) { f.Target = "soul" },
+		"too_fast":       func(f *TurretWatchFire) { f.ShotIntervalMS = 10 },
+		"no_tolerance":   func(f *TurretWatchFire) { f.AimToleranceDeg = 0 },
+	} {
+		f := good
+		spoil(&f)
+		if f.validate(combat) == nil {
+			t.Fatalf("%s: accepted", name)
+		}
 	}
 }

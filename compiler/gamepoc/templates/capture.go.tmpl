@@ -678,6 +678,7 @@ func (r *Runtime) snapshotState() state {
  s.LiftingDecks=cloneLiftingDecks(r.state.LiftingDecks);s.CargoConvoys=cloneCargoConvoys(r.state.CargoConvoys)
  s.TrainPassengers=cloneTrainPassengers(r.state.TrainPassengers)
  s.Medical=r.state.Medical.clone()
+ s.AccessZones=r.state.AccessZones.clone()
  s.Sanitary=r.state.Sanitary.clone()
 	s.CombatPublicEvents = append([]behavior.CombatEvent(nil), s.CombatPublicEvents...)
 	s.Combat = r.state.Combat.Clone()
