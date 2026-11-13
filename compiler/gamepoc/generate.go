@@ -280,6 +280,8 @@ type Compiled struct {
 	FootContact *FootContact `json:"-"`
 	// People read (people_read.go): per level, the surroundings step back and the people step forward, presentation only.
 	PeopleRead *PeopleRead `json:"-"`
+	// Painted location (painted_location.go): a corner's painted albedo projected back from the game camera, presentation only.
+	PaintedLocation *PaintedLocation `json:"-"`
 	// The tactical view (owner 04.11, world.tactical_mode): its label and switch, common to all it will show.
 	TacticalMode *TacticalMode `json:"tactical_mode,omitempty"`
 	// Crafting stage 1 (doc 93, world.crafting): the engine catalog completed from the compiled world; nil without it.
@@ -525,6 +527,9 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 		return out, nil, err
 	}
 	if out.PeopleRead, err = readPeopleRead(world, out); err != nil {
+		return out, nil, err
+	}
+	if out.PaintedLocation, err = readPaintedLocation(world, out, filepath.Dir(project)); err != nil {
 		return out, nil, err
 	}
 	if out.TrainMotion, err = readTrainMotion(world, out.Life); err != nil {

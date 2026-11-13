@@ -137,6 +137,10 @@ func clientResource(c Compiled) ([]byte, error) {
 	if c.PeopleRead != nil {
 		view["people_read"] = clientPeopleRead(c.PeopleRead)
 	}
+	// Painted location v1 only in worlds that have it: the mode (now / painted) and the corners with their pictures.
+	if c.PaintedLocation != nil {
+		view["painted_location"] = clientPaintedLocation(c.PaintedLocation)
+	}
 	// Vending terminals (demo-hub v12-vending) only in worlds that have them.
 	if c.Vending != nil {
 		view["vending"] = clientVending(c.Vending)
