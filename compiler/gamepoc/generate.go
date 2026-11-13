@@ -799,6 +799,17 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	}); err != nil {
 		return out, nil, err
 	}
+	if cards := world.LookupPath(cue.ParsePath("character_cards")); cards.Exists() {
+		var decoded map[string]CharacterCard
+		if err := cards.Decode(&decoded); err != nil {
+			return out, nil, fmt.Errorf("world.character_cards: %w", err)
+		}
+		if err := checkCharacterCards(filepath.Dir(project), decoded, out.Art, func(id string) bool {
+			return world.LookupPath(cue.MakePath(cue.Str("persons"), cue.Str(id))).Exists()
+		}); err != nil {
+			return out, nil, err
+		}
+	}
 	if out.Biomonitor != nil {
 		out.Biomonitor.Wearers = biomonitorWearers(out.Art)
 	}

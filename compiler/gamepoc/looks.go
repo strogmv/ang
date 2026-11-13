@@ -47,6 +47,10 @@ type Look struct {
 	// Ageing (part B): the surface whose second UV set holds the face painted older; the client blends toward it by the
 	// wearer's age from data (looks_parts.go). Nil: no age marks.
 	Ageing *LookAgeing `json:"ageing,omitempty"`
+	// Shading (characters pipeline v1): how the client draws the look. Nil — the build's materials with the zone tint
+	// (look_zones); "painted" — the painted 3D of the paint test (shaders/people_painted.gdshader) as the look's own material:
+	// the atlas is the painting projected onto the UV, the game's light falls in painted bands, no specular. Needs a zone mask.
+	Shading *string `json:"shading,omitempty"`
 }
 
 // LookColourway: a colour per tinted zone of the record's mask.
@@ -115,6 +119,8 @@ var (
 	lookMinHeightM, lookMaxHeightM = 1.45, 2.05
 	// The idle stances of the shared UAL rig a look may name (the clips in art-source/anim-stances/v1/stances.json).
 	lookIdles = map[string]bool{"post": true}
+	// The ways a look may be drawn besides the build's own materials (art.looks[].shading).
+	lookShadings = map[string]bool{"painted": true}
 )
 
 // lookPath is a game-relative path that stays under art-source/ (no absolute path, no '..').
@@ -234,6 +240,14 @@ func checkLooks(root string, a Art, person func(string) bool, turrets *TurretWat
 		}
 		if err := checkLookZones(key, l, model.Zones, l.Record); err != nil {
 			return err
+		}
+		if sh := l.Shading; sh != nil {
+			if !lookShadings[*sh] {
+				return fmt.Errorf("art.looks %s: shading %q is not a way of drawing a look (painted); leave it out for the build's materials", key, *sh)
+			}
+			if model.Zones == nil {
+				return fmt.Errorf("art.looks %s: shading %s needs a zone mask in the model's record %s (the painter paints its zones)", key, *sh, l.Record)
+			}
 		}
 		if err := checkLookParts(key, l, model.Surfaces, model.UV2Surfaces, l.Record); err != nil {
 			return err
@@ -356,6 +370,9 @@ func clientLooks(a Art, turrets *TurretWatchCatalog) ([]map[string]any, []map[st
 		}
 		if l.Ageing != nil {
 			row["ageing"] = l.Ageing
+		}
+		if l.Shading != nil {
+			row["shading"] = *l.Shading
 		}
 		looks = append(looks, row)
 	}
