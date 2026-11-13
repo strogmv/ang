@@ -309,6 +309,63 @@ func populationFixture(t *testing.T) (Art, *VisitorCatalog) {
 	return a, &VisitorCatalog{Kinds: []VisitorKind{{ID: "bronze_fitter", Look: "bronze_work"}, {ID: "copper_worker", Look: "copper"}}}
 }
 
+func TestLooksIdleAcceptedAndProjected(t *testing.T) {
+	person := func(id string) bool { return id == "char.guard" }
+	root, a, turrets := lookFixture(t)
+	l := a.Looks["look.guard"]
+	idle := "post"
+	l.Idle = &idle
+	a.Looks["look.guard"] = l
+	if err := checkLooks(root, a, person, turrets, nil); err != nil {
+		t.Fatalf("idle post: %v", err)
+	}
+	looks, _ := clientLooks(a, turrets)
+	raw, err := json.Marshal(looks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"idle":"post"`) {
+		t.Fatalf("client look lacks the idle:\n%s", raw)
+	}
+	_, a, turrets = lookFixture(t)
+	looks, _ = clientLooks(a, turrets)
+	if _, ok := looks[0]["idle"]; ok {
+		t.Fatal("a look without an idle must not get one (the shared Idle)")
+	}
+}
+
+func TestLooksIdleRejected(t *testing.T) {
+	person := func(id string) bool { return id == "char.guard" }
+	for name, v := range map[string]string{"empty": "", "unknown": "sentry", "case": "Post", "clip_name": "Idle", "spaced": "post ", "other_clip": "sit"} {
+		t.Run(name, func(t *testing.T) {
+			root, a, turrets := lookFixture(t)
+			l := a.Looks["look.guard"]
+			idle := v
+			l.Idle = &idle
+			a.Looks["look.guard"] = l
+			err := checkLooks(root, a, person, turrets, nil)
+			if err == nil || !strings.Contains(err.Error(), "idle") {
+				t.Fatalf("idle %q: %v", v, err)
+			}
+		})
+	}
+	// An idle that is not a string never reaches the check: world.art does not decode.
+	for name, v := range map[string]string{"number": `1`, "bool": `true`, "list": `["post"]`, "struct": `{stance: "post"}`, "null": `null`} {
+		t.Run("type_"+name, func(t *testing.T) {
+			src := `{looks: "look.guard": {id: "look.guard", record: "art-source/caste/v1/look.json", model: "mark", caste: "silver", glow: [], idle: ` + v + `}}`
+			var a Art
+			if err := cuecontext.New().CompileString(src).Decode(&a); err == nil && a.Looks["look.guard"].Idle != nil {
+				t.Fatalf("idle %s decoded as %q", v, *a.Looks["look.guard"].Idle)
+			}
+		})
+	}
+	src := `{looks: "look.guard": {id: "look.guard", record: "art-source/caste/v1/look.json", model: "mark", caste: "silver", glow: [], idle: "post"}}`
+	var a Art
+	if err := cuecontext.New().CompileString(src).Decode(&a); err != nil || a.Looks["look.guard"].Idle == nil || *a.Looks["look.guard"].Idle != "post" {
+		t.Fatalf("idle post did not decode: %v", err)
+	}
+}
+
 func TestPopulationLooksAcceptedAndProjected(t *testing.T) {
 	a, visitors := populationFixture(t)
 	if err := checkPopulationLooks(a, visitors); err != nil {

@@ -37,6 +37,10 @@ type Look struct {
 	// client scales the look uniformly so the rest height it measured at pack time equals this, and its steps grow with
 	// it (the gait follows the body). Nil: the model's own height as built.
 	HeightM *float64 `json:"height_m,omitempty"`
+	// Idle: the stance the wearer stands in when he does not walk, work or sit (one of lookIdles: "post", a guard on duty
+	// at his post). The clip is a stance of the shared UAL rig the client packs with the look (art-source/anim-stances);
+	// nil: the shared Idle. Explicitly empty is rejected (name a stance or leave the field out).
+	Idle *string `json:"idle,omitempty"`
 }
 
 // LookColourway: a colour per tinted zone of the record's mask.
@@ -103,6 +107,8 @@ var (
 	lookColour  = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
 	// The height of an adult body a look may be drawn at (crown to sole, metres).
 	lookMinHeightM, lookMaxHeightM = 1.45, 2.05
+	// The idle stances of the shared UAL rig a look may name (the clips in art-source/anim-stances/v1/stances.json).
+	lookIdles = map[string]bool{"post": true}
 )
 
 // lookPath is a game-relative path that stays under art-source/ (no absolute path, no '..').
@@ -153,10 +159,10 @@ func lookDuties(turrets *TurretWatchCatalog, person string) []lookDuty {
 // checkLooks validates world.art.looks and world.art.person_looks against the game tree (root: the folder
 // that holds server/ and art-source/): every record exists and names its model with a SHA-256 and the glow
 // surfaces; every bound person exists; an on_duty glow belongs to someone who guards a turret post; a height is an
-// adult's. A model with a zone mask is worn in a colourway that colours exactly the mask's tinted zones; materials belong
-// to surfaces of the model that do not glow; a biomonitor row is a glow surface with a second UV set, driven by
-// world.biomonitor. The GLB and the mask are not required (they stay outside Git): without them the client keeps the
-// mannequin.
+// adult's; an idle names a stance of the shared rig. A model with a zone mask is worn in a colourway that colours
+// exactly the mask's tinted zones; materials belong to surfaces of the model that do not glow; a biomonitor row is a
+// glow surface with a second UV set, driven by world.biomonitor. The GLB and the mask are not required (they stay
+// outside Git): without them the client keeps the mannequin.
 func checkLooks(root string, a Art, person func(string) bool, turrets *TurretWatchCatalog, monitor *BiomonitorCatalog) error {
 	records := map[string]lookRecord{}
 	for key, l := range a.Looks {
@@ -216,6 +222,9 @@ func checkLooks(root string, a Art, person func(string) bool, turrets *TurretWat
 		}
 		if h := l.HeightM; h != nil && (math.IsNaN(*h) || *h < lookMinHeightM || *h > lookMaxHeightM) {
 			return fmt.Errorf("art.looks %s: height_m %g is not an adult's height (crown to sole, %g..%g m)", key, *h, lookMinHeightM, lookMaxHeightM)
+		}
+		if i := l.Idle; i != nil && !lookIdles[*i] {
+			return fmt.Errorf("art.looks %s: idle %q is not a stance of the shared rig (post); leave it out for the shared Idle", key, *i)
 		}
 		if err := checkLookZones(key, l, model.Zones, l.Record); err != nil {
 			return err
@@ -329,6 +338,9 @@ func clientLooks(a Art, turrets *TurretWatchCatalog) ([]map[string]any, []map[st
 		}
 		if l.HeightM != nil {
 			row["height_m"] = *l.HeightM
+		}
+		if l.Idle != nil {
+			row["idle"] = *l.Idle
 		}
 		looks = append(looks, row)
 	}
