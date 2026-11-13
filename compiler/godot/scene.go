@@ -38,6 +38,7 @@ type scene struct {
 	FinishHeader, FinishBindings, FinishLights string
 	FinishProfile                              string
 	KeyEnergy                                  float64
+	KeyLight                                   string
 	FloorOnly                                  bool
 	WorldText                                  bool
 	LayoutID, Frame, CameraTransform           string
@@ -185,6 +186,12 @@ func Render(level locationsdk.CompiledLevel, manifest placement.Manifest, option
 		}
 		if e := options.Finishing.Environment; e != nil && !e.DefaultFill {
 			s.KeyEnergy = 0
+		}
+		if options.Finishing.KeyLight != nil {
+			s.KeyLight, err = options.Finishing.KeyLight.render("Key", "LightingRig")
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 	boxes, err := proceduralBoxes(level, manifest, options.Finishing, roles, replaced, options.FloorOnly)

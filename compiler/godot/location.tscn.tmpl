@@ -80,10 +80,10 @@ metadata/role = "authored lighting placeholder"
 [node name="WorldEnvironment" type="WorldEnvironment" parent="LightingRig"]
 environment = SubResource("environment")
 
-[node name="Key" type="DirectionalLight3D" parent="LightingRig"]
+{{if .KeyLight}}{{.KeyLight}}{{else}}[node name="Key" type="DirectionalLight3D" parent="LightingRig"]
 rotation_degrees = Vector3(-55, -25, 0)
 light_color = Color(1, 0.91, 0.78, 1)
 light_energy = {{.KeyEnergy}}
-shadow_enabled = false
+shadow_enabled = false{{end}}
 
 {{.FinishLights}}

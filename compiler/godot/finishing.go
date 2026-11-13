@@ -24,6 +24,8 @@ type Finishing struct {
 	MaterialBindings map[string]string   `json:"material_bindings"`
 	Replacements     []Replacement       `json:"replacements"`
 	Lights           []Light             `json:"lights"`
+	// KeyLight: the level's one side key from a real light of its CUE lighting data.
+	KeyLight *KeyLight `json:"key_light,omitempty"`
 }
 
 // Linear scene colours, matching glTF and Blender; the emitter converts to
