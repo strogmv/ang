@@ -2,10 +2,14 @@ package gamepoc
 
 import (
 	"encoding/json"
+	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"cuelang.org/go/cue/cuecontext"
 )
 
 func lookFixture(t *testing.T) (string, Art, *TurretWatchCatalog) {
@@ -232,5 +236,66 @@ func TestLooksZonesMaterialsAndBiomonitorRejected(t *testing.T) {
 				t.Fatal("accepted")
 			}
 		})
+	}
+}
+
+// The body height of a look (height_m, crown to sole in the rest pose): an adult's height reaches the client look row;
+// without it the row has none (the model's own height as built).
+func TestLooksHeightAcceptedAndProjected(t *testing.T) {
+	person := func(id string) bool { return id == "char.guard" }
+	for _, h := range []float64{1.45, 1.92, 2.05} {
+		root, a, turrets := lookFixture(t)
+		l := a.Looks["look.guard"]
+		height := h
+		l.HeightM = &height
+		a.Looks["look.guard"] = l
+		if err := checkLooks(root, a, person, turrets, nil); err != nil {
+			t.Fatalf("height %g: %v", h, err)
+		}
+		looks, _ := clientLooks(a, turrets)
+		raw, err := json.Marshal(looks)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := fmt.Sprintf(`"height_m":%g`, h); !strings.Contains(string(raw), want) {
+			t.Fatalf("client look lacks %s:\n%s", want, raw)
+		}
+	}
+	_, a, turrets := lookFixture(t)
+	looks, _ := clientLooks(a, turrets)
+	if _, ok := looks[0]["height_m"]; ok {
+		t.Fatal("a look without a height must not get height_m")
+	}
+}
+
+func TestLooksHeightRejected(t *testing.T) {
+	person := func(id string) bool { return id == "char.guard" }
+	for name, h := range map[string]float64{"short": 1.44, "child": 1.1, "tall": 2.06, "zero": 0, "negative": -1.8, "nan": math.NaN(), "inf": math.Inf(1)} {
+		t.Run(name, func(t *testing.T) {
+			root, a, turrets := lookFixture(t)
+			l := a.Looks["look.guard"]
+			height := h
+			l.HeightM = &height
+			a.Looks["look.guard"] = l
+			err := checkLooks(root, a, person, turrets, nil)
+			if err == nil || !strings.Contains(err.Error(), "height_m") {
+				t.Fatalf("height %g: %v", h, err)
+			}
+		})
+	}
+	// A height that is not a number never reaches the check: world.art does not decode (generate.go reads it so).
+	for name, v := range map[string]string{"string": `"1.92"`, "bool": `true`, "list": `[1.92]`, "struct": `{m: 1.92}`} {
+		t.Run("type_"+name, func(t *testing.T) {
+			src := `{looks: "look.guard": {id: "look.guard", record: "art-source/caste/v1/look.json", model: "mark", caste: "silver", glow: [], height_m: ` + v + `}}`
+			var a Art
+			if err := cuecontext.New().CompileString(src).Decode(&a); err == nil {
+				t.Fatalf("height_m %s decoded as %v", v, a.Looks["look.guard"].HeightM)
+			}
+		})
+	}
+	src := `{looks: "look.guard": {id: "look.guard", record: "art-source/caste/v1/look.json", model: "mark", caste: "silver", glow: [], height_m: 1.92}}`
+	var a Art
+	if err := cuecontext.New().CompileString(src).Decode(&a); err != nil || a.Looks["look.guard"].HeightM == nil || *a.Looks["look.guard"].HeightM != 1.92 {
+		t.Fatalf("height_m 1.92 did not decode: %v", err)
 	}
 }
