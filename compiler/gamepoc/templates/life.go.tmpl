@@ -349,6 +349,7 @@ func (r *Runtime) sendLifeState(c *connection) {
 	r.appendVisitors(view, hero, msg.PlayerView)
  r.appendTurretWatch(view, hero, msg.PlayerView)
  r.appendAccessZones(view, hero, msg.PlayerView)
+ r.appendBiomonitors(view, hero, msg.SceneAgents)
 <<ANG if .GodotScreens ANG>> r.appendScreenTrade(msg,c.locale);r.appendScreenServices(msg,c.locale) <<ANG end ANG>>
  view.CartParkingJson=r.cartParkingJSON(hero,msg.PlayerView)
  r.appendConversation(msg,c.locale)

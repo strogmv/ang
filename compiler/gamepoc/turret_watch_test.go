@@ -51,21 +51,21 @@ func TestTurretWatchDerivesTheRestAim(t *testing.T) {
 
 func TestTurretWatchRejectsPostsItCannotRun(t *testing.T) {
 	cases := map[string]func(*TurretWatchCatalog){
-		"range too short":          func(c *TurretWatchCatalog) { c.Rule.RangeM = .5 },
-		"no slew":                  func(c *TurretWatchCatalog) { c.Rule.PanSlewDegS = 0 },
-		"tilt up only":             func(c *TurretWatchCatalog) { c.Rule.TiltMinDeg = 5 },
-		"eye never lights":         func(c *TurretWatchCatalog) { c.Rule.EyeRiseMS = 0 },
-		"look colour":              func(c *TurretWatchCatalog) { c.Look.EyeLightColor = "red" },
-		"unknown level":            func(c *TurretWatchCatalog) { c.Posts[0].LevelID = "nowhere" },
-		"pivot outside":            func(c *TurretWatchCatalog) { c.Posts[0].PivotM[0] = 40 },
-		"pivot below the people":   func(c *TurretWatchCatalog) { c.Posts[0].PivotM[2] = 1 },
-		"object out of range":      func(c *TurretWatchCatalog) { c.Posts[0].Object.XM = 18 },
-		"no guards":                func(c *TurretWatchCatalog) { c.Posts[0].Guards = nil },
-		"guard without the duty":   func(c *TurretWatchCatalog) { c.Posts[0].Guards = []string{"char.walker"} },
-		"duplicate node":           func(c *TurretWatchCatalog) { c.Posts[0].TiltNode = "a.pan" },
-		"no eye":                   func(c *TurretWatchCatalog) { c.Posts[0].EyeNodes = nil },
-		"rest behind the wall":     func(c *TurretWatchCatalog) { c.Posts[0].RestAimM = []float64{8, .5, 1} },
-		"rest aim straight down":   func(c *TurretWatchCatalog) { c.Posts[0].RestAimM = []float64{8.05, 3.7, 0} },
+		"range too short":        func(c *TurretWatchCatalog) { c.Rule.RangeM = .5 },
+		"no slew":                func(c *TurretWatchCatalog) { c.Rule.PanSlewDegS = 0 },
+		"tilt up only":           func(c *TurretWatchCatalog) { c.Rule.TiltMinDeg = 5 },
+		"eye never lights":       func(c *TurretWatchCatalog) { c.Rule.EyeRiseMS = 0 },
+		"look colour":            func(c *TurretWatchCatalog) { c.Look.EyeLightColor = "red" },
+		"unknown level":          func(c *TurretWatchCatalog) { c.Posts[0].LevelID = "nowhere" },
+		"pivot outside":          func(c *TurretWatchCatalog) { c.Posts[0].PivotM[0] = 40 },
+		"pivot below the people": func(c *TurretWatchCatalog) { c.Posts[0].PivotM[2] = 1 },
+		"object out of range":    func(c *TurretWatchCatalog) { c.Posts[0].Object.XM = 18 },
+		"no guards":              func(c *TurretWatchCatalog) { c.Posts[0].Guards = nil },
+		"guard without the duty": func(c *TurretWatchCatalog) { c.Posts[0].Guards = []string{"char.walker"} },
+		"duplicate node":         func(c *TurretWatchCatalog) { c.Posts[0].TiltNode = "a.pan" },
+		"no eye":                 func(c *TurretWatchCatalog) { c.Posts[0].EyeNodes = nil },
+		"rest behind the wall":   func(c *TurretWatchCatalog) { c.Posts[0].RestAimM = []float64{8, .5, 1} },
+		"rest aim straight down": func(c *TurretWatchCatalog) { c.Posts[0].RestAimM = []float64{8.05, 3.7, 0} },
 		"duplicate post": func(c *TurretWatchCatalog) {
 			c.Posts = append(c.Posts, c.Posts[0])
 			c.Posts[1].PivotM, c.Posts[1].RestAimM = append([]float64(nil), c.Posts[0].PivotM...), append([]float64(nil), c.Posts[0].RestAimM...)

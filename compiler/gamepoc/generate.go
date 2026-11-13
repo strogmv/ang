@@ -196,6 +196,8 @@ type Compiled struct {
 	ExitZones    *ExitZoneCatalog    `json:"exit_zones,omitempty"`
 	LiftingDecks *LiftingDeckCatalog `json:"lifting_decks,omitempty"`
 	TurretWatch  *TurretWatchCatalog `json:"turret_watch,omitempty"`
+	// The armour's biomonitor (biomonitor.go): the shared table and who wears a look with one.
+	Biomonitor *BiomonitorCatalog `json:"biomonitor,omitempty"`
 	// Access zones (access_zones.go): the floor marking for the client, the scan, countdown and fire for the server.
 	AccessZones      []AccessZone           `json:"access_zones,omitempty"`
 	GodotScenes      []GodotScene           `json:"-"`
@@ -748,10 +750,16 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	if err := checkPresentationCamera(out.Art.Camera); err != nil {
 		return out, nil, err
 	}
+	if out.Biomonitor, err = readBiomonitor(world); err != nil {
+		return out, nil, err
+	}
 	if err := checkLooks(filepath.Dir(project), out.Art, func(id string) bool {
 		return world.LookupPath(cue.MakePath(cue.Str("persons"), cue.Str(id))).Exists()
-	}, out.TurretWatch); err != nil {
+	}, out.TurretWatch, out.Biomonitor); err != nil {
 		return out, nil, err
+	}
+	if out.Biomonitor != nil {
+		out.Biomonitor.Wearers = biomonitorWearers(out.Art)
 	}
 	if loading := world.LookupPath(cue.ParsePath("loading")); loading.Exists() {
 		if err := loading.Decode(&out.Loading); err != nil {
@@ -1242,6 +1250,8 @@ func generatePOC(project string, legacyUnity bool) error {
 		"access_zone.go.tmpl":                   filepath.Join(project, "internal/poc/access_zone.gen.go"),
 		"access_zone_test.go.tmpl":              filepath.Join(project, "internal/poc/access_zone_generated_test.go"),
 		"world_hit_test.go.tmpl":                filepath.Join(project, "internal/poc/world_hit_generated_test.go"),
+		"biomonitor.go.tmpl":                    filepath.Join(project, "internal/poc/biomonitor.gen.go"),
+		"biomonitor_test.go.tmpl":               filepath.Join(project, "internal/poc/biomonitor_generated_test.go"),
 		"train_motion.go.tmpl":                  filepath.Join(project, "internal/poc/train_motion.gen.go"),
 		"train_motion_test.go.tmpl":             filepath.Join(project, "internal/poc/train_motion_generated_test.go"),
 		"train_fleet_fixture_test.go.tmpl":      filepath.Join(project, "internal/poc/train_fleet_fixture_generated_test.go"),

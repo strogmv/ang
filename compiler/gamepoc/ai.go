@@ -50,6 +50,10 @@ func clientArt(c Compiled) map[string]any {
 	if len(c.Art.Looks) > 0 || len(c.Art.PersonLooks) > 0 {
 		art["looks"], art["person_looks"] = clientLooks(c.Art, c.TurretWatch)
 	}
+	// The biomonitor's colours, brightness and blinking per tier (biomonitor.go), only in worlds that have the table.
+	if c.Biomonitor != nil {
+		art["biomonitor"] = clientBiomonitor(c.Biomonitor)
+	}
 	return art
 }
 

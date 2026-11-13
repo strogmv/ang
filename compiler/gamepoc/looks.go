@@ -24,6 +24,35 @@ type Look struct {
 	Model  string     `json:"model"`
 	Caste  string     `json:"caste"`
 	Glow   []LookGlow `json:"glow"`
+	// Colourways tint the model's zone mask (the record's zones): the atlas is drawn in the zones' reference colours, the
+	// game divides by them and multiplies by the colourway's (client-godot/shaders/look_zones.gdshader); nothing is
+	// baked. Colourway names the one worn; a model without a mask has none.
+	Colourway  string                   `json:"colourway,omitempty"`
+	Colourways map[string]LookColourway `json:"colourways,omitempty"`
+	// Materials of the surfaces that do not glow, by the record's surface names (roughness, metal, clearcoat …).
+	Materials map[string]LookMaterial `json:"materials,omitempty"`
+	// Biomonitor: the glow surface whose second UV holds the segment index of the world.biomonitor row (biomonitor.go).
+	Biomonitor *LookBiomonitor `json:"biomonitor,omitempty"`
+}
+
+// LookColourway: a colour per tinted zone of the record's mask.
+type LookColourway struct {
+	Zones map[string]string `json:"zones"`
+	Note  string            `json:"note"`
+}
+
+// LookMaterial: a surface's material from data; Clearcoat, ClearcoatRoughness and Specular are optional (nil: as built).
+type LookMaterial struct {
+	Roughness          float64  `json:"roughness"`
+	Metallic           float64  `json:"metallic"`
+	Clearcoat          *float64 `json:"clearcoat,omitempty"`
+	ClearcoatRoughness *float64 `json:"clearcoat_roughness,omitempty"`
+	Specular           *float64 `json:"specular,omitempty"`
+}
+
+// LookBiomonitor names the glow surface of the biomonitor row.
+type LookBiomonitor struct {
+	Surface string `json:"surface"`
 }
 
 // LookGlow is one glowing surface of a look. Energy is the brightness of the surface's emission
@@ -45,7 +74,19 @@ type lookRecord struct {
 		File     string            `json:"file"`
 		SHA256   string            `json:"sha256"`
 		Surfaces map[string]string `json:"surfaces"`
+		// Surfaces whose primitives carry a second UV set (a biomonitor's segment index lives there).
+		UV2Surfaces []string `json:"uv2_surfaces"`
+		// The zone mask beside the GLB (outside Git) and the colour each tinted zone has in the atlas.
+		Zones *lookRecordZones `json:"zones"`
 	} `json:"looks"`
+}
+
+// lookRecordZones: the model's zone mask (game-relative .png outside Git, its SHA-256) and the colour each tinted zone
+// has in the atlas (the reference the game divides by).
+type lookRecordZones struct {
+	Mask          string            `json:"mask"`
+	MaskSHA256    string            `json:"mask_sha256"`
+	ReferenceSRGB map[string]string `json:"reference_srgb"`
 }
 
 var (
@@ -55,6 +96,7 @@ var (
 	lookCastes  = map[string]bool{"silver": true, "bronze": true, "copper": true, "gold": true}
 	lookWhen    = map[string]bool{"always": true, "on_duty": true}
 	lookMaxGlow = 16.0
+	lookColour  = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
 )
 
 // lookPath is a game-relative path that stays under art-source/ (no absolute path, no '..').
@@ -104,9 +146,11 @@ func lookDuties(turrets *TurretWatchCatalog, person string) []lookDuty {
 
 // checkLooks validates world.art.looks and world.art.person_looks against the game tree (root: the folder
 // that holds server/ and art-source/): every record exists and names its model with a SHA-256 and the glow
-// surfaces; every bound person exists; an on_duty glow belongs to someone who guards a turret post. The GLB
-// is not required (it stays outside Git): without it the client keeps the mannequin.
-func checkLooks(root string, a Art, person func(string) bool, turrets *TurretWatchCatalog) error {
+// surfaces; every bound person exists; an on_duty glow belongs to someone who guards a turret post. A model with a
+// zone mask is worn in a colourway that colours exactly the mask's tinted zones; materials belong to surfaces of the
+// model that do not glow; a biomonitor row is a glow surface with a second UV set, driven by world.biomonitor. The GLB
+// and the mask are not required (they stay outside Git): without them the client keeps the mannequin.
+func checkLooks(root string, a Art, person func(string) bool, turrets *TurretWatchCatalog, monitor *BiomonitorCatalog) error {
 	records := map[string]lookRecord{}
 	for key, l := range a.Looks {
 		if !lookID.MatchString(key) || l.ID != key {
@@ -163,6 +207,35 @@ func checkLooks(root string, a Art, person func(string) bool, turrets *TurretWat
 				}
 			}
 		}
+		if err := checkLookZones(key, l, model.Zones, l.Record); err != nil {
+			return err
+		}
+		for surface, m := range l.Materials {
+			if model.Surfaces[surface] == "" || strings.HasPrefix(surface, "glow_") {
+				return fmt.Errorf("art.looks %s: material %q is not a surface of model %s in %s that does not glow", key, surface, l.Model, l.Record)
+			}
+			for _, v := range []*float64{&m.Roughness, &m.Metallic, m.Clearcoat, m.ClearcoatRoughness, m.Specular} {
+				if v != nil && (math.IsNaN(*v) || *v < 0 || *v > 1) {
+					return fmt.Errorf("art.looks %s: material %s: every number within 0..1", key, surface)
+				}
+			}
+		}
+		if b := l.Biomonitor; b != nil {
+			uv2 := false
+			for _, s := range model.UV2Surfaces {
+				uv2 = uv2 || s == b.Surface
+			}
+			switch {
+			case !strings.HasPrefix(b.Surface, "glow_") || model.Surfaces[b.Surface] == "":
+				return fmt.Errorf("art.looks %s: biomonitor surface %q is not a glow_ surface of model %s in %s", key, b.Surface, l.Model, l.Record)
+			case seen[b.Surface]:
+				return fmt.Errorf("art.looks %s: biomonitor surface %s is also a glow of the look: one surface, one driver", key, b.Surface)
+			case !uv2:
+				return fmt.Errorf("art.looks %s: biomonitor surface %s has no second UV set in %s (the segment index)", key, b.Surface, l.Record)
+			case monitor == nil:
+				return fmt.Errorf("art.looks %s: a biomonitor row needs the shared table world.biomonitor", key)
+			}
+		}
 	}
 	for id, look := range a.PersonLooks {
 		l, ok := a.Looks[look]
@@ -175,6 +248,45 @@ func checkLooks(root string, a Art, person func(string) bool, turrets *TurretWat
 		for _, g := range l.Glow {
 			if g.When == "on_duty" && len(lookDuties(turrets, id)) == 0 {
 				return fmt.Errorf("art.person_looks %s: look %s lights %s on duty, but the person guards no post of world.turret_watch", id, look, g.Surface)
+			}
+		}
+	}
+	return nil
+}
+
+// checkLookZones: a model with a zone mask (a safe .png under art-source/ with its SHA-256 and the reference colour of
+// each tinted zone) is worn in a colourway of the look, and every colourway colours exactly those zones; a model without
+// a mask has no colourway.
+func checkLookZones(key string, l Look, zones *lookRecordZones, record string) error {
+	if zones == nil {
+		if l.Colourway != "" || len(l.Colourways) > 0 {
+			return fmt.Errorf("art.looks %s: colourways need a zone mask in the model's record %s", key, record)
+		}
+		return nil
+	}
+	if !lookPath(zones.Mask, ".png") || !lookSHA.MatchString(zones.MaskSHA256) || len(zones.ReferenceSRGB) == 0 || len(zones.ReferenceSRGB) > 4 {
+		return fmt.Errorf("art.looks %s: record %s gives the zone mask no safe .png under art-source/, SHA-256 and 1..4 reference zones", key, record)
+	}
+	for zone, c := range zones.ReferenceSRGB {
+		if !lookColour.MatchString(c) {
+			return fmt.Errorf("art.looks %s: record %s: reference colour of zone %s is not #RRGGBB", key, record, zone)
+		}
+	}
+	if _, ok := l.Colourways[l.Colourway]; !ok {
+		return fmt.Errorf("art.looks %s: the model has a zone mask; name the colourway it is worn in (one of the look's colourways), not %q", key, l.Colourway)
+	}
+	for name, cw := range l.Colourways {
+		if !lookModel.MatchString(strings.ToLower(name)) || strings.TrimSpace(cw.Note) == "" {
+			return fmt.Errorf("art.looks %s: colourway %q needs a plain name and a note", key, name)
+		}
+		for zone := range zones.ReferenceSRGB {
+			if !lookColour.MatchString(cw.Zones[zone]) {
+				return fmt.Errorf("art.looks %s: colourway %s gives zone %s of the mask no #RRGGBB colour", key, name, zone)
+			}
+		}
+		for zone := range cw.Zones {
+			if _, ok := zones.ReferenceSRGB[zone]; !ok {
+				return fmt.Errorf("art.looks %s: colourway %s colours %q, which is not a tinted zone of the mask in %s", key, name, zone, record)
 			}
 		}
 	}
@@ -194,8 +306,18 @@ func clientLooks(a Art, turrets *TurretWatchCatalog) ([]map[string]any, []map[st
 		l := a.Looks[id]
 		glow := append([]LookGlow{}, l.Glow...)
 		sort.Slice(glow, func(i, j int) bool { return glow[i].Surface < glow[j].Surface })
-		looks = append(looks, map[string]any{"id": id, "record": l.Record, "model": l.Model, "caste": l.Caste,
-			"pack": "res://actors-assets/looks/" + l.Model + ".scn", "glow": glow})
+		row := map[string]any{"id": id, "record": l.Record, "model": l.Model, "caste": l.Caste,
+			"pack": "res://actors-assets/looks/" + l.Model + ".scn", "glow": glow}
+		if l.Colourway != "" {
+			row["colourway"], row["colourways"] = l.Colourway, l.Colourways
+		}
+		if len(l.Materials) > 0 {
+			row["materials"] = l.Materials
+		}
+		if l.Biomonitor != nil {
+			row["biomonitor"] = l.Biomonitor
+		}
+		looks = append(looks, row)
 	}
 	people := make([]string, 0, len(a.PersonLooks))
 	for id := range a.PersonLooks {
