@@ -129,6 +129,10 @@ func clientResource(c Compiled) ([]byte, error) {
 	if c.FootContact != nil {
 		view["foot_contact"] = clientFootContact(c.FootContact)
 	}
+	// People read v1 only in worlds that have it: per level, the grade of the surroundings, the haze and the people's pass.
+	if c.PeopleRead != nil {
+		view["people_read"] = clientPeopleRead(c.PeopleRead)
+	}
 	// Vending terminals (demo-hub v12-vending) only in worlds that have them.
 	if c.Vending != nil {
 		view["vending"] = clientVending(c.Vending)
