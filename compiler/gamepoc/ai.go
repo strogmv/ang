@@ -58,6 +58,10 @@ func clientArt(c Compiled) map[string]any {
 	if len(c.Art.PersonPopulations) > 0 {
 		art["person_populations"] = clientPersonPopulations(c.Art)
 	}
+	// The painted people test (looks_painttest.go): only in worlds that name one.
+	if c.Art.PaintTest != nil {
+		art["paint_test"] = clientPaintTest(c.Art.PaintTest)
+	}
 	// The biomonitor's colours, brightness and blinking per tier (biomonitor.go), only in worlds that have the table.
 	if c.Biomonitor != nil {
 		art["biomonitor"] = clientBiomonitor(c.Biomonitor)

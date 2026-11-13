@@ -173,9 +173,11 @@ type Art struct {
 	// People of the world drawn as wearers of a population look by one general rule in CUE (looks_parts.go, market people v1
 	// part B: the traders by caste, body and age): person -> the population look and his age.
 	PersonPopulations map[string]PersonPopulation `json:"person_populations"`
-	Tile              struct{ W, H int }          `json:"tile"`
-	Palette           map[string]string           `json:"palette"`
-	Sprites           map[string]ArtSprite        `json:"sprites"`
+	// The painted people test (looks_painttest.go): which people are drawn in which version (now, sprite, painted3d).
+	PaintTest *PaintTest           `json:"paint_test,omitempty"`
+	Tile      struct{ W, H int }   `json:"tile"`
+	Palette   map[string]string    `json:"palette"`
+	Sprites   map[string]ArtSprite `json:"sprites"`
 }
 
 // LoadingScreen is a full-screen picture shown while the server answers a new game or load request (world.loading).
@@ -783,6 +785,11 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 		return out, nil, err
 	}
 	if err := checkPersonPopulations(out.Art, func(id string) bool {
+		return world.LookupPath(cue.MakePath(cue.Str("persons"), cue.Str(id))).Exists()
+	}); err != nil {
+		return out, nil, err
+	}
+	if err := checkPaintTest(out.Art, func(id string) bool {
 		return world.LookupPath(cue.MakePath(cue.Str("persons"), cue.Str(id))).Exists()
 	}); err != nil {
 		return out, nil, err
