@@ -5,4 +5,5 @@ scale = {{.Size}}
 mesh = SubResource("box")
 material_override = {{.Material}}
 metadata/source_id = {{quote .SourceID}}
-{{end}}{{end}}
+{{if .Kind}}metadata/structure_kind = {{quote .Kind}}
+{{end}}{{end}}{{end}}

@@ -28,6 +28,10 @@ func TestPrimitiveBudgetUsesEmittedCellsAndModelSuppression(t *testing.T) {
 	if err != nil || strings.Count(string(scene), `metadata/source_id = "slab"`) != 4 {
 		t.Fatalf("draw plan differs from scene: %v", err)
 	}
+	// Camera cutaway v1: every procedural box names its structure kind (a slab is a floor, never an occluder).
+	if strings.Count(string(scene), "metadata/source_id = \"slab\"\nmetadata/structure_kind = \"floor\"") != 4 {
+		t.Fatalf("slab boxes lost their structure kind:\n%s", scene)
+	}
 	plane, err := PlanProceduralGeometry(level, manifest, nil, true)
 	if err != nil || plane.Triangles != 8 {
 		t.Fatalf("FloorOnly plane topology: %+v, %v", plane, err)
@@ -40,5 +44,35 @@ func TestPrimitiveBudgetUsesEmittedCellsAndModelSuppression(t *testing.T) {
 	plan, err = PlanProceduralGeometry(level, manifest, finish, false)
 	if err != nil || plan.Triangles != 0 || len(plan.Primitives) != 0 {
 		t.Fatalf("suppressed primitive counted: %+v, %v", plan, err)
+	}
+}
+
+// Camera cutaway v1: a CUE obstacle box carries its style as the structure kind, a slab "floor"; the client cuts only the
+// level's occluder kinds, so a panel or glazing obstacle is never mistaken for a wall.
+func TestProceduralBoxesNameTheirStructureKind(t *testing.T) {
+	level := locationsdk.CompiledLevel{ID: "kind-room", UnitMM: 500, Width: 4, Depth: 4}
+	level.Navigation = &locationsdk.Navigation{
+		Surfaces: []locationsdk.NavSurface{{ID: "deck", SlabMM: 250, Walkable: true, Slab: []locationsdk.Rect{{W: 4, H: 4}}}},
+		Obstacles: []locationsdk.NavObstacle{
+			{ID: "near.wall", Style: "wall", Rect: locationsdk.Rect{X: 0, Y: 3, W: 4, H: 1}, TopMM: 6000},
+			{ID: "shop.panel", Style: "panel", Rect: locationsdk.Rect{X: 0, Y: 0, W: 1, H: 1}, TopMM: 2400},
+		},
+	}
+	manifest, err := placement.Build(level, placement.Authoring{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	scene, err := Render(level, manifest, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"metadata/source_id = \"deck\"\nmetadata/structure_kind = \"floor\"",
+		"metadata/source_id = \"near.wall\"\nmetadata/structure_kind = \"wall\"",
+		"metadata/source_id = \"shop.panel\"\nmetadata/structure_kind = \"panel\"",
+	} {
+		if !strings.Contains(string(scene), want) {
+			t.Fatalf("missing %q in\n%s", want, scene)
+		}
 	}
 }

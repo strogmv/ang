@@ -117,6 +117,10 @@ func clientResource(c Compiled) ([]byte, error) {
 	if len(c.AccessZones) > 0 {
 		view["access_zones"] = clientAccessZones(c.AccessZones)
 	}
+	// Camera cutaway v1 only in worlds that have it: the numbers of the cut and the occluder kinds per level.
+	if c.CameraCutaway != nil {
+		view["camera_cutaway"] = clientCameraCutaway(c.CameraCutaway)
+	}
 	// Vending terminals (demo-hub v12-vending) only in worlds that have them.
 	if c.Vending != nil {
 		view["vending"] = clientVending(c.Vending)

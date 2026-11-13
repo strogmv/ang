@@ -91,7 +91,7 @@ func proceduralBoxes(level locationsdk.CompiledLevel, manifest placement.Manifes
 		return nil, err
 	}
 	boxes := []box{}
-	addBox := func(id string, r locationsdk.Rect, bottom, top int, material string) {
+	addBox := func(id string, r locationsdk.Rect, bottom, top int, material, kind string) {
 		if top <= bottom || replaced[id] {
 			return
 		}
@@ -110,7 +110,7 @@ func proceduralBoxes(level locationsdk.CompiledLevel, manifest placement.Manifes
 				if floorOnly {
 					p[1] = float64(top) / 1000
 				}
-				boxes = append(boxes, box{fmt.Sprintf("Structure_%03d", len(boxes)), id, vector(p), vector(placement.Vec3{part[2] - part[0], slab.Thickness, part[3] - part[1]}), ref})
+				boxes = append(boxes, box{fmt.Sprintf("Structure_%03d", len(boxes)), id, vector(p), vector(placement.Vec3{part[2] - part[0], slab.Thickness, part[3] - part[1]}), ref, kind})
 			}
 			return
 		}
@@ -125,7 +125,7 @@ func proceduralBoxes(level locationsdk.CompiledLevel, manifest placement.Manifes
 		if ref == "" {
 			ref = "SubResource(" + strconv.Quote(material) + ")"
 		}
-		boxes = append(boxes, box{fmt.Sprintf("Structure_%03d", len(boxes)), id, vector(p), vector(placement.Vec3{float64(r.W) * unit, float64(top-bottom) / 1000, float64(r.H) * unit}), ref})
+		boxes = append(boxes, box{fmt.Sprintf("Structure_%03d", len(boxes)), id, vector(p), vector(placement.Vec3{float64(r.W) * unit, float64(top-bottom) / 1000, float64(r.H) * unit}), ref, kind})
 	}
 	if n := level.Navigation; n != nil {
 		for _, surface := range n.Surfaces {
@@ -133,7 +133,7 @@ func proceduralBoxes(level locationsdk.CompiledLevel, manifest placement.Manifes
 				continue
 			}
 			for _, r := range surface.Slab {
-				addBox(surface.ID, r, surface.ElevationMM-surface.SlabMM, surface.ElevationMM, "floor")
+				addBox(surface.ID, r, surface.ElevationMM-surface.SlabMM, surface.ElevationMM, "floor", "floor")
 			}
 		}
 		for _, o := range n.Obstacles {
@@ -151,12 +151,12 @@ func proceduralBoxes(level locationsdk.CompiledLevel, manifest placement.Manifes
 						return nil, e
 					}
 				}
-				addBox(o.ID, o.Rect, o.BottomMM, o.TopMM, role)
+				addBox(o.ID, o.Rect, o.BottomMM, o.TopMM, role, o.Style)
 			}
 		}
 	} else {
 		for _, r := range level.Preview.Floor {
-			addBox(r.SourceID, locationsdk.Rect{X: r.At.X, Y: r.At.Y, W: 1, H: 1}, level.Elevation*level.UnitMM-250, level.Elevation*level.UnitMM, "floor")
+			addBox(r.SourceID, locationsdk.Rect{X: r.At.X, Y: r.At.Y, W: 1, H: 1}, level.Elevation*level.UnitMM-250, level.Elevation*level.UnitMM, "floor", "floor")
 		}
 	}
 	if f := finishing; f != nil && f.Architecture != nil {
@@ -190,7 +190,7 @@ func proceduralBoxes(level locationsdk.CompiledLevel, manifest placement.Manifes
 			if ref == "" {
 				return nil, fmt.Errorf("architecture.draws[%q]: declare object_roles material %q", d.ID, d.MaterialRole)
 			}
-			boxes = append(boxes, box{fmt.Sprintf("Architecture_%03d", len(boxes)), d.ID, vector(placement.FromPlan(placement.Vec3(d.Position))), vector(placement.Vec3(d.Size)), ref})
+			boxes = append(boxes, box{fmt.Sprintf("Architecture_%03d", len(boxes)), d.ID, vector(placement.FromPlan(placement.Vec3(d.Position))), vector(placement.Vec3(d.Size)), ref, d.Kind})
 		}
 	}
 	return boxes, nil

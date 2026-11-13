@@ -31,7 +31,11 @@ type Options struct {
 
 type resource struct{ ID, Path string }
 type node struct{ Name, InstanceID, ModelRef, ResourceID, Transform string }
-type box struct{ Name, SourceID, Position, Size, Material string }
+
+// Kind is the structure kind of the box (camera cutaway v1): "floor" for a slab, the CUE obstacle style ("wall", "panel",
+// "glazing") or the architecture draw kind ("wall", "steel", "trim"). The client cuts a level's occluder kinds
+// (world.camera_cutaway) when they stand between the camera and the floor the hero sees; nothing else reads it.
+type box struct{ Name, SourceID, Position, Size, Material, Kind string }
 type floorWedge struct{ Name, SourceID, Transform, Material string }
 type scene struct {
 	ToneMapper                                 int

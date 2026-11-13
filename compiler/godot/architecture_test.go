@@ -68,6 +68,10 @@ func TestArchitectureDrawPreservesNavigationAndRejectsWrongMaterial(t *testing.T
 	if !strings.Contains(string(scene), `metadata/source_id = "side.wall"`) || !strings.Contains(string(scene), `ANG_ROLE__concrete.bronze`) {
 		t.Fatal("source identity or material role binding lost")
 	}
+	// Camera cutaway v1: the draw carries its structure kind, which the client matches against the level's occluder kinds.
+	if !strings.Contains(string(scene), "metadata/source_id = \"side.wall\"\nmetadata/structure_kind = \"wall\"") {
+		t.Fatal("architecture draw lost its structure kind")
+	}
 	after, _ := json.Marshal(level)
 	if string(before) != string(after) {
 		t.Fatal("architecture changed source navigation")

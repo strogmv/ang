@@ -269,6 +269,8 @@ type Compiled struct {
 	HallClosing *HallClosing `json:"hall_closing,omitempty"`
 	// The noise waves (combat-play/noise-waves, world.noise_waves); nil in worlds without them.
 	NoiseWaves *NoiseWaveCatalog `json:"noise_waves,omitempty"`
+	// Camera cutaway (camera_cutaway.go): occluder kinds per level and the cut's numbers, presentation only.
+	CameraCutaway *CameraCutaway `json:"-"`
 	// The tactical view (owner 04.11, world.tactical_mode): its label and switch, common to all it will show.
 	TacticalMode *TacticalMode `json:"tactical_mode,omitempty"`
 	// Crafting stage 1 (doc 93, world.crafting): the engine catalog completed from the compiled world; nil without it.
@@ -505,6 +507,9 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 		return out, nil, err
 	}
 	if out.AccessZones, err = readAccessZones(w, world, out); err != nil {
+		return out, nil, err
+	}
+	if out.CameraCutaway, err = readCameraCutaway(world, out); err != nil {
 		return out, nil, err
 	}
 	if out.TrainMotion, err = readTrainMotion(world, out.Life); err != nil {
