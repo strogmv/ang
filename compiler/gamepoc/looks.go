@@ -41,6 +41,12 @@ type Look struct {
 	// at his post). The clip is a stance of the shared UAL rig the client packs with the look (art-source/anim-stances);
 	// nil: the shared Idle. Explicitly empty is rejected (name a stance or leave the field out).
 	Idle *string `json:"idle,omitempty"`
+	// Parts (market people v1, part B): surfaces of the model (part_* in its record) that only some wearers wear — the
+	// fitter's kit, the trader's apron, a woman's bun or tail (looks_parts.go). Nil: the model is drawn whole, as built.
+	Parts *LookParts `json:"parts,omitempty"`
+	// Ageing (part B): the surface whose second UV set holds the face painted older; the client blends toward it by the
+	// wearer's age from data (looks_parts.go). Nil: no age marks.
+	Ageing *LookAgeing `json:"ageing,omitempty"`
 }
 
 // LookColourway: a colour per tinted zone of the record's mask.
@@ -229,6 +235,9 @@ func checkLooks(root string, a Art, person func(string) bool, turrets *TurretWat
 		if err := checkLookZones(key, l, model.Zones, l.Record); err != nil {
 			return err
 		}
+		if err := checkLookParts(key, l, model.Surfaces, model.UV2Surfaces, l.Record); err != nil {
+			return err
+		}
 		for surface, m := range l.Materials {
 			if model.Surfaces[surface] == "" || strings.HasPrefix(surface, "glow_") {
 				return fmt.Errorf("art.looks %s: material %q is not a surface of model %s in %s that does not glow", key, surface, l.Model, l.Record)
@@ -342,6 +351,12 @@ func clientLooks(a Art, turrets *TurretWatchCatalog) ([]map[string]any, []map[st
 		if l.Idle != nil {
 			row["idle"] = *l.Idle
 		}
+		if l.Parts != nil {
+			row["parts"] = clientLookParts(*l.Parts)
+		}
+		if l.Ageing != nil {
+			row["ageing"] = l.Ageing
+		}
 		looks = append(looks, row)
 	}
 	people := make([]string, 0, len(a.PersonLooks))
@@ -367,6 +382,17 @@ type PopulationLook struct {
 	// HeightM: the wearers' body heights (the look's height_m as a spread): each person's height between Min and Max,
 	// picked by his id; nil — the look's own height_m (or the model as built).
 	HeightM *PopulationHeight `json:"height_m,omitempty"`
+	// Ages (part B): colourways by the wearer's age — a wearer of at least FromAge is drawn in that band's colourways (the
+	// highest band that fits: grey hair of the older). Wearers without an age (the crowd) use Colourways.
+	Ages []PopulationAge `json:"ages,omitempty"`
+}
+
+// PopulationAge is one band of colourways by age (looks_parts.go). Choose (optional) narrows a parts.choose group of the
+// look for the band's wearers to the named options (the older women: a bun or tied back, never the short cut).
+type PopulationAge struct {
+	FromAge    int64               `json:"from_age"`
+	Colourways map[string]int64    `json:"colourways"`
+	Choose     map[string][]string `json:"choose,omitempty"`
 }
 
 // PopulationHeight is a range of adult body heights in metres (the same 1.45-2.05 as a look's height_m).
@@ -387,12 +413,16 @@ func checkPopulationLooks(a Art, visitors *VisitorCatalog) error {
 			worn[k.Look] = true
 		}
 	}
+	// part B: a population look a person of the world is drawn as (art.person_populations) is worn too
+	for _, pp := range a.PersonPopulations {
+		worn[pp.Population] = true
+	}
 	for name, p := range a.PopulationLooks {
 		if !populationName.MatchString(name) {
 			return fmt.Errorf("art.population_looks %q: a population look is a plain name (the look of a visitor kind)", name)
 		}
 		if !worn[name] {
-			return fmt.Errorf("art.population_looks %s: no kind of world.visitors wears this look", name)
+			return fmt.Errorf("art.population_looks %s: no kind of world.visitors wears this look and no person of art.person_populations", name)
 		}
 		l, ok := a.Looks[p.Look]
 		if !ok {
@@ -416,6 +446,9 @@ func checkPopulationLooks(a Art, visitors *VisitorCatalog) error {
 			if share < 1 || share > 100 {
 				return fmt.Errorf("art.population_looks %s: the share of colourway %s must be within 1..100", name, cw)
 			}
+		}
+		if err := checkPopulationAges(name, p, l); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -444,6 +477,9 @@ func clientPopulationLooks(a Art) []map[string]any {
 		row := map[string]any{"id": n, "look": p.Look, "colourways": rows}
 		if p.HeightM != nil {
 			row["height_m"] = map[string]float64{"min": p.HeightM.Min, "max": p.HeightM.Max}
+		}
+		if len(p.Ages) > 0 {
+			row["ages"] = clientPopulationAges(p.Ages)
 		}
 		out = append(out, row)
 	}
