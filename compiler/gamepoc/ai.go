@@ -121,6 +121,10 @@ func clientResource(c Compiled) ([]byte, error) {
 	if c.CameraCutaway != nil {
 		view["camera_cutaway"] = clientCameraCutaway(c.CameraCutaway)
 	}
+	// Foot contact v1 only in worlds that have it: the numbers of the client's sole-on-the-floor step.
+	if c.FootContact != nil {
+		view["foot_contact"] = clientFootContact(c.FootContact)
+	}
 	// Vending terminals (demo-hub v12-vending) only in worlds that have them.
 	if c.Vending != nil {
 		view["vending"] = clientVending(c.Vending)
