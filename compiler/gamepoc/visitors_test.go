@@ -83,7 +83,7 @@ func TestCraftDressAgainstTheKitTheCounterAndTheStock(t *testing.T) {
 func visitorFixture(t *testing.T) Compiled {
 	t.Helper()
 	life, err := json.Marshal(map[string]any{
-		"locations": map[string]any{"level.hall": map[string]any{"terrain": []string{"........", "........"}}},
+		"locations": map[string]any{"level.hall": map[string]any{"terrain": []string{"........", "........"}, "cell_mm": 500}},
 		"actors": []any{map[string]any{"id": "char.t", "steps": []any{
 			map[string]any{"level": "level.home", "at": map[string]int{"X": 1, "Y": 1}, "activity": "sleep"},
 			map[string]any{"level": "level.hall", "at": map[string]int{"X": 2, "Y": 0}, "activity": "service"},
@@ -189,6 +189,59 @@ func TestVisitorsAddSlotsTheOutsideAccountAndTheConsignments(t *testing.T) {
 		{"more walks than a list", "walk_stops", func(c *Compiled) { c.Visitors.WalkStops = 3 }},
 		{"an endless look", "own look", func(c *Compiled) { c.Visitors.Targets[0].DwellTicks = &VisitorRange{Min: 10, Max: 9000} }},
 	}
+	// a place with acts: the look of 10..20 ticks taps the panel from tick 2 to 3 ticks before its end; the 30 ticks after
+	// paying the hand takes the thing at the window from tick 20 to 26
+	acts := func(c *Compiled) {
+		c.Visitors.Targets[0].TakeTicks = 30
+		c.Visitors.Targets[0].Acts = []VisitorAct{
+			{Phase: "stand", Act: "use_panel", ReachM: 0.7, Touches: []VisitorTouch{{At: VisitorPoint{X: 1.25, Y: 0.4, Z: 1.3}, Hand: "right", Part: "fingertips", From: visitorTick(2), ToEnd: visitorTick(3)}}},
+			{Phase: "take", Act: "take_from_window", ReachM: 0.7, Touches: []VisitorTouch{{At: VisitorPoint{X: 1.1, Y: 0.4, Z: 0.35}, Hand: "right", Part: "palm", From: visitorTick(20), To: visitorTick(26)}}},
+		}
+		// the panel cell and one cell beside it along the counter; the far one is out of the hand's reach of the panel
+		c.Visitors.Targets[0].Spots = []inv.Cell{{X: 2, Y: 1}, {X: 3, Y: 1}, {X: 4, Y: 1}}
+	}
+	withActs := visitorFixture(t)
+	acts(&withActs)
+	if err := applyVisitors(&withActs); err != nil {
+		t.Fatalf("valid acts rejected: %v", err)
+	}
+	if from, to := VisitorTouchSpan(withActs.Visitors.Targets[0].Acts[0].Touches[0], 17); from != 2 || to != 14 {
+		t.Fatalf("a look of 17 ticks touches %d..%d, want 2..14", from, to)
+	}
+	// the cells the acts are done on: the panel cell (middle 1.25, 0.75: the points 0.35 and 0.38 m away); the one beside
+	// (1.75) reaches the panel (0.61 m) but not the window (0.74 m), the far cell (2.25) neither: the whole purchase is done
+	// from the panel cell, for both acts
+	for _, a := range withActs.Visitors.Targets[0].Acts {
+		if len(a.Cells) != 1 || a.Cells[0] != (inv.Cell{X: 2, Y: 1}) {
+			t.Fatalf("%s is done on %v, want the panel cell only", a.Act, a.Cells)
+		}
+	}
+	actCases := []struct {
+		name, want string
+		edit       func(c *Compiled)
+	}{
+		// market people part C: what the hands do with a machine is bounded by the phases and the reach of the place
+		{"an act of no phase", "is not stand or take", func(c *Compiled) { c.Visitors.Targets[0].Acts[0].Phase = "walk" }},
+		{"two acts of a phase", "a second act", func(c *Compiled) { c.Visitors.Targets[0].Acts[1].Phase = "stand" }},
+		{"an act with a strange name", "lower-case words", func(c *Compiled) { c.Visitors.Targets[0].Acts[0].Act = "Use Panel" }},
+		{"a take without a wait", "without a wait after paying", func(c *Compiled) { c.Visitors.Targets[0].TakeTicks = 0 }},
+		{"a third hand", "hand", func(c *Compiled) { c.Visitors.Targets[0].Acts[0].Touches[0].Hand = "both" }},
+		{"from both ends", "give from or from_end", func(c *Compiled) { c.Visitors.Targets[0].Acts[0].Touches[0].FromEnd = visitorTick(3) }},
+		{"a touch after the look", "outside a phase", func(c *Compiled) { c.Visitors.Targets[0].Acts[0].Touches[0].From = visitorTick(15) }},
+		{"a touch after the dispense", "outside a phase", func(c *Compiled) { c.Visitors.Targets[0].Acts[1].Touches[0].To = visitorTick(31) }},
+		{"a touch out of reach", "out of reach", func(c *Compiled) { c.Visitors.Targets[0].Acts[1].Touches[0].At.X = 3.5 }},
+		{"an arm of two metres", "not a hand's reach", func(c *Compiled) { c.Visitors.Targets[0].Acts[0].ReachM = 2 }},
+		{"a touch above the head", "out of reach", func(c *Compiled) { c.Visitors.Targets[0].Acts[1].Touches[0].At.Z = 2.5 }},
+	}
+	for _, tc := range actCases {
+		c := visitorFixture(t)
+		acts(&c)
+		tc.edit(&c)
+		err := applyVisitors(&c)
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("%s: want an error with %q, got %v", tc.name, tc.want, err)
+		}
+	}
 	for _, tc := range cases {
 		c := visitorFixture(t)
 		tc.edit(&c)
@@ -204,3 +257,5 @@ func TestVisitorsAddSlotsTheOutsideAccountAndTheConsignments(t *testing.T) {
 		t.Fatalf("skipped shop: rules %+v, err %v", skipped.Visitors.Supply.Rules, err)
 	}
 }
+
+func visitorTick(n int64) *int64 { return &n }

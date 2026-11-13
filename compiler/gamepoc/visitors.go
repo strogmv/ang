@@ -58,7 +58,151 @@ type VisitorTarget struct {
 	TakeTicks int64        `json:"take_ticks,omitempty"`
 	// walkers v1, addendum 1: how long a walker looks here before he buys (a terminal: a short look; none = the catalog's)
 	DwellTicks *VisitorRange `json:"dwell_ticks,omitempty"`
+	// market people part C: what his hands do with the machine of the place in a phase (a terminal's panel, its window); the
+	// view names the act and the touches while he stands on a standing cell of the place
+	Acts []VisitorAct `json:"acts,omitempty"`
 }
+
+// VisitorAct: in the phase `phase` of a place (stand: the look before paying; take: the wait after paying) the walker does
+// the act `act` (a general name of what a person does with a machine: use_panel, take_from_window), his hand meeting the
+// machine at the touches.
+type VisitorAct struct {
+	Phase   string         `json:"phase"`
+	Act     string         `json:"act"`
+	Touches []VisitorTouch `json:"touches"`
+	// how far across the plan a hand reaches from the middle of a standing cell: the acts of a place are done only on its
+	// standing cells whose middle is within reach_m of every touch of every act of the place — the whole purchase from one
+	// cell (a walker on another standing cell of the place waits beside the one who uses the machine)
+	ReachM float64 `json:"reach_m"`
+	// filled by ANG: those standing cells (the same for every act of the place)
+	Cells []inv.Cell `json:"cells,omitempty"`
+}
+
+// VisitorTouch: the point the hand meets (plan metres of the level: x east, y south, z up from the floor), which hand and
+// which part of it, from and to which tick of the phase — counted from its start (from, to) or back from its end
+// (from_end, to_end; the look lasts as long as the walker's own draw). Exactly one of each pair.
+type VisitorTouch struct {
+	At      VisitorPoint `json:"at"`
+	Hand    string       `json:"hand"`
+	Part    string       `json:"part"`
+	From    *int64       `json:"from,omitempty"`
+	FromEnd *int64       `json:"from_end,omitempty"`
+	To      *int64       `json:"to,omitempty"`
+	ToEnd   *int64       `json:"to_end,omitempty"`
+}
+type VisitorPoint struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+	Z float64 `json:"z"`
+}
+
+// visitorActNames: a general name of what a person does with a machine (lower case words joined by "_").
+func visitorActName(s string) bool {
+	if s == "" || s[0] == '_' || s[len(s)-1] == '_' {
+		return false
+	}
+	for _, r := range s {
+		if (r < 'a' || r > 'z') && r != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+// checkVisitorActs: the acts of a place against its phases (the look of `dwell` ticks, the dispense of take ticks) and its
+// standing cells (cell_mm: the size of a cell of the level): every touch lies within the phase at its shortest and longest,
+// in reach of a standing cell (1.2 m across the plan, 0..2.2 m high), with a known hand and part.
+func checkVisitorActs(t *VisitorTarget, dwell VisitorRange, cellMM int) error {
+	if len(t.Acts) == 0 {
+		return nil
+	}
+	if cellMM <= 0 {
+		return fmt.Errorf("its level has no cell size for the touches of its acts")
+	}
+	cells := t.Spots
+	if len(cells) == 0 {
+		cells = []inv.Cell{t.At}
+	}
+	cell := float64(cellMM) / 1000
+	seen := map[string]bool{}
+	for ai := range t.Acts {
+		a := &t.Acts[ai]
+		lengths := []int64{}
+		switch a.Phase {
+		case "stand":
+			lengths = append(lengths, dwell.Min, dwell.Max)
+		case "take":
+			if t.TakeTicks < 1 {
+				return fmt.Errorf("act %q in the take phase of a place without a wait after paying", a.Act)
+			}
+			lengths = append(lengths, t.TakeTicks)
+		default:
+			return fmt.Errorf("act %q: phase %q is not stand or take", a.Act, a.Phase)
+		}
+		if seen[a.Phase] || !visitorActName(a.Act) || len(a.Touches) < 1 || len(a.Touches) > 4 {
+			return fmt.Errorf("act %q: a second act of phase %s, a name that is not lower-case words, or not 1..4 touches", a.Act, a.Phase)
+		}
+		seen[a.Phase] = true
+		for k, h := range a.Touches {
+			if (h.Hand != "right" && h.Hand != "left") || (h.Part != "fingertips" && h.Part != "palm") {
+				return fmt.Errorf("act %s, touch %d: hand %q / part %q", a.Act, k, h.Hand, h.Part)
+			}
+			if (h.From == nil) == (h.FromEnd == nil) || (h.To == nil) == (h.ToEnd == nil) {
+				return fmt.Errorf("act %s, touch %d: give from or from_end and to or to_end", a.Act, k)
+			}
+			for _, n := range lengths {
+				from, to := VisitorTouchSpan(h, n)
+				if from < 0 || to <= from || to > n {
+					return fmt.Errorf("act %s, touch %d: ticks %d..%d are outside a phase of %d ticks", a.Act, k, from, to, n)
+				}
+			}
+			if h.At.Z < 0 || h.At.Z > 2.2 {
+				return fmt.Errorf("act %s, touch %d: point %+v is out of reach of the place's standing cells", a.Act, k, h.At)
+			}
+		}
+		if a.ReachM < 0.3 || a.ReachM > 1.2 {
+			return fmt.Errorf("act %s: reach_m %.2f is not a hand's reach (0.3..1.2 m)", a.Act, a.ReachM)
+		}
+	}
+	// the cells the whole use of the machine is done from: every touch of every act within its act's reach
+	var in []inv.Cell
+	for _, c := range cells {
+		ok := true
+		for _, a := range t.Acts {
+			for _, h := range a.Touches {
+				dx, dy := h.At.X-(float64(c.X)+0.5)*cell, h.At.Y-(float64(c.Y)+0.5)*cell
+				ok = ok && dx*dx+dy*dy <= a.ReachM*a.ReachM
+			}
+		}
+		if ok {
+			in = append(in, c)
+		}
+	}
+	if len(in) == 0 {
+		return fmt.Errorf("no standing cell of the place reaches all the touches of its acts (out of reach)")
+	}
+	for ai := range t.Acts {
+		t.Acts[ai].Cells = in
+	}
+	return nil
+}
+
+// VisitorTouchSpan: the ticks of a touch within a phase of n ticks (the runtime uses the same rule).
+func VisitorTouchSpan(h VisitorTouch, n int64) (int64, int64) {
+	var from, to int64
+	if h.From != nil {
+		from = *h.From
+	} else {
+		from = n - *h.FromEnd
+	}
+	if h.To != nil {
+		to = *h.To
+	} else {
+		to = n - *h.ToEnd
+	}
+	return from, to
+}
+
 type VisitorFace struct {
 	X float64 `json:"x"`
 	Y float64 `json:"y"`
@@ -140,6 +284,7 @@ func applyVisitors(c *Compiled) error {
 	var life struct {
 		Locations map[string]struct {
 			Terrain []string `json:"terrain"`
+			CellMM  int      `json:"cell_mm"`
 		} `json:"locations"`
 		Actors []struct {
 			ID    string `json:"id"`
@@ -192,7 +337,7 @@ func applyVisitors(c *Compiled) error {
 	}
 	categories := map[string]bool{p.PeddlerCategory: c.Peddlers != nil && c.Peddlers.Level == p.Level && len(c.Peddlers.Peddlers) > 0}
 	targets := map[string]bool{}
-	for _, t := range p.Targets {
+	for ti, t := range p.Targets {
 		if t.ID == "" || targets[t.ID] || t.Category == "" || t.Category == p.PeddlerCategory || !walk(t.At) {
 			return fail("target %q: duplicate, without a category or not on the floor %v", t.ID, t.At)
 		}
@@ -206,6 +351,13 @@ func applyVisitors(c *Compiled) error {
 			if !walk(c) || manhattanCells(c, t.At) > 2 {
 				return fail("target %q: standing cell %v is not on the floor within two cells of the place", t.ID, c)
 			}
+		}
+		dwell := p.DwellTicks
+		if t.DwellTicks != nil {
+			dwell = *t.DwellTicks
+		}
+		if err := checkVisitorActs(&p.Targets[ti], dwell, loc.CellMM); err != nil {
+			return fail("target %s: %v", t.ID, err)
 		}
 		targets[t.ID] = true
 		st, ok := m.Stores[t.Store]

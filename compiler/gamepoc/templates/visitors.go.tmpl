@@ -63,6 +63,29 @@ type visitorTarget struct {
 	} `json:"face,omitempty"`
 	TakeTicks  int64         `json:"take_ticks,omitempty"`
 	DwellTicks *visitorRange `json:"dwell_ticks,omitempty"`
+	// market people part C: what the hands do with the machine of the place in a phase (compiler/gamepoc/visitors.go)
+	Acts []visitorAct `json:"acts,omitempty"`
+}
+type visitorAct struct {
+	Phase   string         `json:"phase"`
+	Act     string         `json:"act"`
+	Touches []visitorTouch `json:"touches"`
+	ReachM  float64        `json:"reach_m"`
+	// the standing cells the act is done on (ANG: those within reach_m of every touch)
+	Cells []inv.Cell `json:"cells"`
+}
+type visitorTouch struct {
+	At struct {
+		X float64 `json:"x"`
+		Y float64 `json:"y"`
+		Z float64 `json:"z"`
+	} `json:"at"`
+	Hand    string `json:"hand"`
+	Part    string `json:"part"`
+	From    *int64 `json:"from,omitempty"`
+	FromEnd *int64 `json:"from_end,omitempty"`
+	To      *int64 `json:"to,omitempty"`
+	ToEnd   *int64 `json:"to_end,omitempty"`
 }
 type visitorLot struct {
 	Item string `json:"item"`
@@ -896,11 +919,7 @@ func (r *Runtime) advanceVisitors() error {
 		case "walk": // at the stall: he looks, then buys
 			b.Phase = "stand"
 			// walkers v1, addendum 1: he looks at the showcase (or trades) standing still, as long as the place asks
-			dwell := v.DwellTicks
-			if t := r.visitorTargetOf(b.Target); t != nil && t.DwellTicks != nil {
-				dwell = *t.DwellTicks
-			}
-			b.Wait = dwell.Min + int64(r.visitorDraw(b.Serial, fmt.Sprintf("dwell.%d", len(b.Stops)))%uint64(dwell.Max-dwell.Min+1))
+			b.Wait = r.visitorDwell(b)
 		case "stand":
 			got := r.visitorBuy(slot, b.Serial, len(b.Stops), b.Target, b.At, b.Units)
 			b.Bought += got
@@ -1019,8 +1038,92 @@ func (r *Runtime) appendVisitors(view *pb.PocLifeView, hero *behavior.LifeActor,
 		} else if t := r.visitorTargetOf(b.Target); len(b.Path) == 0 && t != nil && t.Face != nil && (b.Phase == "stand" || b.Phase == "take") {
 			row.FaceX, row.FaceY = t.Face.X, t.Face.Y
 		}
+		row.Act = r.visitorAct(b)
 		view.Visitors = append(view.Visitors, row)
 	}
+}
+
+// visitorDwell: how long the walker looks at the place he has just reached (its own look, else the catalog's), by his draw;
+// the same number while he stands there (the draw is by his serial and the stops still on his list).
+func (r *Runtime) visitorDwell(b visitorBody) int64 {
+	dwell := r.world.Visitors.DwellTicks
+	if t := r.visitorTargetOf(b.Target); t != nil && t.DwellTicks != nil {
+		dwell = *t.DwellTicks
+	}
+	return dwell.Min + int64(r.visitorDraw(b.Serial, fmt.Sprintf("dwell.%d", len(b.Stops)))%uint64(dwell.Max-dwell.Min+1))
+}
+
+// visitorAct (market people part C): what the walker does with the machine of his place now — the place's act of his phase,
+// while he stands still on a standing cell of the place from which his hand reaches every touch of the act (the act's
+// cells; on the others he waits beside the one who uses the machine, as his purchase goes through; not stepping aside, not
+// on the way); nil otherwise. The phase began
+// `length - Wait` ticks ago (Wait counts the phase down to 0: the look `visitorDwell` ticks, the take `take_ticks`), so the
+// act's start and length come from the state as it is (nothing new is saved); the touches' ticks are resolved for this
+// length (compiler/gamepoc/visitors.go VisitorTouchSpan, checked at build time for the shortest and longest phase).
+func (r *Runtime) visitorAct(b visitorBody) *pb.PocMachineAct {
+	t := r.visitorTargetOf(b.Target)
+	if t == nil || len(t.Acts) == 0 || b.Going || len(b.Path) > 0 || (b.Phase != "stand" && b.Phase != "take") {
+		return nil
+	}
+	var act *visitorAct
+	for i := range t.Acts {
+		if t.Acts[i].Phase == b.Phase {
+			act = &t.Acts[i]
+		}
+	}
+	if act == nil {
+		return nil
+	}
+	on := false
+	for _, c := range act.Cells {
+		on = on || (b.At.X == c.X && b.At.Y == c.Y)
+	}
+	if !on {
+		return nil
+	}
+	length := t.TakeTicks
+	if b.Phase == "stand" {
+		length = r.visitorDwell(b)
+	}
+	if b.Wait < 0 || b.Wait > length {
+		return nil
+	}
+	// Wait runs from `length` down to 0 and the phase ends on the tick after the one with Wait 0: the act lasts length+1
+	// ticks, the next phase begins on its end tick (the take on the tick of the sale)
+	n := length + 1
+	out := &pb.PocMachineAct{Name: act.Act, Tick: r.state.Tick - (length - b.Wait), Ticks: int32(n)}
+	for _, h := range act.Touches {
+		from, to := int64(0), int64(0)
+		if h.From != nil {
+			from = *h.From
+		} else {
+			from = n - *h.FromEnd
+		}
+		if h.To != nil {
+			to = *h.To
+		} else {
+			to = n - *h.ToEnd
+		}
+		out.Touches = append(out.Touches, &pb.PocMachineTouch{X: h.At.X, Y: h.At.Y, Z: h.At.Z, Hand: h.Hand, Part: h.Part, FromTick: int32(from), ToTick: int32(to)})
+	}
+	if b.Phase == "take" {
+		out.Thing = r.visitorThing(t, out.Tick)
+	}
+	return out
+}
+
+// visitorThing: the scene of what the machine of the place handed over on the tick his take began — a terminal's sale of
+// that tick, the public event its window plays; "" for a place that hands nothing or when another sale has followed.
+func (r *Runtime) visitorThing(t *visitorTarget, tick int64) string {
+	i, ok := r.vendingDisplayUnit(t.Store)
+	if !ok {
+		return ""
+	}
+	s := r.vendingUnitState(r.world.Vending.Units[i].ID)
+	if s.SaleTick != tick || s.SaleItem == "" {
+		return ""
+	}
+	return r.vendingItemScene(s.SaleItem)
 }
 
 func (r *Runtime) validateVisitorSave(s state) error {

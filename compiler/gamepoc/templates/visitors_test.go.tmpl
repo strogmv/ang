@@ -211,6 +211,88 @@ func TestVisitorsWalkTheFloorCellByCell(t *testing.T) {
 	}
 }
 
+// Market people part C: a walker at a terminal's panel gets the place's act of his phase — use_panel while he looks,
+// take_from_window while the thing is dispensed — with the start and length of the phase as the server counts it (the same
+// start every tick of one phase; the take begins on the tick of the unit's sale), the touches inside the act and the thing
+// the unit dispenses; only on the act's cells (in reach of every touch); nobody walking, stepping aside, beside the panel out
+// of reach or at a stall without acts gets one.
+func TestVisitorsUseTheMachineByTheServersPhases(t *testing.T) {
+	r := visitorsRuntime(t, 30)
+	v := r.world.Visitors
+	machines := 0
+	for _, tg := range v.Targets {
+		if len(tg.Acts) > 0 {
+			machines++
+		}
+	}
+	if machines == 0 {
+		t.Skip("no place of the hall has acts")
+	}
+	visitorsRun(t, r, (v.OpenSecond-r.state.Life.Seconds%86400+86400)%86400, nil)
+	// the morning rush at x1 (real seconds = game seconds): the terminals are busy
+	r.state.Life.SecondsPerTick = 1
+	type seen struct {
+		phase string
+		tick  int64
+	}
+	began := map[int64]seen{}
+	acts := map[string]int{}
+	visitorsRun(t, r, 2400, func() {
+		for _, b := range r.state.Visitors.Bodies {
+			a := r.visitorAct(b)
+			tg := r.visitorTargetOf(b.Target)
+			if a == nil {
+				if tg != nil && len(tg.Acts) > 0 && !b.Going && len(b.Path) == 0 && (b.Phase == "stand" || b.Phase == "take") {
+					for _, act := range tg.Acts {
+						for _, c := range act.Cells {
+							if act.Phase == b.Phase && c.X == b.At.X && c.Y == b.At.Y {
+								t.Fatalf("visitor %d stands at %v of %s in phase %s without an act", b.Serial, b.At, tg.ID, b.Phase)
+							}
+						}
+					}
+					acts["waits beside the panel"]++
+				}
+				continue
+			}
+			if tg == nil || len(tg.Acts) == 0 || b.Going || len(b.Path) > 0 {
+				t.Fatalf("visitor %d has act %s away from a machine (target %q, going %v)", b.Serial, a.Name, b.Target, b.Going)
+			}
+			want := map[string]string{"stand": "use_panel", "take": "take_from_window"}[b.Phase]
+			if a.Name != want || a.Tick > r.state.Tick || r.state.Tick >= a.Tick+int64(a.Ticks) || a.Ticks < 1 {
+				t.Fatalf("visitor %d in phase %s at tick %d: act %s from %d for %d ticks", b.Serial, b.Phase, r.state.Tick, a.Name, a.Tick, a.Ticks)
+			}
+			for _, h := range a.Touches {
+				if h.FromTick < 0 || h.ToTick <= h.FromTick || h.ToTick > a.Ticks || h.Hand == "" || h.Part == "" {
+					t.Fatalf("visitor %d: touch %+v outside act %s of %d ticks", b.Serial, h, a.Name, a.Ticks)
+				}
+			}
+			if old, ok := began[b.Serial]; ok && old.phase == b.Phase && old.tick != a.Tick {
+				t.Fatalf("visitor %d: the %s act began at %d, now at %d", b.Serial, b.Phase, old.tick, a.Tick)
+			}
+			if old, ok := began[b.Serial]; (!ok || old.phase != b.Phase) && b.Phase == "take" {
+				// the first tick of the take is the tick of the sale at the unit
+				i, ok := r.vendingDisplayUnit(tg.Store)
+				if !ok || a.Tick != r.state.Tick || r.vendingUnitState(r.world.Vending.Units[i].ID).SaleTick != a.Tick {
+					t.Fatalf("visitor %d: the take act begins at %d (tick %d), the sale of the unit at %d", b.Serial, a.Tick, r.state.Tick, r.vendingUnitState(r.world.Vending.Units[i].ID).SaleTick)
+				}
+				// the thing he takes is the thing the unit dispenses
+				if want := r.vendingItemScene(r.vendingUnitState(r.world.Vending.Units[i].ID).SaleItem); a.Thing == "" || a.Thing != want {
+					t.Fatalf("visitor %d takes %q, the unit dispenses %q", b.Serial, a.Thing, want)
+				}
+			}
+			began[b.Serial] = seen{b.Phase, a.Tick}
+			acts[a.Name]++
+			if len(tg.Spots) > 0 && (tg.Spots[0].X != b.At.X || tg.Spots[0].Y != b.At.Y) {
+				acts[a.Name+" beside the panel"]++
+			}
+		}
+	})
+	if acts["use_panel"] == 0 || acts["take_from_window"] == 0 {
+		t.Fatalf("forty minutes of the morning: acts %v", acts)
+	}
+	t.Logf("acts seen (visitor-ticks): %v", acts)
+}
+
 // The calendar rate changes how many are seen walking, not how many come.
 func TestVisitorsArriveByTheCalendarNotByTheRate(t *testing.T) {
 	count := func(rate int64) int64 {
