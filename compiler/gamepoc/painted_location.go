@@ -83,6 +83,91 @@ type PaintingLook struct {
 	} `json:"grade"`
 	PeopleReadKeep float64      `json:"people_read_keep"`
 	Live           PaintingLive `json:"live"`
+	// Light (painted light v1, the game's design/painted-location/light-v1/BRIEF.md): the game's light over the painting;
+	// absent: the look above (the hour as a grade, no static shadows).
+	Light *PaintingLight `json:"light,omitempty"`
+}
+
+// PaintingLight: the game's light over the painting, the painting staying the surface — the painted colour is what the
+// floor shows in the key's beam by day, and every light multiplies it through its share of that light. Shade: the hall's
+// scattered light by the server's day / dusk / night weights (a share of the day floor in the beam: value x tint); the
+// static meshes cast the key's shadow again, and the beam is two-toned by N.L (Ramp: below [0] the shade, above [1] the
+// beam); Ragged: how much the painting's own stroke shifts the shadow's edge. Lamps: the live lamps' pools (Gain, Wrap) and
+// a soft glint in their colour (Sheen, SheenRoughness). Grade: the palette of the hour (the light does the darkness).
+// KeepHue: a hue the painting takes from the surface's own colour (safety yellow). Classes: the colour of the level's object
+// classes (the paint step's classes file, by node path). People: the people's gain (by the weights) and separation contrast
+// in the painting, and the contact shadow under their feet.
+type PaintingLight struct {
+	Shade struct {
+		Day   PaintingTone `json:"day"`
+		Dusk  PaintingTone `json:"dusk"`
+		Night PaintingTone `json:"night"`
+	} `json:"shade"`
+	Ramp   [2]float64 `json:"ramp"`
+	Ragged float64    `json:"ragged"`
+	// ShadeAbove: the share of the scattered light that comes from above (a vertical face in shade loses it). FormKeep: the
+	// share of the beam a face turned away from the key keeps (a form shadow, lighter than a cast one).
+	ShadeAbove float64 `json:"shade_above"`
+	FormKeep   float64 `json:"form_keep"`
+	// Lamps.Gain by the server's day / dusk / night weights (the painting already holds the day's general light).
+	Lamps struct {
+		Gain           [3]float64 `json:"gain"`
+		Wrap           float64    `json:"wrap"`
+		Falloff        float64    `json:"falloff"`
+		Sheen          float64    `json:"sheen"`
+		SheenRoughness float64    `json:"sheen_roughness"`
+	} `json:"lamps"`
+	Grade struct {
+		Day   PaintingGrade `json:"day"`
+		Dusk  PaintingGrade `json:"dusk"`
+		Night PaintingGrade `json:"night"`
+	} `json:"grade"`
+	KeepHue struct {
+		HueDegrees [2]float64 `json:"hue_degrees"`
+		Saturation float64    `json:"saturation"`
+		Share      float64    `json:"share"`
+	} `json:"keep_hue"`
+	Classes []PaintingClass `json:"classes"`
+	// StandInBrush: where the picture is our render (a stand-in tile; the depth page's blue 192), the brush it lacks.
+	StandInBrush struct {
+		StrokesPerM float64 `json:"strokes_per_m"`
+		Tone        float64 `json:"tone"`
+		// Calm: the share of our render's mottle that becomes its broad colour (smoothed over CalmWidthM; edges and thin
+		// parts keep their own).
+		Calm       float64 `json:"calm"`
+		CalmWidthM float64 `json:"calm_width_m"`
+	} `json:"stand_in_brush"`
+	People struct {
+		Gain     [3]float64 `json:"gain"`
+		Contrast float64    `json:"contrast"`
+		Contact  struct {
+			RadiusM  float64    `json:"radius_m"`
+			Strength float64    `json:"strength"`
+			Tint     [3]float64 `json:"tint"`
+		} `json:"contact"`
+	} `json:"people"`
+}
+
+// PaintingTone: a share of the day floor's light in the beam (Value) and its colour (Tint, linear multipliers).
+type PaintingTone struct {
+	Value float64    `json:"value"`
+	Tint  [3]float64 `json:"tint"`
+}
+
+// PaintingClass: one object class's colour on the painting: value x tint and saturation; Calm: the share of its painting
+// that becomes its broad colour (smoothed over WidthM: the painter's stripes and planks go) under a brush texture
+// (StrokesPerM, Tone).
+type PaintingClass struct {
+	Class      string     `json:"class"`
+	Value      float64    `json:"value"`
+	Tint       [3]float64 `json:"tint"`
+	Saturation float64    `json:"saturation"`
+	Calm       *struct {
+		Share       float64 `json:"share"`
+		WidthM      float64 `json:"width_m"`
+		StrokesPerM float64 `json:"strokes_per_m"`
+		Tone        float64 `json:"tone"`
+	} `json:"calm,omitempty"`
 }
 
 // PaintingShade: the key shadow's strength and the painting's shadow colour.
@@ -119,6 +204,7 @@ var (
 	paintedCornerID   = regexp.MustCompile(`^[a-z0-9_]+\.[a-z0-9_]+$`)
 	paintedNodeName   = regexp.MustCompile(`^[A-Za-z0-9_.*?-]+$`)
 	paintedPicturePth = regexp.MustCompile(`^client-godot/assets/painted-location/[a-z0-9_.-]+/[a-z0-9_.-]+\.png$`)
+	paintedClassName  = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 )
 
 func readPaintedLocation(world cue.Value, c Compiled, root string) (*PaintedLocation, error) {
@@ -149,6 +235,11 @@ func readPaintedLocation(world cue.Value, c Compiled, root string) (*PaintedLoca
 	known := func(id string) bool { _, ok := life.Locations[id]; return ok }
 	if err := checkPaintedLocation(out, known, root); err != nil {
 		return nil, fmt.Errorf("world.painted_location: %w", err)
+	}
+	for i := range out.Levels {
+		if err := loadPaintClasses(&out.Levels[i], root); err != nil {
+			return nil, fmt.Errorf("world.painted_location: level painting %s: %w", out.Levels[i].ID, err)
+		}
 	}
 	return &out, nil
 }
@@ -195,6 +286,9 @@ func paintedLocationLengths(raw []byte) error {
 			}
 		}
 	}
+	if err := paintingLightLengths(raw); err != nil {
+		return err
+	}
 	for _, c := range doc.Corners {
 		if len(c.FocusPlan) != 3 {
 			return fmt.Errorf("corner %s: focus_plan needs exactly 3 numbers (x east, y south, z up)", c.ID)
@@ -209,6 +303,66 @@ func paintedLocationLengths(raw []byte) error {
 					return fmt.Errorf("corner %s: painting_look.%s.tint needs exactly 3 numbers (R G B)", c.ID, name)
 				}
 			}
+		}
+	}
+	return nil
+}
+
+// paintingLightLengths: every list of painted light v1 (corners' and levels' painting_look.light) has exactly its length.
+func paintingLightLengths(raw []byte) error {
+	type tone struct {
+		Tint []json.RawMessage `json:"tint"`
+	}
+	type light struct {
+		Shade   struct{ Day, Dusk, Night tone } `json:"shade"`
+		Grade   struct{ Day, Dusk, Night tone } `json:"grade"`
+		Ramp    []json.RawMessage               `json:"ramp"`
+		KeepHue struct {
+			HueDegrees []json.RawMessage `json:"hue_degrees"`
+		} `json:"keep_hue"`
+		Classes []struct {
+			Class string            `json:"class"`
+			Tint  []json.RawMessage `json:"tint"`
+		} `json:"classes"`
+		People struct {
+			Gain    []json.RawMessage `json:"gain"`
+			Contact tone              `json:"contact"`
+		} `json:"people"`
+		Lamps struct {
+			Gain []json.RawMessage `json:"gain"`
+		} `json:"lamps"`
+	}
+	type holder struct {
+		ID           string `json:"id"`
+		PaintingLook *struct {
+			Light *light `json:"light"`
+		} `json:"painting_look"`
+	}
+	var doc struct {
+		Corners []holder `json:"corners"`
+		Levels  []holder `json:"levels"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return err
+	}
+	for _, h := range append(doc.Corners, doc.Levels...) {
+		if h.PaintingLook == nil || h.PaintingLook.Light == nil {
+			continue
+		}
+		l := h.PaintingLook.Light
+		lists := map[string][]json.RawMessage{"shade.day.tint": l.Shade.Day.Tint, "shade.dusk.tint": l.Shade.Dusk.Tint, "shade.night.tint": l.Shade.Night.Tint,
+			"grade.day.tint": l.Grade.Day.Tint, "grade.dusk.tint": l.Grade.Dusk.Tint, "grade.night.tint": l.Grade.Night.Tint,
+			"people.gain": l.People.Gain, "people.contact.tint": l.People.Contact.Tint, "lamps.gain": l.Lamps.Gain}
+		for _, c := range l.Classes {
+			lists["classes."+c.Class+".tint"] = c.Tint
+		}
+		for name, list := range lists {
+			if len(list) != 3 {
+				return fmt.Errorf("%s: painting_look.light.%s needs exactly 3 numbers", h.ID, name)
+			}
+		}
+		if len(l.Ramp) != 2 || len(l.KeepHue.HueDegrees) != 2 {
+			return fmt.Errorf("%s: painting_look.light.ramp and keep_hue.hue_degrees need exactly 2 numbers", h.ID)
 		}
 	}
 	return nil
@@ -361,6 +515,72 @@ func checkPaintingLook(l PaintingLook) error {
 		for i, v := range g.Tint {
 			checks = append(checks, in(fmt.Sprintf("grade.%s.tint[%d]", name, i), v, 0, 2))
 		}
+	}
+	for _, err := range checks {
+		if err != nil {
+			return err
+		}
+	}
+	if l.Light != nil {
+		if err := checkPaintingLight(*l.Light); err != nil {
+			return fmt.Errorf("light: %w", err)
+		}
+	}
+	return nil
+}
+
+// checkPaintingLight: painted light v1's numbers, finite and in range; a class named once.
+func checkPaintingLight(l PaintingLight) error {
+	in := func(name string, v, lo, hi float64) error {
+		if math.IsNaN(v) || math.IsInf(v, 0) || v < lo || v > hi {
+			return fmt.Errorf("%s %v: %v..%v", name, v, lo, hi)
+		}
+		return nil
+	}
+	tint := func(name string, t [3]float64, hi float64) []error {
+		out := []error{}
+		for i, v := range t {
+			out = append(out, in(fmt.Sprintf("%s[%d]", name, i), v, 0, hi))
+		}
+		return out
+	}
+	checks := []error{in("ramp[0]", l.Ramp[0], -1, 1), in("ramp[1]", l.Ramp[1], -1, 1), in("ragged", l.Ragged, 0, 1),
+		in("shade_above", l.ShadeAbove, 0, 1), in("form_keep", l.FormKeep, 0, 1), in("lamps.wrap", l.Lamps.Wrap, 0, 1), in("lamps.falloff", l.Lamps.Falloff, 0.5, 3), in("lamps.sheen", l.Lamps.Sheen, 0, 4),
+		in("lamps.sheen_roughness", l.Lamps.SheenRoughness, 0.05, 1), in("keep_hue.hue_degrees[0]", l.KeepHue.HueDegrees[0], 0, 360),
+		in("keep_hue.hue_degrees[1]", l.KeepHue.HueDegrees[1], 0, 360), in("keep_hue.saturation", l.KeepHue.Saturation, 0, 1),
+		in("keep_hue.share", l.KeepHue.Share, 0, 1), in("people.contrast", l.People.Contrast, 0.5, 2),
+		in("people.contact.radius_m", l.People.Contact.RadiusM, 0, 2), in("people.contact.strength", l.People.Contact.Strength, 0, 1),
+		in("stand_in_brush.strokes_per_m", l.StandInBrush.StrokesPerM, 0.1, 50), in("stand_in_brush.tone", l.StandInBrush.Tone, 0, 1),
+		in("stand_in_brush.calm", l.StandInBrush.Calm, 0, 1), in("stand_in_brush.calm_width_m", l.StandInBrush.CalmWidthM, 0.01, 2)}
+	if l.Ramp[1] <= l.Ramp[0] {
+		checks = append(checks, fmt.Errorf("ramp %v: the beam's end above the shade's", l.Ramp))
+	}
+	if l.KeepHue.HueDegrees[1] < l.KeepHue.HueDegrees[0] {
+		checks = append(checks, fmt.Errorf("keep_hue.hue_degrees %v: from low to high", l.KeepHue.HueDegrees))
+	}
+	checks = append(checks, tint("people.gain", l.People.Gain, 4)...)
+	checks = append(checks, tint("lamps.gain", l.Lamps.Gain, 4)...)
+	checks = append(checks, tint("people.contact.tint", l.People.Contact.Tint, 1)...)
+	for name, s := range map[string]PaintingTone{"day": l.Shade.Day, "dusk": l.Shade.Dusk, "night": l.Shade.Night} {
+		checks = append(checks, in("shade."+name+".value", s.Value, 0, 1))
+		checks = append(checks, tint("shade."+name+".tint", s.Tint, 2)...)
+	}
+	for name, g := range map[string]PaintingGrade{"day": l.Grade.Day, "dusk": l.Grade.Dusk, "night": l.Grade.Night} {
+		checks = append(checks, in("grade."+name+".value", g.Value, 0.05, 2), in("grade."+name+".saturation", g.Saturation, 0, 2))
+		checks = append(checks, tint("grade."+name+".tint", g.Tint, 2)...)
+	}
+	seen := map[string]bool{}
+	for _, c := range l.Classes {
+		if !paintedClassName.MatchString(c.Class) || seen[c.Class] {
+			checks = append(checks, fmt.Errorf("classes %q: a class name (lower case), once", c.Class))
+		}
+		seen[c.Class] = true
+		checks = append(checks, in("classes."+c.Class+".value", c.Value, 0.05, 2), in("classes."+c.Class+".saturation", c.Saturation, 0, 2))
+		if c.Calm != nil {
+			checks = append(checks, in("classes."+c.Class+".calm.share", c.Calm.Share, 0, 1), in("classes."+c.Class+".calm.width_m", c.Calm.WidthM, 0.01, 2),
+				in("classes."+c.Class+".calm.strokes_per_m", c.Calm.StrokesPerM, 0.1, 50), in("classes."+c.Class+".calm.tone", c.Calm.Tone, 0, 1))
+		}
+		checks = append(checks, tint("classes."+c.Class+".tint", c.Tint, 2)...)
 	}
 	for _, err := range checks {
 		if err != nil {

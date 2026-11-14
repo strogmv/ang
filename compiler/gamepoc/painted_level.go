@@ -37,6 +37,57 @@ type PaintedLevel struct {
 	Frames    []PaintedFrame    `json:"frames"`
 	LiveParts []PaintedLivePart `json:"live_parts"`
 	Paint     PaintStep         `json:"paint"`
+	// Classes: the paint step's object classes (Paint.Classes, read at generation when the look's light colours classes):
+	// the client finds a painted mesh's class by the same rules.
+	Classes *PaintClasses `json:"-"`
+}
+
+// PaintClasses: the level's object classes file (tools/painted-location/*.json): a mesh takes the first rule whose pattern
+// is found in its node path, else Default.
+type PaintClasses struct {
+	Default string `json:"default"`
+	Rules   []struct {
+		Class string   `json:"class"`
+		Match []string `json:"match"`
+	} `json:"rules"`
+}
+
+// loadPaintClasses: painted light v1 — when the level's light colours its classes, the classes file is read for the client
+// and every coloured class must be one of its classes.
+func loadPaintClasses(l *PaintedLevel, root string) error {
+	if l.PaintingLook.Light == nil || len(l.PaintingLook.Light.Classes) == 0 {
+		return nil
+	}
+	if !paintedClasses.MatchString(l.Paint.Classes) || strings.Contains(l.Paint.Classes, "..") {
+		return fmt.Errorf("paint.classes %q: a JSON under tools/painted-location/", l.Paint.Classes)
+	}
+	raw, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(l.Paint.Classes)))
+	if err != nil {
+		return fmt.Errorf("paint.classes: %w", err)
+	}
+	var c PaintClasses
+	if err := json.Unmarshal(raw, &c); err != nil {
+		return fmt.Errorf("%s: %w", l.Paint.Classes, err)
+	}
+	known := map[string]bool{c.Default: c.Default != ""}
+	for _, r := range c.Rules {
+		if !paintedClassName.MatchString(r.Class) || len(r.Match) == 0 {
+			return fmt.Errorf("%s: rule %q: a class name and its patterns", l.Paint.Classes, r.Class)
+		}
+		for _, m := range r.Match {
+			if _, err := regexp.Compile(m); err != nil {
+				return fmt.Errorf("%s: class %s: pattern %q: %w", l.Paint.Classes, r.Class, m, err)
+			}
+		}
+		known[r.Class] = true
+	}
+	for _, lc := range l.PaintingLook.Light.Classes {
+		if !known[lc.Class] {
+			return fmt.Errorf("painting_look.light.classes: %s is not a class of %s", lc.Class, l.Paint.Classes)
+		}
+	}
+	l.Classes = &c
+	return nil
 }
 
 // PaintedFrame: a plan point at the frame's focus height (x east, y south, z up) and the frame's height in metres.
@@ -637,10 +688,14 @@ func clientPaintedLevels(levels []PaintedLevel) []any {
 				instances = append(instances, map[string]any{"instance": part.Instance, "parts": parts})
 			}
 		}
-		out = append(out, map[string]any{"id": l.ID, "level_id": l.LevelID, "picture": l.Picture, "pages": res(l.Pages.Folder),
+		row := map[string]any{"id": l.ID, "level_id": l.LevelID, "picture": l.Picture, "pages": res(l.Pages.Folder),
 			"page_px": l.Pages.PagePx, "gutter_px": l.Pages.GutterPx, "px_per_m": l.Pages.PxPerM, "margin_m": l.Pages.MarginM,
 			"slots": l.Pages.Slots, "depth_tolerance_m": l.DepthToleranceM, "strength": l.Strength, "look": l.Look,
-			"painting_look": l.PaintingLook, "live_parts": live, "live_instances": instances, "frames": l.Frames})
+			"painting_look": l.PaintingLook, "live_parts": live, "live_instances": instances, "frames": l.Frames}
+		if l.Classes != nil {
+			row["classes"] = l.Classes
+		}
+		out = append(out, row)
 	}
 	return out
 }

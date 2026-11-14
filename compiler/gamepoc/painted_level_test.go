@@ -216,3 +216,91 @@ func gateFixture(c Compiled) Compiled {
 	c.LocationSDK = &locationsdk.RuntimeBundle{Levels: []locationsdk.RuntimeLevel{{ID: "example.market", Gates: []locationsdk.RuntimeGate{{InstanceID: "gate.passage"}}}}}
 	return c
 }
+
+// paintingLightFixture: painted light v1's numbers (the market's, rounded).
+func paintingLightFixture() *PaintingLight {
+	l := &PaintingLight{Ramp: [2]float64{0.02, 0.3}, Ragged: 0.4}
+	l.Shade.Day = PaintingTone{Value: 0.45, Tint: [3]float64{0.85, 0.95, 1.2}}
+	l.Shade.Dusk = PaintingTone{Value: 0.3, Tint: [3]float64{0.9, 0.95, 1.1}}
+	l.Shade.Night = PaintingTone{Value: 0.12, Tint: [3]float64{0.8, 0.9, 1.2}}
+	for _, g := range []*PaintingGrade{&l.Grade.Day, &l.Grade.Dusk, &l.Grade.Night} {
+		*g = PaintingGrade{Value: 1, Tint: [3]float64{1, 1, 1}, Saturation: 1}
+	}
+	l.Lamps.Gain, l.Lamps.Wrap, l.Lamps.Falloff, l.Lamps.Sheen, l.Lamps.SheenRoughness = [3]float64{0.45, 0.8, 1}, 0.15, 1.4, 1.2, 0.3
+	l.ShadeAbove, l.FormKeep = 0.4, 0.45
+	l.KeepHue.HueDegrees, l.KeepHue.Saturation, l.KeepHue.Share = [2]float64{40, 62}, 0.45, 1
+	l.Classes = []PaintingClass{{Class: "stalls", Value: 0.85, Tint: [3]float64{1.08, 0.98, 0.86}, Saturation: 0.9}}
+	l.People.Gain, l.People.Contrast = [3]float64{1.3, 1.15, 1}, 1
+	l.StandInBrush.StrokesPerM, l.StandInBrush.Tone, l.StandInBrush.Calm, l.StandInBrush.CalmWidthM = 5, 0.2, 0.8, 0.25
+	l.People.Contact.RadiusM, l.People.Contact.Strength, l.People.Contact.Tint = 0.4, 0.5, [3]float64{0.35, 0.37, 0.45}
+	return l
+}
+
+// Painted light v1: the light's numbers reach the client with the level's object classes (the paint step's file, the
+// client finds a mesh's class by the same rules); a coloured class must be one of the file's, the numbers stay in range,
+// every list has its length.
+func TestPaintedLevelLight(t *testing.T) {
+	l, c, known, root := paintedLevelFixture(t)
+	l.PaintingLook.Light = paintingLightFixture()
+	dir := filepath.Join(root, "tools", "painted-location")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	classes := `{"default": "stalls", "rules": [{"class": "floor", "match": ["/floor_\\d+$"]}, {"class": "metal", "match": ["/stair\\."]}]}`
+	if err := os.WriteFile(filepath.Join(dir, "classes.json"), []byte(classes), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := loadPaintClasses(&l, root); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkPaintedLevels([]PaintedLevel{l}, c, known, root); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(clientPaintedLevels([]PaintedLevel{l}))
+	for _, want := range []string{`"classes":{"default":"stalls","rules":[{"class":"floor","match":["/floor_\\d+$"]}`,
+		`"light":{"shade":{"day":{"value":0.45,"tint":[0.85,0.95,1.2]}`, `"keep_hue":{"hue_degrees":[40,62],"saturation":0.45,"share":1}`,
+		`"classes":[{"class":"stalls","value":0.85`, `"contact":{"radius_m":0.4,"strength":0.5`} {
+		if !strings.Contains(string(raw), want) {
+			t.Fatalf("client level painting lacks %s:\n%s", want, raw)
+		}
+	}
+	// a coloured class the classes file does not have
+	odd := l
+	light := *l.PaintingLook.Light
+	light.Classes = []PaintingClass{{Class: "towers", Value: 1, Tint: [3]float64{1, 1, 1}, Saturation: 1}}
+	odd.PaintingLook.Light = &light
+	if err := loadPaintClasses(&odd, root); err == nil || !strings.Contains(err.Error(), "towers is not a class") {
+		t.Fatalf("an unknown class must fail, got %v", err)
+	}
+	// numbers out of range, a ramp upside down
+	for name, spoil := range map[string]func(*PaintingLight){
+		"lamps.gain":  func(x *PaintingLight) { x.Lamps.Gain[2] = 9 },
+		"ramp":        func(x *PaintingLight) { x.Ramp = [2]float64{0.3, 0.1} },
+		"shade.night": func(x *PaintingLight) { x.Shade.Night.Value = 1.5 },
+		"classes":     func(x *PaintingLight) { x.Classes = append(x.Classes, x.Classes[0]) },
+		"classes.stalls.calm": func(x *PaintingLight) {
+			x.Classes[0].Calm = &struct {
+				Share       float64 `json:"share"`
+				WidthM      float64 `json:"width_m"`
+				StrokesPerM float64 `json:"strokes_per_m"`
+				Tone        float64 `json:"tone"`
+			}{Share: 1.5, WidthM: 0.2, StrokesPerM: 5, Tone: 0.2}
+		},
+	} {
+		bad := *paintingLightFixture()
+		spoil(&bad)
+		look := l.PaintingLook
+		look.Light = &bad
+		if err := checkPaintingLook(look); err == nil || !strings.Contains(err.Error(), strings.Split(name, ".")[0]) {
+			t.Fatalf("%s spoiled must fail, got %v", name, err)
+		}
+	}
+	// a short list
+	short := `{"levels": [{"id": "c7_market", "painting_look": {"light": {"ramp": [0, 0.3], "keep_hue": {"hue_degrees": [40, 62]},
+		"shade": {"day": {"tint": [1, 1]}, "dusk": {"tint": [1, 1, 1]}, "night": {"tint": [1, 1, 1]}},
+		"grade": {"day": {"tint": [1, 1, 1]}, "dusk": {"tint": [1, 1, 1]}, "night": {"tint": [1, 1, 1]}},
+		"people": {"gain": [1, 1, 1], "contact": {"tint": [1, 1, 1]}}, "lamps": {"gain": [1, 1, 1]}}}}]}`
+	if err := paintingLightLengths([]byte(short)); err == nil || !strings.Contains(err.Error(), "shade.day.tint") {
+		t.Fatalf("a short tint must fail, got %v", err)
+	}
+}
