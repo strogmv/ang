@@ -138,3 +138,42 @@ func TestFixturesKeepTheInsideForItsWorkersAndCheckEveryFixture(t *testing.T) {
 		t.Fatalf("placed fixture: %v", err)
 	}
 }
+
+// People placement v1: a fixture whose people stand on its own floor (an ISO container's steel floor) gives its inside cells
+// that floor for the Godot catalog; a floor without an inside, or a step passed off as a floor, is refused.
+func TestFixturesGiveTheirInsideTheirOwnFloor(t *testing.T) {
+	c, in := fixturesStand(t, func(_ []string, _ map[string]any, _ *locationsdk.RuntimeBundle, in *FixtureCatalog) {
+		in.Rules["kit.loop"] = FixtureRule{Mount: "floor", Inside: "work", FloorMM: 150, Reason: "a container's steel floor"}
+	})
+	if err := applyFixtures(c, in); err != nil {
+		t.Fatalf("a raised inside was refused: %v", err)
+	}
+	inside := []Point{{2, 3}, {3, 3}, {4, 3}, {5, 3}, {6, 3}, {3, 4}, {4, 4}, {5, 4}, {6, 4}}
+	floors := c.FixtureFloors["level.hall"]
+	if len(floors) != 1 || floors[0].ID != "loop.1" || floors[0].RiseMM != 150 || !reflect.DeepEqual(floors[0].Cells, inside) {
+		t.Fatalf("floors %+v", c.FixtureFloors)
+	}
+	// without floor_mm the hall's own floor stays the floor of the inside
+	c, in = fixturesStand(t, nil)
+	if err := applyFixtures(c, in); err != nil || c.FixtureFloors != nil {
+		t.Fatalf("a plain inside got a floor: %v %+v", err, c.FixtureFloors)
+	}
+	for _, r := range []struct {
+		name, want string
+		rule       FixtureRule
+	}{
+		{"a floor with nothing inside to stand on", "needs an inside", FixtureRule{Mount: "overhead", FloorMM: 150, Reason: "r"}},
+		{"a step called a floor", "is a step", FixtureRule{Mount: "floor", Inside: "work", FloorMM: 900, Reason: "r"}},
+	} {
+		c, in := fixturesStand(t, func(_ []string, _ map[string]any, _ *locationsdk.RuntimeBundle, in *FixtureCatalog) {
+			if r.rule.Mount == "overhead" {
+				in.Rules["kit.lamp"] = r.rule
+			} else {
+				in.Rules["kit.loop"] = r.rule
+			}
+		})
+		if err := applyFixtures(c, in); err == nil || !strings.Contains(err.Error(), r.want) {
+			t.Fatalf("%s: got %v, want %q", r.name, err, r.want)
+		}
+	}
+}

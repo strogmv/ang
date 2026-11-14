@@ -36,6 +36,9 @@ type godotLocation struct {
 	Terrain              []string                `json:"terrain"`
 	Navigation           *locationsdk.Navigation `json:"navigation,omitempty"`
 	Neighbours           []string                `json:"neighbours"`
+	// People placement v1: raised floors of fixtures' insides (a container shop's steel floor) over the walkable surface of
+	// their cells, so the client draws the people who stand there on that floor (fixtures.go FixtureFloor).
+	Floors []FixtureFloor `json:"floors,omitempty"`
 }
 
 var godotLevelID = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
@@ -129,6 +132,7 @@ func writeGodotLocations(project string, c Compiled) error {
 			}
 		}
 		sort.Strings(row.Neighbours)
+		row.Floors = c.FixtureFloors[id]
 		// Runtime metadata is not player knowledge. The client only exposes server
 		// markers. Neighbour IDs schedule resource IO, never markers or map entries.
 		if f := finishes[id]; f.Scene != "" {

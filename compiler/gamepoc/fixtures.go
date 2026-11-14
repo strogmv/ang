@@ -21,11 +21,23 @@ import (
 //   - no public place (a brain place for anybody, a visitors' entry, stall or panel cell, an exit or entry of an edge, a
 //     marker, a vending panel) lies in work cells; population anchors leave them out.
 // The work areas go to life.locations[level].work: {id, cells, workers}; the host keeps everybody else off them.
+// People placement v1 (14.11): a fixture with an inside may stand its people on its own floor (floor_mm over the level's
+// surface: the steel floor of an ISO container's shop, kiosk or gallery half). Its inside cells go to the Godot location
+// catalog as a floor of that height (FixtureFloors -> generated/locations.json levels[].floors), so a seller is drawn on
+// the container's floor and not 150 mm inside it. The server's floor is the cell grid; it does not change.
 
 type FixtureRule struct {
-	Mount  string `json:"mount"`
-	Inside string `json:"inside,omitempty"`
-	Reason string `json:"reason"`
+	Mount   string `json:"mount"`
+	Inside  string `json:"inside,omitempty"`
+	FloorMM int    `json:"floor_mm,omitempty"`
+	Reason  string `json:"reason"`
+}
+
+// FixtureFloor: the inside cells of one fixture whose own floor is rise_mm over the level's walkable surface there.
+type FixtureFloor struct {
+	ID     string  `json:"id"`
+	RiseMM int     `json:"rise_mm"`
+	Cells  []Point `json:"cells"`
 }
 type FixtureRect struct {
 	X int `json:"x"`
@@ -222,7 +234,14 @@ func applyFixtures(c *Compiled, in *FixtureCatalog) error {
 		if rule.Inside != "" && (rule.Mount != "floor" || (rule.Inside != "work" && rule.Inside != "walk_in")) {
 			return fail("rule %s: inside %q of a %s fixture", kit, rule.Inside, rule.Mount)
 		}
+		if rule.FloorMM < 0 || rule.FloorMM > 0 && rule.Inside == "" {
+			return fail("rule %s: floor_mm %d needs an inside (work or walk_in) to stand on", kit, rule.FloorMM)
+		}
+		if rule.FloorMM > 600 {
+			return fail("rule %s: floor_mm %d is a step, not a floor plate (at most 600)", kit, rule.FloorMM)
+		}
 	}
+	floors := map[string][]FixtureFloor{}
 	work := map[string][]lifeWorkArea{}
 	ids := map[string]bool{}
 	for _, f := range fixtures {
@@ -262,6 +281,16 @@ func applyFixtures(c *Compiled, in *FixtureCatalog) error {
 		case rule.Inside == "work":
 			work[f.level] = append(work[f.level], lifeWorkArea{ID: f.id, Cells: inside})
 		}
+		if rule.FloorMM > 0 && len(inside) > 0 {
+			floors[f.level] = append(floors[f.level], FixtureFloor{ID: f.id, RiseMM: rule.FloorMM, Cells: inside})
+		}
+	}
+	c.FixtureFloors = nil
+	if len(floors) > 0 {
+		for level := range floors {
+			sort.Slice(floors[level], func(i, j int) bool { return floors[level][i].ID < floors[level][j].ID })
+		}
+		c.FixtureFloors = floors
 	}
 	if len(work) == 0 {
 		return nil

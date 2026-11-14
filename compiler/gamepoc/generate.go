@@ -301,6 +301,9 @@ type Compiled struct {
 	Wounds       *woundsRuntime.Model `json:"-"`
 	woundsIn     *woundsInput
 	woundsReport []byte
+
+	// People placement v1: the own floors of fixtures' insides by level (fixtures.go), only for the Godot location catalog.
+	FixtureFloors map[string][]FixtureFloor `json:"-"`
 }
 
 func (c Config) validate() error {
