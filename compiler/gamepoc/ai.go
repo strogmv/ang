@@ -133,6 +133,10 @@ func clientResource(c Compiled) ([]byte, error) {
 	if c.FootContact != nil {
 		view["foot_contact"] = clientFootContact(c.FootContact)
 	}
+	// Cloth motion v1 only in worlds that have it: per level, the strip curtains people push and the drapes a draft sways.
+	if c.ClothMotion != nil {
+		view["cloth_motion"] = clientClothMotion(c.ClothMotion)
+	}
 	// People read v1 only in worlds that have it: per level, the grade of the surroundings, the haze and the people's pass.
 	if c.PeopleRead != nil {
 		view["people_read"] = clientPeopleRead(c.PeopleRead)

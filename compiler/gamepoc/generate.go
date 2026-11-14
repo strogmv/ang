@@ -278,6 +278,8 @@ type Compiled struct {
 	CameraCutaway *CameraCutaway `json:"-"`
 	// Foot contact (foot_contact.go): the client's step that keeps soles on the floor, presentation only.
 	FootContact *FootContact `json:"-"`
+	// Cloth motion (cloth_motion.go): strip curtains people push and drapes a named draft sways, presentation only.
+	ClothMotion *ClothMotion `json:"-"`
 	// People read (people_read.go): per level, the surroundings step back and the people step forward, presentation only.
 	PeopleRead *PeopleRead `json:"-"`
 	// Painted location (painted_location.go): a corner's painted albedo projected back from the game camera, presentation only.
@@ -527,6 +529,9 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 		return out, nil, err
 	}
 	if out.FootContact, err = readFootContact(world); err != nil {
+		return out, nil, err
+	}
+	if out.ClothMotion, err = readClothMotion(world, out); err != nil {
 		return out, nil, err
 	}
 	if out.PeopleRead, err = readPeopleRead(world, out); err != nil {

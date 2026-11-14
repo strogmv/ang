@@ -23,18 +23,31 @@ void vertex() {
   vec4 origin=texelFetch(surface_poses,ivec2(0,node),0);
   mat3 basis=mat3(texelFetch(surface_poses,ivec2(1,node),0).xyz,texelFetch(surface_poses,ivec2(2,node),0).xyz,texelFetch(surface_poses,ivec2(3,node),0).xyz);
   vec4 point=texelFetch(glyph_data,ivec2(6,row),0);
+  // cloth v2: x the deformation source (its clock, -1: none), y the hinge height, z the length, w the clamp; the drift
+  // (radians, period) in column 7; the swing (hinge angle, bend) and the swing direction of the node in the poses.
   vec4 deform=texelFetch(glyph_data,ivec2(5,row),0);
   vec3 offset=vec3(0.0);
+  vec3 axis=vec3(0.0,0.0,1.0);
+  float turn=0.0;
   if(deform.x>=0.0) {
+   vec2 drift=texelFetch(glyph_data,ivec2(7,row),0).xy;
+   vec4 swing=texelFetch(surface_poses,ivec2(4,node),0);
+   axis=texelFetch(surface_poses,ivec2(5,node),0).xyz;
+   float time=deformation_times[int(deform.x+0.5)];
    vec3 weights=texelFetch(glyph_data,ivec2(24,row),0).xyz;
+   vec3 surface=vec3(0.0);
    for(int j=0;j<3;j++) {
     vec3 p=texelFetch(glyph_data,ivec2(18+j,row),0).xyz;
-    vec3 source_normal=texelFetch(glyph_data,ivec2(21+j,row),0).xyz;
-    offset+=weights[j]*ang_cloth_offset(p,source_normal,UV,0.0,point.w,deformation_times[int(deform.x+0.5)],deform.y,deform.z,deform.w,false);
+    surface+=weights[j]*p;
+    offset+=weights[j]*ang_cloth_offset(p,axis,UV,0.0,point.w,time,swing,deform.yzw,drift,false);
+    turn+=weights[j]*ang_cloth_angle(p,0.0,point.w,time,swing,deform.yzw,drift,false);
    }
+   // the paint stands off the turned surface, not off its rest pose
+   vec3 standoff=point.xyz-surface;
+   offset+=ang_cloth_turn(standoff,axis,turn)-standoff;
   }
   VERTEX=basis*(point.xyz+offset)+origin.xyz;
-  NORMAL=normalize(basis*texelFetch(glyph_data,ivec2(10,row),0).xyz);
+  NORMAL=normalize(basis*ang_cloth_turn(texelFetch(glyph_data,ivec2(10,row),0).xyz,axis,turn));
   UV=rect.xy;
   slot_mm=q.xy;
   if(origin.w<0.5){VERTEX=origin.xyz;}

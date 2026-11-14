@@ -19,11 +19,16 @@ var surface_batches: Dictionary = {}
 var surface_nodes: Array[MeshInstance3D] = []
 var surface_poses: Array[Transform3D] = []
 var surface_visibility: Array[bool] = []
+## cloth v2: the swing (hinge angle, bend) and the swing direction of each surface node last written to the poses
+var surface_swings: Array[Vector4] = []
+var surface_axes: Array[Vector3] = []
 var pose_image: Image
 var pose_texture: ImageTexture
 const ROOT := "res://generated/world_text/"
 
 func _ready() -> void:
+	# After whatever moves or deforms the hosts this frame (a strip's swing, cloth_motion.gd): the letters never lag a frame.
+	process_priority = 100
 	if initialize_on_ready:
 		initialize()
 
@@ -125,6 +130,8 @@ func rebuild() -> void:
 	surface_nodes.clear()
 	surface_poses.clear()
 	surface_visibility.clear()
+	surface_swings.clear()
+	surface_axes.clear()
 	for a in attachments.values():
 		if is_instance_valid(a.node):
 			a.node.visibility_changed.disconnect(a.callback)
@@ -139,7 +146,7 @@ func rebuild() -> void:
 	for style in batches:
 		_finish_batch(style)
 	if not surface_batches.is_empty():
-		pose_image = Image.create(4,surface_nodes.size(),false,Image.FORMAT_RGBAF)
+		pose_image = Image.create(6,surface_nodes.size(),false,Image.FORMAT_RGBAF)
 		_update_surface_poses()
 		pose_texture = ImageTexture.create_from_image(pose_image)
 		for style in surface_batches:
@@ -363,7 +370,7 @@ func _process(_delta: float) -> void:
 		var times := PackedFloat32Array()
 		times.resize(64)
 		for i in range(deformation_sources.size()):
-			times[i] = float(deformation_sources[i].get_shader_parameter("wind_time"))
+			times[i] = _cloth(deformation_sources[i],"cloth_time")
 		for material in shader_materials:
 			material.set_shader_parameter("deformation_times",times)
 	if pose_image != null and _update_surface_poses():
@@ -434,17 +441,23 @@ func _surface_quad(style: String, record: Dictionary, node: MeshInstance3D) -> v
 		surface_nodes.append(node)
 		surface_poses.append(Transform3D(Basis.from_scale(Vector3.ZERO),Vector3.ZERO))
 		surface_visibility.append(false)
+		surface_swings.append(Vector4(NAN,0,0,0))
+		surface_axes.append(Vector3.ZERO)
 	var node_index := surface_nodes.find(node)
 	var deform := Color(-1,0,0,0)
+	var drift := Color(0,0,0,0)
 	var phase := 0.0
+	# cloth v2: the node's driver (client cloth_motion.gd) keeps {mode, material, phase, axis, swing} in this meta and
+	# rewrites swing (hinge angle, bend) every frame; the cloth's hinge, length, clamp and drift are its material's.
 	if node.has_meta("ang_world_text_deformation"):
 		var spec: Dictionary = node.get_meta("ang_world_text_deformation")
-		assert(spec.mode == "cloth_v1")
+		assert(spec.mode == "cloth_v2")
 		var material: ShaderMaterial = spec.material
 		if material not in deformation_sources:
 			assert(deformation_sources.size() < 64)
 			deformation_sources.append(material)
-		deform = Color(deformation_sources.find(material),material.get_shader_parameter("amplitude"),material.get_shader_parameter("anchor_y"),material.get_shader_parameter("cloth_height"))
+		deform = Color(deformation_sources.find(material),_cloth(material,"anchor_y"),_cloth(material,"cloth_height"),_cloth(material,"clamp_m"))
+		drift = Color(deg_to_rad(_cloth(material,"drift_deg")),_cloth(material,"drift_period_s"),0,0)
 		phase = spec.phase
 	var count := 0
 	for tri in surface_cache[node.mesh]:
@@ -466,10 +479,17 @@ func _surface_quad(style: String, record: Dictionary, node: MeshInstance3D) -> v
 				var uv: Vector2 = record.uv.position+Vector2(p.x+0.5,0.5-p.y)*record.uv.size
 				var slot: Vector2 = record.q.position+(p+Vector2(0.5,0.5))*record.q.size
 				surface_batches[style].append({"point":corner.source+direction*0.004,"bary":corner.bary,"normal":direction,
-					"uv":uv,"slot":slot,"tri":tri,"deform":deform,"phase":phase,"node":node_index,"record":record})
+					"uv":uv,"slot":slot,"tri":tri,"deform":deform,"drift":drift,"phase":phase,"node":node_index,"record":record})
 			count += 1
 	assert(count > 0,"ANG strip glyph has no authored surface")
 	audit["surface_triangles"] = int(audit.get("surface_triangles",0))+count
+
+## A cloth material's number; one its material leaves unset is the shader's default (cloth_wind.gdshader: still).
+func _cloth(material: ShaderMaterial, key: String) -> float:
+	var value = material.get_shader_parameter(key)
+	if value == null:
+		value = RenderingServer.shader_get_parameter_default(material.shader.get_rid(), key)
+	return 0.0 if value == null else float(value)
 
 func _clip_surface(polygon: Array, plane: Vector3) -> Array:
 	if polygon.is_empty():
@@ -490,25 +510,43 @@ func _clip_surface(polygon: Array, plane: Vector3) -> Array:
 
 func _update_surface_poses() -> bool:
 	var changed := false
+	var moved := false
 	for i in range(surface_nodes.size()):
 		var pose := surface_nodes[i].global_transform
 		var visible_now := surface_nodes[i].is_visible_in_tree()
+		var swing := Vector4.ZERO
+		var swing_axis := Vector3(0,0,1)
+		if surface_nodes[i].has_meta("ang_world_text_deformation"):
+			var spec: Dictionary = surface_nodes[i].get_meta("ang_world_text_deformation")
+			swing = spec.get("swing", Vector4.ZERO)
+			swing_axis = spec.get("axis", Vector3(0,0,1))
+		if swing != surface_swings[i] or swing_axis != surface_axes[i]:
+			surface_swings[i] = swing
+			surface_axes[i] = swing_axis
+			pose_image.set_pixel(4,i,Color(swing.x,swing.y,swing.z,swing.w))
+			pose_image.set_pixel(5,i,Color(swing_axis.x,swing_axis.y,swing_axis.z,0))
+			changed = true
 		if pose == surface_poses[i] and visible_now == surface_visibility[i]:
 			continue
 		surface_poses[i] = pose
 		surface_visibility[i] = visible_now
 		changed = true
+		moved = true
 		pose_image.set_pixel(0,i,Color(pose.origin.x,pose.origin.y,pose.origin.z,1 if surface_nodes[i].is_visible_in_tree() else 0))
 		for k in range(3):
 			var axis: Vector3 = pose.basis[k]
 			pose_image.set_pixel(k+1,i,Color(axis.x,axis.y,axis.z,0))
-	if changed and not surface_nodes.is_empty():
+	if moved and not surface_nodes.is_empty():
 		var bounds := surface_nodes[0].global_transform*surface_nodes[0].get_aabb()
 		for node in surface_nodes:
 			bounds = bounds.merge(node.global_transform*node.get_aabb())
+		# a swinging cloth reaches its length out of its rest bounds
+		var reach := 0.0
+		for material in deformation_sources:
+			reach = maxf(reach, _cloth(material,"cloth_height"))
 		for child in get_children():
 			if String(child.name).begins_with("WorldText_surface_"):
-				child.custom_aabb = bounds.grow(0.1)
+				child.custom_aabb = bounds.grow(0.1+reach)
 	return changed
 
 func _finish_surface_batch(style: String) -> void:
@@ -530,6 +568,7 @@ func _finish_surface_batch(style: String) -> void:
 		data.set_pixel(4,i,Color(r.node,0,0,0))
 		data.set_pixel(5,i,r.deform)
 		data.set_pixel(6,i,Color(r.point.x,r.point.y,r.point.z,r.phase))
+		data.set_pixel(7,i,r.drift)
 		data.set_pixel(10,i,Color(r.normal.x,r.normal.y,r.normal.z,0))
 		for j in range(6):
 			var value: Vector3 = r.tri[j]
@@ -553,7 +592,10 @@ func _finish_surface_batch(style: String) -> void:
 	var drawable := MeshInstance3D.new()
 	drawable.name = "WorldText_surface_"+style
 	drawable.mesh = mesh
-	drawable.custom_aabb = mesh.get_aabb().grow(0.1)
+	var reach := 0.0
+	for source in deformation_sources:
+		reach = maxf(reach, _cloth(source,"cloth_height"))
+	drawable.custom_aabb = mesh.get_aabb().grow(0.1+reach)
 	drawable.material_override = material
 	drawable.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(drawable)
