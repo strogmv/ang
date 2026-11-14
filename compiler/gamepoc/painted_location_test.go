@@ -97,9 +97,33 @@ func TestPaintedLocationAcceptedAndProjected(t *testing.T) {
 	}
 	p.Corners[0].Picture = "painted"
 	raw, _ = json.Marshal(clientPaintedLocation(&p))
-	if !strings.Contains(string(raw), `"picture":"res://assets/painted-location/c7_market-torgomat/painted.png"`) {
-		t.Fatalf("the painted picture is not chosen: %s", raw)
+	if !strings.Contains(string(raw), `"picture":"res://assets/painted-location/c7_market-torgomat/painted.png"`) ||
+		!strings.Contains(string(raw), `"look":"lit"`) || strings.Contains(string(raw), "painting_look") {
+		t.Fatalf("the painted picture is not chosen, or v1/v2 data is not the look lit: %s", raw)
 	}
+	// v3: the look painting with its picture and numbers reaches the client; v1/v2 data stays valid without them
+	writePaintedPNG(t, root, paintedDir+"painting.png", 1280, 800, false)
+	p.Corners[0].Look, p.Corners[0].Painting, p.Corners[0].PaintingLook = "painting", paintedDir+"painting.png", paintingLookFixture()
+	if err := checkPaintedLocation(p, known, root); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ = json.Marshal(clientPaintedLocation(&p))
+	for _, want := range []string{`"look":"painting"`, `"pictures":{"lit":"res://assets/painted-location/c7_market-torgomat/painted.png","painting":"res://assets/painted-location/c7_market-torgomat/painting.png"}`,
+		`"lamp_gain":1`, `"highlight_ceiling":1.5`, `"static_shadows":false`, `"live_shadows":false`, `"night":{"value":0.42,"tint":[0.84,0.92,1.12],"saturation":0.8}`, `"people_read_keep":0`,
+		`"shadow":{"strength":0.5,"tint":[0.42,0.46,0.6]}`} {
+		if !strings.Contains(string(raw), want) {
+			t.Fatalf("client painting look lacks %s:\n%s", want, raw)
+		}
+	}
+}
+
+func paintingLookFixture() *PaintingLook {
+	l := &PaintingLook{LampGain: 1, LampWrap: 0.3, HighlightCeiling: 1.5, Shadow: PaintingShade{Strength: 0.5, Tint: [3]float64{0.42, 0.46, 0.6}}, PeopleReadKeep: 0,
+		Live: PaintingLive{Tint: [3]float64{1, 1, 1}, Saturation: 1, KeyGain: 0.8, LampGain: 0.7}}
+	l.Grade.Day = PaintingGrade{Value: 1, Tint: [3]float64{1, 1, 1}, Saturation: 1}
+	l.Grade.Dusk = PaintingGrade{Value: 0.78, Tint: [3]float64{1.04, 0.97, 0.9}, Saturation: 0.95}
+	l.Grade.Night = PaintingGrade{Value: 0.42, Tint: [3]float64{0.84, 0.92, 1.12}, Saturation: 0.8}
+	return l
 }
 
 func TestPaintedLocationRejected(t *testing.T) {
@@ -160,7 +184,39 @@ func TestPaintedLocationRejected(t *testing.T) {
 		"live_part_no_reason": func(p *PaintedLocation, _ string) {
 			p.Corners[0].LiveParts = []PaintedLivePart{{Match: "fan_*", Why: " "}}
 		},
-		"tolerance_nan":     func(p *PaintedLocation, _ string) { p.Corners[0].DepthToleranceM = math.NaN() },
+		"tolerance_nan":      func(p *PaintedLocation, _ string) { p.Corners[0].DepthToleranceM = math.NaN() },
+		"look_unknown":       func(p *PaintedLocation, _ string) { p.Corners[0].Look = "baked" },
+		"look_painting_bare": func(p *PaintedLocation, _ string) { p.Corners[0].Look = "painting" },
+		"painting_missing": func(p *PaintedLocation, _ string) {
+			p.Corners[0].Look, p.Corners[0].Painting, p.Corners[0].PaintingLook = "painting", paintedDir+"painting.png", paintingLookFixture()
+		},
+		"painting_is_depth": func(p *PaintedLocation, _ string) {
+			p.Corners[0].Look, p.Corners[0].Painting, p.Corners[0].PaintingLook = "painting", paintedDir+"depth.png", paintingLookFixture()
+		},
+		"painting_wrong_size": func(p *PaintedLocation, root string) {
+			writePaintedPNG(t, root, paintedDir+"painting.png", 2560, 1600, false)
+			p.Corners[0].Look, p.Corners[0].Painting, p.Corners[0].PaintingLook = "painting", paintedDir+"painting.png", paintingLookFixture()
+		},
+		"painting_lamp_gain": func(p *PaintedLocation, root string) {
+			writePaintedPNG(t, root, paintedDir+"painting.png", 1280, 800, false)
+			p.Corners[0].Look, p.Corners[0].Painting, p.Corners[0].PaintingLook = "painting", paintedDir+"painting.png", paintingLookFixture()
+			p.Corners[0].PaintingLook.LampGain = 5
+		},
+		"painting_ceiling_huge": func(p *PaintedLocation, root string) {
+			writePaintedPNG(t, root, paintedDir+"painting.png", 1280, 800, false)
+			p.Corners[0].Look, p.Corners[0].Painting, p.Corners[0].PaintingLook = "painting", paintedDir+"painting.png", paintingLookFixture()
+			p.Corners[0].PaintingLook.HighlightCeiling = 20
+		},
+		"painting_night_black": func(p *PaintedLocation, root string) {
+			writePaintedPNG(t, root, paintedDir+"painting.png", 1280, 800, false)
+			p.Corners[0].Look, p.Corners[0].Painting, p.Corners[0].PaintingLook = "painting", paintedDir+"painting.png", paintingLookFixture()
+			p.Corners[0].PaintingLook.Grade.Night.Value = 0
+		},
+		"painting_shadow_tint_nan": func(p *PaintedLocation, root string) {
+			writePaintedPNG(t, root, paintedDir+"painting.png", 1280, 800, false)
+			p.Corners[0].Look, p.Corners[0].Painting, p.Corners[0].PaintingLook = "painting", paintedDir+"painting.png", paintingLookFixture()
+			p.Corners[0].PaintingLook.Shadow.Tint[1] = math.NaN()
+		},
 		"render_huge_width": func(p *PaintedLocation, _ string) { p.Corners[0].RenderPx = [2]int{9000, 1600} },
 	}
 	for name, spoil := range cases {
@@ -185,6 +241,15 @@ func TestPaintedLocationRead(t *testing.T) {
 	if err != nil || p == nil || len(p.Corners) != 1 || p.Corners[0].FocusPlan != [3]float64{32.5, 21, 1} || p.Corners[0].RenderPx != [2]int{1280, 800} {
 		t.Fatalf("read %+v, %v", p, err)
 	}
+	writePaintedPNG(t, root, paintedDir+"painting.png", 1280, 800, false)
+	look := `, look: "painting", painting: "` + paintedDir + `painting.png", painting_look: {lamp_gain: 1, lamp_wrap: 0.3, highlight_ceiling: 1.5,
+		shadow: {strength: 0.5, tint: [0.4, 0.5, 0.6]}, static_shadows: false, live_shadows: false, grade: {day: {value: 1, tint: [1, 1, 1], saturation: 1},
+		dusk: {value: 0.8, tint: [1, 1, 1], saturation: 1}, night: {value: 0.4, tint: [0.8, 0.9, 1.1], saturation: 0.8}}, people_read_keep: 0,
+		live: {tint: [1, 1, 1], saturation: 1, key_gain: 0.8, lamp_gain: 0.7}}`
+	p, err = readPaintedLocation(ctx.CompileString(`painted_location: {mode: "now", corners: [`+strings.Replace(corner, "%s", look, 1)+`]}`), c, root)
+	if err != nil || p.Corners[0].Look != "painting" || p.Corners[0].PaintingLook == nil || p.Corners[0].PaintingLook.Grade.Night.Tint != [3]float64{0.8, 0.9, 1.1} {
+		t.Fatalf("read the look painting %+v, %v", p, err)
+	}
 	if p, err := readPaintedLocation(ctx.CompileString(`other: 1`), c, root); err != nil || p != nil {
 		t.Fatalf("a world without the block: %+v, %v", p, err)
 	}
@@ -195,6 +260,11 @@ func TestPaintedLocationRead(t *testing.T) {
 		"string_size":               `painted_location: {mode: "now", corners: [` + strings.Replace(strings.Replace(corner, "%s", "", 1), "size_m: 12", `size_m: "12"`, 1) + `]}`,
 		"no_corners":                `painted_location: {mode: "now", corners: []}`,
 		"mode_painted_missing_file": `painted_location: {mode: "painted", corners: [` + strings.Replace(strings.Replace(corner, "%s", "", 1), `picture: "stand_in"`, `picture: "painted"`, 1) + `]}`,
+		"painting_short_tint": `painted_location: {mode: "now", corners: [` + strings.Replace(corner, "%s", `, painting_look: {lamp_gain: 1, lamp_wrap: 0.3, highlight_ceiling: 1.5,
+			shadow: {strength: 0.5, tint: [0.4, 0.5]}, static_shadows: false, grade: {day: {value: 1, tint: [1, 1, 1], saturation: 1},
+			dusk: {value: 1, tint: [1, 1, 1], saturation: 1}, night: {value: 0.4, tint: [1, 1, 1], saturation: 1}}, people_read_keep: 0,
+			live: {tint: [1, 1, 1], saturation: 1, key_gain: 0.8, lamp_gain: 0.7}}`, 1) + `]}`,
+		"painting_unknown_number": `painted_location: {mode: "now", corners: [` + strings.Replace(corner, "%s", `, painting_look: {lamp_gain: 1, glow: 2}`, 1) + `]}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := readPaintedLocation(ctx.CompileString(src), c, root); err == nil || !strings.Contains(err.Error(), "world.painted_location") {

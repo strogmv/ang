@@ -47,6 +47,61 @@ type PaintedCorner struct {
 	EdgeM           float64           `json:"edge_m"`
 	Strength        float64           `json:"strength"`
 	LiveParts       []PaintedLivePart `json:"live_parts"`
+	// v3 (the game's design/painted-location/v3/README.md): Look is how the painted static surfaces are shown — "lit"
+	// (v1/v2: the picture is an albedo under the live light; the default when absent) or "painting" (the picture is the
+	// final image: emitted through the game's tonemapper backwards, no ambient, no key-light Lambert, no gloss; lamps add,
+	// people's shadows multiply, the hour is a grade). Painting is that picture (merge mode "paint": the painting at all
+	// frequencies, harmonised to the style key); PaintingLook its numbers.
+	Look         string        `json:"look,omitempty"`
+	Painting     string        `json:"painting,omitempty"`
+	PaintingLook *PaintingLook `json:"painting_look,omitempty"`
+}
+
+// PaintingLook: the numbers of the look "painting". LampGain / LampWrap: the live lamps' pools on the painting (wrapped
+// N.L, tinted by the painted colour). HighlightCeiling: see the field. Shadow: the key's shadows of people and live parts multiply the painting toward
+// Tint (linear multipliers) with Strength at the key's day energy. StaticShadows: whether the corner's static meshes keep
+// casting the key's shadow onto it. Grade: the painting by the server's day / dusk / night weights. PeopleReadKeep: the
+// share of the people-read background grade the painted surfaces keep. Live: the live parts (painted-live material) in
+// the painting's palette.
+type PaintingLook struct {
+	LampGain float64 `json:"lamp_gain"`
+	LampWrap float64 `json:"lamp_wrap"`
+	// HighlightCeiling: the painting's brightest colours roll off toward this tonemapper input (exposure included; 0:
+	// none), under the game's glow threshold.
+	HighlightCeiling float64       `json:"highlight_ceiling"`
+	Shadow           PaintingShade `json:"shadow"`
+	StaticShadows    bool          `json:"static_shadows"`
+	// LiveShadows: whether the corner's live parts (the insides of static things: fans, flaps, goods behind glass) keep
+	// casting the key's shadow while the painting is shown; people and things outside the corner always cast.
+	LiveShadows bool `json:"live_shadows"`
+	Grade       struct {
+		Day   PaintingGrade `json:"day"`
+		Dusk  PaintingGrade `json:"dusk"`
+		Night PaintingGrade `json:"night"`
+	} `json:"grade"`
+	PeopleReadKeep float64      `json:"people_read_keep"`
+	Live           PaintingLive `json:"live"`
+}
+
+// PaintingShade: the key shadow's strength and the painting's shadow colour.
+type PaintingShade struct {
+	Strength float64    `json:"strength"`
+	Tint     [3]float64 `json:"tint"`
+}
+
+// PaintingGrade: one phase of the hour — value and tint (display multipliers) and saturation of the painting.
+type PaintingGrade struct {
+	Value      float64    `json:"value"`
+	Tint       [3]float64 `json:"tint"`
+	Saturation float64    `json:"saturation"`
+}
+
+// PaintingLive: the live parts in the painting's palette — their colour's tint and saturation, the key's and the lamps' gain.
+type PaintingLive struct {
+	Tint       [3]float64 `json:"tint"`
+	Saturation float64    `json:"saturation"`
+	KeyGain    float64    `json:"key_gain"`
+	LampGain   float64    `json:"lamp_gain"`
 }
 
 // PaintedLivePart: a node name or a name pattern of the corner's live parts and why it is live.
@@ -94,11 +149,23 @@ func readPaintedLocation(world cue.Value, c Compiled, root string) (*PaintedLoca
 }
 
 func paintedLocationLengths(raw []byte) error {
+	type grade struct {
+		Tint []json.RawMessage `json:"tint"`
+	}
 	var doc struct {
 		Corners []struct {
-			ID        string            `json:"id"`
-			FocusPlan []json.RawMessage `json:"focus_plan"`
-			RenderPx  []json.RawMessage `json:"render_px"`
+			ID           string            `json:"id"`
+			FocusPlan    []json.RawMessage `json:"focus_plan"`
+			RenderPx     []json.RawMessage `json:"render_px"`
+			PaintingLook *struct {
+				Shadow grade `json:"shadow"`
+				Grade  struct {
+					Day   grade `json:"day"`
+					Dusk  grade `json:"dusk"`
+					Night grade `json:"night"`
+				} `json:"grade"`
+				Live grade `json:"live"`
+			} `json:"painting_look"`
 		} `json:"corners"`
 	}
 	if err := json.Unmarshal(raw, &doc); err != nil {
@@ -110,6 +177,14 @@ func paintedLocationLengths(raw []byte) error {
 		}
 		if len(c.RenderPx) != 2 {
 			return fmt.Errorf("corner %s: render_px needs exactly 2 numbers (width, height)", c.ID)
+		}
+		if l := c.PaintingLook; l != nil {
+			for name, tint := range map[string][]json.RawMessage{"shadow": l.Shadow.Tint, "grade.day": l.Grade.Day.Tint,
+				"grade.dusk": l.Grade.Dusk.Tint, "grade.night": l.Grade.Night.Tint, "live": l.Live.Tint} {
+				if len(tint) != 3 {
+					return fmt.Errorf("corner %s: painting_look.%s.tint needs exactly 3 numbers (R G B)", c.ID, name)
+				}
+			}
 		}
 	}
 	return nil
@@ -189,6 +264,31 @@ func checkPaintedCorner(c PaintedCorner, known func(string) bool, root string) e
 		}
 		seen[part.Match] = true
 	}
+	switch c.Look {
+	case "", "lit":
+	case "painting":
+		if c.Painting == "" || c.PaintingLook == nil {
+			return fmt.Errorf("look painting needs painting (the paint-mode picture) and painting_look")
+		}
+	default:
+		return fmt.Errorf("look must be lit or painting, not %q", c.Look)
+	}
+	if c.PaintingLook != nil {
+		if err := checkPaintingLook(*c.PaintingLook); err != nil {
+			return fmt.Errorf("painting_look: %w", err)
+		}
+	}
+	if c.Painting != "" {
+		if !paintedPicturePth.MatchString(c.Painting) {
+			return fmt.Errorf("painting %q: a .png under client-godot/assets/painted-location/<corner>/", c.Painting)
+		}
+		if c.Painting == c.StandIn || c.Painting == c.Painted || c.Painting == c.Depth {
+			return fmt.Errorf("painting must be a file of its own")
+		}
+		if err := checkPaintedPNG(root, c.Painting, w, h, false); err != nil {
+			return fmt.Errorf("painting: %w", err)
+		}
+	}
 	for _, f := range []struct{ name, path string }{{"stand_in", c.StandIn}, {"painted", c.Painted}, {"depth", c.Depth}} {
 		if !paintedPicturePth.MatchString(f.path) {
 			return fmt.Errorf("%s %q: a .png under client-godot/assets/painted-location/<corner>/", f.name, f.path)
@@ -207,6 +307,41 @@ func checkPaintedCorner(c PaintedCorner, known func(string) bool, root string) e
 	}
 	if err := checkPaintedPNG(root, chosen, w, h, false); err != nil {
 		return fmt.Errorf("%s: %w", c.Picture, err)
+	}
+	return nil
+}
+
+// checkPaintingLook: every number finite and in its range (the CUE schema says the same; ANG is the gate for data that
+// bypasses it).
+func checkPaintingLook(l PaintingLook) error {
+	in := func(name string, v, lo, hi float64) error {
+		if math.IsNaN(v) || math.IsInf(v, 0) || v < lo || v > hi {
+			return fmt.Errorf("%s %v: %v..%v", name, v, lo, hi)
+		}
+		return nil
+	}
+	checks := []error{in("lamp_gain", l.LampGain, 0, 4), in("lamp_wrap", l.LampWrap, 0, 1), in("highlight_ceiling", l.HighlightCeiling, 0, 16), in("shadow.strength", l.Shadow.Strength, 0, 1),
+		in("people_read_keep", l.PeopleReadKeep, 0, 1), in("live.saturation", l.Live.Saturation, 0, 2),
+		in("live.key_gain", l.Live.KeyGain, 0, 2), in("live.lamp_gain", l.Live.LampGain, 0, 2)}
+	for i, v := range l.Shadow.Tint {
+		checks = append(checks, in(fmt.Sprintf("shadow.tint[%d]", i), v, 0, 1))
+	}
+	for i, v := range l.Live.Tint {
+		checks = append(checks, in(fmt.Sprintf("live.tint[%d]", i), v, 0, 2))
+	}
+	for name, g := range map[string]PaintingGrade{"day": l.Grade.Day, "dusk": l.Grade.Dusk, "night": l.Grade.Night} {
+		if g.Value <= 0 {
+			checks = append(checks, fmt.Errorf("grade.%s.value %v: above 0", name, g.Value))
+		}
+		checks = append(checks, in("grade."+name+".value", g.Value, 0, 2), in("grade."+name+".saturation", g.Saturation, 0, 2))
+		for i, v := range g.Tint {
+			checks = append(checks, in(fmt.Sprintf("grade.%s.tint[%d]", name, i), v, 0, 2))
+		}
+	}
+	for _, err := range checks {
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -248,9 +383,22 @@ func clientPaintedLocation(p *PaintedLocation) map[string]any {
 		for _, part := range c.LiveParts {
 			live = append(live, part.Match)
 		}
-		corners = append(corners, map[string]any{"id": c.ID, "level_id": c.LevelID, "focus_plan": c.FocusPlan, "size_m": c.SizeM,
+		look := c.Look
+		if look == "" {
+			look = "lit"
+		}
+		pictures := map[string]any{"lit": res(picture)}
+		if c.Painting != "" {
+			pictures["painting"] = res(c.Painting)
+		}
+		row := map[string]any{"id": c.ID, "level_id": c.LevelID, "focus_plan": c.FocusPlan, "size_m": c.SizeM,
 			"render_px": c.RenderPx, "picture_kind": c.Picture, "picture": res(picture), "depth": res(c.Depth),
-			"depth_tolerance_m": c.DepthToleranceM, "edge_m": c.EdgeM, "strength": c.Strength, "live_parts": live})
+			"depth_tolerance_m": c.DepthToleranceM, "edge_m": c.EdgeM, "strength": c.Strength, "live_parts": live,
+			"look": look, "pictures": pictures}
+		if c.PaintingLook != nil {
+			row["painting_look"] = c.PaintingLook
+		}
+		corners = append(corners, row)
 	}
 	return map[string]any{"mode": p.Mode, "corners": corners}
 }
