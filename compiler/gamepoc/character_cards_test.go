@@ -60,6 +60,11 @@ func TestCharacterCardsAccepted(t *testing.T) {
 	if err := checkCharacterCards(root, map[string]CharacterCard{"char.polina": c}, a, person); err != nil {
 		t.Fatal(err)
 	}
+	// a youth of 15 with the reason he is in the market
+	c.Age, c.MinorReason = 15, "after his school shift he sells for his mother"
+	if err := checkCharacterCards(root, map[string]CharacterCard{"char.polina": c}, a, person); err != nil {
+		t.Fatal(err)
+	}
 	// the look's row carries the shading
 	looks, _ := clientLooks(a, nil)
 	if len(looks) != 1 || looks[0]["shading"] != "painted" {
@@ -69,20 +74,22 @@ func TestCharacterCardsAccepted(t *testing.T) {
 
 func TestCharacterCardsRejected(t *testing.T) {
 	cases := map[string]func(root string, c *CharacterCard, a *Art){
-		"key is not the person": func(_ string, c *CharacterCard, _ *Art) { c.Person = "char.other" },
-		"unknown person":        func(_ string, c *CharacterCard, a *Art) { c.Person = "char.nobody" },
-		"too young":             func(_ string, c *CharacterCard, _ *Art) { c.Age = 12 },
-		"sex":                   func(_ string, c *CharacterCard, _ *Art) { c.Sex = "x" },
-		"build":                 func(_ string, c *CharacterCard, _ *Art) { c.Build = "superhero" },
-		"height":                func(_ string, c *CharacterCard, _ *Art) { c.HeightM = 2.4 },
-		"caste":                 func(_ string, c *CharacterCard, _ *Art) { c.Caste = "steel" },
-		"no job":                func(_ string, c *CharacterCard, _ *Art) { c.Job = " " },
-		"no silhouette":         func(_ string, c *CharacterCard, _ *Art) { c.Silhouette = "" },
-		"no hair style":         func(_ string, c *CharacterCard, _ *Art) { c.Hair.Style = "" },
-		"face part missing":     func(_ string, c *CharacterCard, _ *Art) { delete(c.Face, "mouth") },
-		"bad hair colour":       func(_ string, c *CharacterCard, _ *Art) { c.Hair.Colour = "brown" },
-		"bad skin colour":       func(_ string, c *CharacterCard, _ *Art) { c.Skin = "#12345" },
-		"one block":             func(_ string, c *CharacterCard, _ *Art) { c.ColourBlocks = c.ColourBlocks[:1] },
+		"key is not the person":   func(_ string, c *CharacterCard, _ *Art) { c.Person = "char.other" },
+		"unknown person":          func(_ string, c *CharacterCard, a *Art) { c.Person = "char.nobody" },
+		"too young":               func(_ string, c *CharacterCard, _ *Art) { c.Age = 12 },
+		"youth without reason":    func(_ string, c *CharacterCard, _ *Art) { c.Age = 15 },
+		"adult with minor reason": func(_ string, c *CharacterCard, _ *Art) { c.MinorReason = "an errand" },
+		"sex":                     func(_ string, c *CharacterCard, _ *Art) { c.Sex = "x" },
+		"build":                   func(_ string, c *CharacterCard, _ *Art) { c.Build = "superhero" },
+		"height":                  func(_ string, c *CharacterCard, _ *Art) { c.HeightM = 2.4 },
+		"caste":                   func(_ string, c *CharacterCard, _ *Art) { c.Caste = "steel" },
+		"no job":                  func(_ string, c *CharacterCard, _ *Art) { c.Job = " " },
+		"no silhouette":           func(_ string, c *CharacterCard, _ *Art) { c.Silhouette = "" },
+		"no hair style":           func(_ string, c *CharacterCard, _ *Art) { c.Hair.Style = "" },
+		"face part missing":       func(_ string, c *CharacterCard, _ *Art) { delete(c.Face, "mouth") },
+		"bad hair colour":         func(_ string, c *CharacterCard, _ *Art) { c.Hair.Colour = "brown" },
+		"bad skin colour":         func(_ string, c *CharacterCard, _ *Art) { c.Skin = "#12345" },
+		"one block":               func(_ string, c *CharacterCard, _ *Art) { c.ColourBlocks = c.ColourBlocks[:1] },
 		"four blocks": func(_ string, c *CharacterCard, _ *Art) {
 			c.ColourBlocks = append(c.ColourBlocks, CardColourBlock{Zone: "apron", Colour: "#333333", What: "a"}, CardColourBlock{Zone: "boot", Colour: "#222222", What: "b"})
 		},

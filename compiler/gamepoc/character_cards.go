@@ -38,6 +38,9 @@ type CharacterCard struct {
 	Accessories  []CardPiece       `json:"accessories"`
 	Look         string            `json:"look"`
 	Portrait     string            `json:"portrait,omitempty"`
+	// MinorReason: why a person younger than an adult (ageMin) is a person of the world at all — at work or in the market (a
+	// youth of 13..15: the school shift and an errand, an apprentice); required below ageMin, not allowed from it.
+	MinorReason string `json:"minor_reason,omitempty"`
 }
 
 // CardColourBlock: the zone of the look's mask a block colours, its colour and what it is.
@@ -76,7 +79,9 @@ var (
 	cardMinBlocks   = 2
 	cardMaxBlocks   = 3
 	cardHeightSlack = 0.005
-	cardPieceName   = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+	// cardMinorMin: the youngest person a card may describe (a youth at work or on an errand, with its reason in the world).
+	cardMinorMin  = int64(13)
+	cardPieceName = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 )
 
 // checkCharacterCards validates world.character_cards against the persons, the looks and the game tree (root: the folder that
@@ -89,8 +94,14 @@ func checkCharacterCards(root string, cards map[string]CharacterCard, a Art, per
 		if !person(id) {
 			return fmt.Errorf("character_cards %s: no such person in world.persons", id)
 		}
-		if c.Age < ageMin || c.Age > ageMax {
-			return fmt.Errorf("character_cards %s: age %d is not within %d..%d", id, c.Age, ageMin, ageMax)
+		if c.Age < cardMinorMin || c.Age > ageMax {
+			return fmt.Errorf("character_cards %s: age %d is not within %d..%d", id, c.Age, cardMinorMin, ageMax)
+		}
+		if c.Age < ageMin && strings.TrimSpace(c.MinorReason) == "" {
+			return fmt.Errorf("character_cards %s: age %d is under %d: say in minor_reason why a youth is at work or in the market", id, c.Age, ageMin)
+		}
+		if c.Age >= ageMin && c.MinorReason != "" {
+			return fmt.Errorf("character_cards %s: minor_reason is only for a person under %d", id, ageMin)
 		}
 		if !cardSexes[c.Sex] {
 			return fmt.Errorf("character_cards %s: sex must be f or m, not %q", id, c.Sex)
