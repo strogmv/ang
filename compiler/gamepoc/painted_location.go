@@ -23,6 +23,8 @@ import (
 type PaintedLocation struct {
 	Mode    string          `json:"mode"`
 	Corners []PaintedCorner `json:"corners"`
+	// Painted market v1: whole levels (painted_level.go).
+	Levels []PaintedLevel `json:"levels,omitempty"`
 }
 
 // PaintedCorner: one corner. FocusPlan is the frame's middle on the level's plan (metres: x east, y south, z up); SizeM the
@@ -105,9 +107,12 @@ type PaintingLive struct {
 }
 
 // PaintedLivePart: a node name or a name pattern of the corner's live parts and why it is live.
+// Painted market v1: or a level instance (Instance) — the whole instance, or only its descendants named by Parts.
 type PaintedLivePart struct {
-	Match string `json:"match"`
-	Why   string `json:"why"`
+	Match    string   `json:"match,omitempty"`
+	Instance string   `json:"instance,omitempty"`
+	Parts    []string `json:"parts,omitempty"`
+	Why      string   `json:"why"`
 }
 
 var (
@@ -170,6 +175,25 @@ func paintedLocationLengths(raw []byte) error {
 	}
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		return err
+	}
+	var levels struct {
+		Levels []struct {
+			ID     string `json:"id"`
+			Frames []struct {
+				Name string            `json:"name"`
+				Plan []json.RawMessage `json:"plan"`
+			} `json:"frames"`
+		} `json:"levels"`
+	}
+	if err := json.Unmarshal(raw, &levels); err != nil {
+		return err
+	}
+	for _, l := range levels.Levels {
+		for _, f := range l.Frames {
+			if len(f.Plan) != 3 {
+				return fmt.Errorf("level painting %s: frames %s: plan needs exactly 3 numbers (x east, y south, z up)", l.ID, f.Name)
+			}
+		}
 	}
 	for _, c := range doc.Corners {
 		if len(c.FocusPlan) != 3 {
@@ -400,5 +424,9 @@ func clientPaintedLocation(p *PaintedLocation) map[string]any {
 		}
 		corners = append(corners, row)
 	}
-	return map[string]any{"mode": p.Mode, "corners": corners}
+	view := map[string]any{"mode": p.Mode, "corners": corners}
+	if len(p.Levels) > 0 {
+		view["levels"] = clientPaintedLevels(p.Levels)
+	}
+	return view
 }

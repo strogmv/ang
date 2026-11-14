@@ -919,6 +919,10 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	if err := validateCraft(out); err != nil {
 		return out, nil, err
 	}
+	// Painted market v1: a level painting is checked once every system it must leave live is compiled.
+	if err := checkPaintedLocationLevels(out, filepath.Dir(project)); err != nil {
+		return out, nil, err
+	}
 	if err := applyPeddlers(&out); err != nil {
 		return out, nil, err
 	}
