@@ -402,6 +402,12 @@ type PopulationLook struct {
 	// Ages (part B): colourways by the wearer's age — a wearer of at least FromAge is drawn in that band's colourways (the
 	// highest band that fits: grey hair of the older). Wearers without an age (the crowd) use Colourways.
 	Ages []PopulationAge `json:"ages,omitempty"`
+	// Parts (characters v1, job 4: bright accents): the shares of the options of a parts.choose group of the look for this
+	// population — each wearer's option is picked by another hash of his id with these shares (0: never), so who wears the
+	// signal vest is a rule in data (a share per population), not a hand-placed list. Every option of the group is named.
+	// A group not named here keeps every option equally likely, as before. An age band's choose narrows the options and
+	// keeps their shares.
+	Parts map[string]map[string]int64 `json:"parts,omitempty"`
 }
 
 // PopulationAge is one band of colourways by age (looks_parts.go). Choose (optional) narrows a parts.choose group of the
@@ -467,6 +473,9 @@ func checkPopulationLooks(a Art, visitors *VisitorCatalog) error {
 		if err := checkPopulationAges(name, p, l); err != nil {
 			return err
 		}
+		if err := checkPopulationParts(name, p, l); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -497,6 +506,9 @@ func clientPopulationLooks(a Art) []map[string]any {
 		}
 		if len(p.Ages) > 0 {
 			row["ages"] = clientPopulationAges(p.Ages)
+		}
+		if len(p.Parts) > 0 {
+			row["parts"] = clientPopulationParts(p.Parts)
 		}
 		out = append(out, row)
 	}

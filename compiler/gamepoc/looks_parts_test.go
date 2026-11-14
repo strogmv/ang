@@ -39,7 +39,8 @@ func partsFixture(t *testing.T) (string, Art, *VisitorCatalog, func(string) bool
 		PopulationLooks: map[string]PopulationLook{
 			"bronze_work": {Look: "look.woman", Colourways: map[string]int64{"steel": 1}},
 			"bronze_trader_f": {Look: "look.trader", Colourways: map[string]int64{"steel": 2}, Ages: []PopulationAge{{FromAge: 55, Colourways: map[string]int64{"grey": 1},
-				Choose: map[string][]string{"hair": {"tied", "bun"}}}}},
+				Choose: map[string][]string{"hair": {"tied", "bun"}}}},
+				Parts: map[string]map[string]int64{"hair": {"short": 0, "bun": 3, "tied": 1}}},
 		},
 		PersonPopulations: map[string]PersonPopulation{"char.trader_b": {Population: "bronze_trader_f", Age: 58}, "char.trader_a": {Population: "bronze_trader_f", Age: 27}},
 	}
@@ -77,7 +78,7 @@ func TestLookPartsAgesAndPersonPopulationsAccepted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := `{"ages":[{"choose":{"hair":["bun","tied"]},"colourways":[{"id":"grey","share":1}],"from_age":55}],"colourways":[{"id":"steel","share":2}],"id":"bronze_trader_f","look":"look.trader"}`; !strings.Contains(string(raw), want) {
+	if want := `{"ages":[{"choose":{"hair":["bun","tied"]},"colourways":[{"id":"grey","share":1}],"from_age":55}],"colourways":[{"id":"steel","share":2}],"id":"bronze_trader_f","look":"look.trader","parts":[{"id":"hair","options":[{"id":"bun","share":3},{"id":"short","share":0},{"id":"tied","share":1}]}]}`; !strings.Contains(string(raw), want) {
 		t.Fatalf("client population looks lack the age band:\n%s", raw)
 	}
 	raw, err = json.Marshal(clientArt(Compiled{Art: a})["person_populations"])
@@ -172,6 +173,20 @@ func TestLookPartsAgesAndPersonPopulationsRejected(t *testing.T) {
 		}),
 		"band_choose_twice": pop(func(p *PopulationLook) {
 			p.Ages[0] = PopulationAge{FromAge: 55, Colourways: map[string]int64{"grey": 1}, Choose: map[string][]string{"hair": {"bun", "bun"}}}
+		}),
+		"shares_group": pop(func(p *PopulationLook) { p.Parts = map[string]map[string]int64{"beard": {"none": 1}} }),
+		"shares_option": pop(func(p *PopulationLook) {
+			p.Parts = map[string]map[string]int64{"hair": {"short": 1, "bun": 1, "tied": 1, "braid": 1}}
+		}),
+		"shares_missing": pop(func(p *PopulationLook) { p.Parts = map[string]map[string]int64{"hair": {"short": 1, "bun": 1}} }),
+		"shares_range": pop(func(p *PopulationLook) {
+			p.Parts = map[string]map[string]int64{"hair": {"short": 1, "bun": 101, "tied": 1}}
+		}),
+		"shares_negative": pop(func(p *PopulationLook) {
+			p.Parts = map[string]map[string]int64{"hair": {"short": 1, "bun": -1, "tied": 1}}
+		}),
+		"shares_all_zero": pop(func(p *PopulationLook) {
+			p.Parts = map[string]map[string]int64{"hair": {"short": 0, "bun": 0, "tied": 0}}
 		}),
 		"person_unknown": func(a *Art, _ **VisitorCatalog) {
 			a.PersonPopulations["char.nobody"] = PersonPopulation{Population: "bronze_trader_f", Age: 30}

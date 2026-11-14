@@ -160,6 +160,63 @@ func checkPopulationAges(name string, p PopulationLook, l Look) error {
 	return nil
 }
 
+// checkPopulationParts (job 4): each group is a parts.choose group of the look, every one of its options is named once with
+// a share 0..100, and at least one share is above 0.
+func checkPopulationParts(name string, p PopulationLook, l Look) error {
+	for group, shares := range p.Parts {
+		var offered map[string][]string
+		if l.Parts != nil {
+			offered = l.Parts.Choose[group]
+		}
+		if offered == nil {
+			return fmt.Errorf("art.population_looks %s: parts %q is not a parts.choose group of look %s", name, group, p.Look)
+		}
+		total := int64(0)
+		for opt, share := range shares {
+			if _, ok := offered[opt]; !ok {
+				return fmt.Errorf("art.population_looks %s: parts %s: %q is not an option of look %s", name, group, opt, p.Look)
+			}
+			if share < 0 || share > 100 {
+				return fmt.Errorf("art.population_looks %s: parts %s: the share of option %s must be within 0..100", name, group, opt)
+			}
+			total += share
+		}
+		for opt := range offered {
+			if _, ok := shares[opt]; !ok {
+				return fmt.Errorf("art.population_looks %s: parts %s: option %s of look %s has no share (name every option; 0 for never)", name, group, opt, p.Look)
+			}
+		}
+		if total == 0 {
+			return fmt.Errorf("art.population_looks %s: parts %s: every share is 0", name, group)
+		}
+	}
+	return nil
+}
+
+// clientPopulationParts: groups sorted, each group's options sorted by name with their shares (the pick by id is the same on
+// every machine).
+func clientPopulationParts(parts map[string]map[string]int64) []map[string]any {
+	groups := make([]string, 0, len(parts))
+	for g := range parts {
+		groups = append(groups, g)
+	}
+	sort.Strings(groups)
+	out := make([]map[string]any, 0, len(groups))
+	for _, g := range groups {
+		opts := make([]string, 0, len(parts[g]))
+		for o := range parts[g] {
+			opts = append(opts, o)
+		}
+		sort.Strings(opts)
+		rows := make([]map[string]any, 0, len(opts))
+		for _, o := range opts {
+			rows = append(rows, map[string]any{"id": o, "share": parts[g][o]})
+		}
+		out = append(out, map[string]any{"id": g, "options": rows})
+	}
+	return out
+}
+
 func clientPopulationAges(ages []PopulationAge) []map[string]any {
 	bands := append([]PopulationAge{}, ages...)
 	sort.Slice(bands, func(i, j int) bool { return bands[i].FromAge < bands[j].FromAge })
