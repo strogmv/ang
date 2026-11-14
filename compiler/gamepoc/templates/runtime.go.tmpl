@@ -463,11 +463,14 @@ func (r *Runtime) advance(now time.Time) {
 		return
 	}
 	r.lastAdvance = now
-	if elapsed > 2*time.Second && !r.state.Paused {
-		r.state.Paused = true
-		// No world step follows an automatic pause. Publish the transition
-		// itself so the connected client can show it (or explicitly resume).
-		if r.client != nil { r.sendState(r.client) }
+	// A host stall over 2 s (the process stopped, starved on a loaded machine
+	// or busy in one long command) is not world time: it is dropped, never
+	// caught up in a burst of steps. The world keeps running and keeps taking
+	// orders. It used to pause here instead: an order that arrived with the
+	// stall (a client's first walk while it still loads its scene) was refused
+	// and only a client could resume (design/proof-reliability/v1).
+	if elapsed > 2*time.Second {
+		elapsed = 0
 	}
 	step := time.Second / time.Duration(r.world.Config.TickHz)
 	if r.state.Active && !r.state.Paused {

@@ -46,10 +46,42 @@ func TestTickAlignedPublicationAndHeroStamp(t *testing.T) {
  if received!=20 {t.Fatalf("published %d times for 20 ticks",received)}
  before:=r.snapshotState();r.sendState(c);<-c.out
  if !reflect.DeepEqual(before,r.snapshotState()){t.Fatal("observation changed simulation")}
+ // A host stall over 2 s: its time is dropped (no step, no burst, no pause, nothing to publish); the next ordinary
+ // wake runs one ordinary tick.
  r.advance(now.Add(5*time.Second))
- if len(c.out)!=1 {t.Fatal("automatic pause must publish without a world step")}
- paused:=(<-c.out).GetGameState()
- if paused==nil||!paused.Paused||paused.PublishedAfterTick||paused.Tick!=previous {t.Fatal("invalid automatic pause transition",paused)}
+ if len(c.out)!=0||r.state.Paused||r.state.Tick!=previous {t.Fatal("a host stall must drop its time without a step, a pause or a publication")}
+ r.advance(now.Add(5*time.Second+100*time.Millisecond))
+ if len(c.out)!=1 {t.Fatalf("one ordinary tick after a host stall, got %d publications",len(c.out))}
+ next:=(<-c.out).GetGameState()
+ if next==nil||next.Paused||!next.PublishedAfterTick||next.Tick!=previous+1 {t.Fatal("the world did not continue after a host stall",next)}
+}
+
+// design/proof-reliability/v1: an order that comes with a host stall (the first walk of a client still loading its
+// scene on a loaded machine: the order's own clock advance is the first after the stall) is taken. The stall used to
+// pause the world and refuse it ("Мир на паузе"), and nothing but a client resumed.
+func TestHostStallKeepsTakingOrders(t *testing.T) {
+ r,c:=heroBodyHub(t)
+ heroBodySteer(t,r,c,"stop",0,0)
+ r.client=c
+ r.state.Paused=false;r.state.Speed=1
+ now:=time.Now();r.lastAdvance=now;r.sampleAt=now
+ r.advance(now.Add(100*time.Millisecond))
+ for len(c.out)>0 {<-c.out}
+ tick:=r.state.Tick
+ // Run advances the clock before every command: 3 s after the last advance.
+ r.advance(now.Add(3100*time.Millisecond))
+ if r.state.Paused||r.state.Tick!=tick||len(c.out)!=0 {t.Fatal("a host stall paused, fast-forwarded or republished the world")}
+ heroBodySteer(t,r,c,"stop",0,0)
+ hero:=r.state.Life.Actor(playerActorID)
+ deck:=int32(0)
+ if v:=r.deckVolume();v!=nil {if n,ok:=v.SurfaceIndex(hero.Position);ok {deck=int32(n)}}
+ heroBodySeq++
+ r.move(c,&pb.MoveTo{X:int32(hero.Position.X),Y:int32(hero.Position.Y),Deck:deck,Epoch:r.state.Epoch,InputSeq:heroBodySeq})
+ res:=(<-c.out).GetMoveResult()
+ if res==nil||!res.Ok {t.Fatal("a walk order after a host stall was refused",res)}
+ for len(c.out)>0 {<-c.out}
+ r.advance(now.Add(3200*time.Millisecond))
+ if r.state.Paused||r.state.Tick!=tick+1 {t.Fatal("the world did not run on after a host stall")}
 }
 
 // A faster calendar must not multiply wall-clock publication: TickHz frames
