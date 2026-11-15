@@ -38,7 +38,7 @@ type Look struct {
 	// it (the gait follows the body). Nil: the model's own height as built.
 	HeightM *float64 `json:"height_m,omitempty"`
 	// Idle: the stance the wearer stands in when he does not walk, work or sit (one of lookIdles: "post", a guard on duty
-	// at his post). The clip is a stance of the shared UAL rig the client packs with the look (art-source/anim-stances);
+	// at his post; "calm", a worker standing between jobs, characters v1 job 05). The clip is a stance of the shared UAL rig the client packs with the look (art-source/anim-stances);
 	// nil: the shared Idle. Explicitly empty is rejected (name a stance or leave the field out).
 	Idle *string `json:"idle,omitempty"`
 	// Parts (market people v1, part B): surfaces of the model (part_* in its record) that only some wearers wear — the
@@ -96,6 +96,8 @@ type lookRecord struct {
 		UV2Surfaces []string `json:"uv2_surfaces"`
 		// The zone mask beside the GLB (outside Git) and the colour each tinted zone has in the atlas.
 		Zones *lookRecordZones `json:"zones"`
+		// The body shapes the model's mesh carries (blend shapes: the body thin, heavy...; every garment carries them).
+		Shapes []string `json:"shapes"`
 	} `json:"looks"`
 }
 
@@ -118,7 +120,7 @@ var (
 	// The height of an adult body a look may be drawn at (crown to sole, metres).
 	lookMinHeightM, lookMaxHeightM = 1.45, 2.05
 	// The idle stances of the shared UAL rig a look may name (the clips in art-source/anim-stances/v1/stances.json).
-	lookIdles = map[string]bool{"post": true}
+	lookIdles = map[string]bool{"post": true, "calm": true}
 	// The ways a look may be drawn besides the build's own materials (art.looks[].shading).
 	lookShadings = map[string]bool{"painted": true}
 )
@@ -236,7 +238,7 @@ func checkLooks(root string, a Art, person func(string) bool, turrets *TurretWat
 			return fmt.Errorf("art.looks %s: height_m %g is not an adult's height (crown to sole, %g..%g m)", key, *h, lookMinHeightM, lookMaxHeightM)
 		}
 		if i := l.Idle; i != nil && !lookIdles[*i] {
-			return fmt.Errorf("art.looks %s: idle %q is not a stance of the shared rig (post); leave it out for the shared Idle", key, *i)
+			return fmt.Errorf("art.looks %s: idle %q is not a stance of the shared rig (post, calm); leave it out for the shared Idle", key, *i)
 		}
 		if err := checkLookZones(key, l, model.Zones, l.Record); err != nil {
 			return err
@@ -250,6 +252,9 @@ func checkLooks(root string, a Art, person func(string) bool, turrets *TurretWat
 			}
 		}
 		if err := checkLookParts(key, l, model.Surfaces, model.UV2Surfaces, l.Record); err != nil {
+			return err
+		}
+		if err := checkLookShapes(key, a, model.Shapes, l.Record); err != nil {
 			return err
 		}
 		for surface, m := range l.Materials {
@@ -278,6 +283,9 @@ func checkLooks(root string, a Art, person func(string) bool, turrets *TurretWat
 				return fmt.Errorf("art.looks %s: a biomonitor row needs the shared table world.biomonitor", key)
 			}
 		}
+	}
+	if err := checkPersonShapes(a); err != nil {
+		return err
 	}
 	for id, look := range a.PersonLooks {
 		l, ok := a.Looks[look]
@@ -383,7 +391,11 @@ func clientLooks(a Art, turrets *TurretWatchCatalog) ([]map[string]any, []map[st
 	sort.Strings(people)
 	wearers := make([]map[string]any, 0, len(people))
 	for _, id := range people {
-		wearers = append(wearers, map[string]any{"id": id, "look": a.PersonLooks[id], "duty": lookDuties(turrets, id)})
+		row := map[string]any{"id": id, "look": a.PersonLooks[id], "duty": lookDuties(turrets, id)}
+		if s := a.PersonShapes[id]; len(s) > 0 {
+			row["shapes"] = s
+		}
+		wearers = append(wearers, row)
 	}
 	return looks, wearers
 }
@@ -408,6 +420,10 @@ type PopulationLook struct {
 	// A group not named here keeps every option equally likely, as before. An age band's choose narrows the options and
 	// keeps their shares.
 	Parts map[string]map[string]int64 `json:"parts,omitempty"`
+	// Shapes (characters v1, job 05: one set of clothes on many bodies): the body shapes of the look's model its wearers are
+	// drawn in — each wearer takes one option by a hash of his id with these shares (the option `none`: the body as built),
+	// and its amount between Min and Max by another hash. Nil: every wearer as built.
+	Shapes map[string]PopulationShape `json:"shapes,omitempty"`
 }
 
 // PopulationAge is one band of colourways by age (looks_parts.go). Choose (optional) narrows a parts.choose group of the
@@ -509,6 +525,9 @@ func clientPopulationLooks(a Art) []map[string]any {
 		}
 		if len(p.Parts) > 0 {
 			row["parts"] = clientPopulationParts(p.Parts)
+		}
+		if len(p.Shapes) > 0 {
+			row["shapes"] = clientPopulationShapes(p.Shapes)
 		}
 		out = append(out, row)
 	}

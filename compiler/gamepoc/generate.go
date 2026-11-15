@@ -170,6 +170,9 @@ type Art struct {
 	// The crowd (looks.go, market people v1): a population look (the `look` of a visitor kind) -> its 3D look and the
 	// colourways its wearers are drawn in, with their shares.
 	PopulationLooks map[string]PopulationLook `json:"population_looks"`
+	// Body shapes of persons who wear their own look (looks_shapes.go, characters v1 job 05): person -> {blend shape of his
+	// look's model: 0..1} — one set of clothes on many bodies.
+	PersonShapes map[string]map[string]float64 `json:"person_shapes,omitempty"`
 	// People of the world drawn as wearers of a population look by one general rule in CUE (looks_parts.go, market people v1
 	// part B: the traders by caste, body and age): person -> the population look and his age.
 	PersonPopulations map[string]PersonPopulation `json:"person_populations"`
