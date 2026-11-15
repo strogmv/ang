@@ -49,6 +49,9 @@ func clientArt(c Compiled) map[string]any {
 	// 3D looks of people only in worlds that bind any (looks.go): earlier projects keep their resource.
 	if len(c.Art.Looks) > 0 || len(c.Art.PersonLooks) > 0 {
 		art["looks"], art["person_looks"] = clientLooks(c.Art, c.TurretWatch)
+		if len(c.Art.PostureAge) > 0 {
+			art["posture_age"] = c.Art.PostureAge
+		}
 	}
 	// The crowd's looks (looks.go): only in worlds that bind any, so earlier projects keep their resource.
 	if len(c.Art.PopulationLooks) > 0 {

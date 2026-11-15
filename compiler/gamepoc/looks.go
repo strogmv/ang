@@ -51,6 +51,13 @@ type Look struct {
 	// (look_zones); "painted" — the painted 3D of the paint test (shaders/people_painted.gdshader) as the look's own material:
 	// the atlas is the painting projected onto the UV, the game's light falls in painted bands, no specular. Needs a zone mask.
 	Shading *string `json:"shading,omitempty"`
+	// Steps (MetaHuman people): when the near step of a model with distance steps is drawn (looks_steps.go). Nil: a model
+	// without steps.
+	Steps *LookSteps `json:"steps,omitempty"`
+	// Swing: the dynamics of the model's swing shapes (the apron's panels), Posture: the look's carriage over the shared clips
+	// (looks_motion.go). Nil: none.
+	Swing   *LookSwing   `json:"swing,omitempty"`
+	Posture *LookPosture `json:"posture,omitempty"`
 }
 
 // LookColourway: a colour per tinted zone of the record's mask.
@@ -98,6 +105,10 @@ type lookRecord struct {
 		Zones *lookRecordZones `json:"zones"`
 		// The body shapes the model's mesh carries (blend shapes: the body thin, heavy...; every garment carries them).
 		Shapes []string `json:"shapes"`
+		// The distance steps: one mesh per step (near, crowd) with its triangles and budget (looks_steps.go).
+		Steps map[string]lookRecordStep `json:"steps"`
+		// The swing shapes of the model's cloth panels (looks_motion.go).
+		SwingShapes map[string]lookRecordSwing `json:"swing_shapes"`
 	} `json:"looks"`
 }
 
@@ -178,6 +189,9 @@ func lookDuties(turrets *TurretWatchCatalog, person string) []lookDuty {
 // glow surface with a second UV set, driven by world.biomonitor. The GLB and the mask are not required (they stay
 // outside Git): without them the client keeps the mannequin.
 func checkLooks(root string, a Art, person func(string) bool, turrets *TurretWatchCatalog, monitor *BiomonitorCatalog) error {
+	if err := checkPostureAge(a.PostureAge); err != nil {
+		return err
+	}
 	records := map[string]lookRecord{}
 	for key, l := range a.Looks {
 		if !lookID.MatchString(key) || l.ID != key {
@@ -256,6 +270,17 @@ func checkLooks(root string, a Art, person func(string) bool, turrets *TurretWat
 		}
 		if err := checkLookShapes(key, a, model.Shapes, l.Record); err != nil {
 			return err
+		}
+		if err := checkLookSteps(key, l, model.Steps, l.Record); err != nil {
+			return err
+		}
+		if err := checkLookSwing(key, l, model.SwingShapes, l.Record); err != nil {
+			return err
+		}
+		if l.Posture != nil {
+			if err := checkPostureGroups("art.looks "+key, *l.Posture); err != nil {
+				return err
+			}
 		}
 		for surface, m := range l.Materials {
 			if model.Surfaces[surface] == "" || strings.HasPrefix(surface, "glow_") {
@@ -381,6 +406,15 @@ func clientLooks(a Art, turrets *TurretWatchCatalog) ([]map[string]any, []map[st
 		}
 		if l.Shading != nil {
 			row["shading"] = *l.Shading
+		}
+		if l.Steps != nil {
+			row["steps"] = l.Steps
+		}
+		if l.Swing != nil {
+			row["swing"] = l.Swing
+		}
+		if l.Posture != nil {
+			row["posture"] = l.Posture
 		}
 		looks = append(looks, row)
 	}

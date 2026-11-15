@@ -177,10 +177,12 @@ type Art struct {
 	// part B: the traders by caste, body and age): person -> the population look and his age.
 	PersonPopulations map[string]PersonPopulation `json:"person_populations"`
 	// The painted people test (looks_painttest.go): which people are drawn in which version (now, sprite, painted3d).
-	PaintTest *PaintTest           `json:"paint_test,omitempty"`
-	Tile      struct{ W, H int }   `json:"tile"`
-	Palette   map[string]string    `json:"palette"`
-	Sprites   map[string]ArtSprite `json:"sprites"`
+	PaintTest *PaintTest `json:"paint_test,omitempty"`
+	// What age adds to a look's posture (looks_motion.go): bands from an age up, the highest reached counts.
+	PostureAge []LookPostureAge     `json:"posture_age,omitempty"`
+	Tile       struct{ W, H int }   `json:"tile"`
+	Palette    map[string]string    `json:"palette"`
+	Sprites    map[string]ArtSprite `json:"sprites"`
 }
 
 // LoadingScreen is a full-screen picture shown while the server answers a new game or load request (world.loading).
