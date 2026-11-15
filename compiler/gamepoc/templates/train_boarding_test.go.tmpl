@@ -292,6 +292,7 @@ func TestTrainCabinCountsRealRidersAndBackground(t *testing.T) {
 			if m.Seated+m.Standing != total || m.Seated > len(c.Cabin.Seats) || m.Standing > len(c.Cabin.Standing) || (m.Standing > 0 && m.Seated != len(c.Cabin.Seats)) {
 				t.Fatal(label, ": car counts are not riders plus background", i, m.Riders, m.Seated, m.Standing, total)
 			}
+			checkCabinPassengers(t, c, label, i, m)
 		}
 	}
 	want := make([]int, len(c.Modules))
@@ -415,5 +416,78 @@ func TestTrainCabinCountsRealRidersAndBackground(t *testing.T) {
 	}
 	if !varied || night*2 >= peak {
 		t.Fatal("background passengers ignore the seed or the hours", varied, night, peak)
+	}
+}
+
+// Cozy v1: one passenger row per counted person, in place order (seats, then standing), the real riders first, looks and
+// poses inside the riders' lists with the pose of the place's kind, a child only on the seat after an adult of its rule;
+// the same rows again for the same run (the client re-dresses its pool from them).
+func checkCabinPassengers(t *testing.T, c *trainMotionCatalog, label string, car int, m trainModuleState) {
+	t.Helper()
+	if c.Cabin.Riders == nil {
+		if len(m.Passengers) != 0 {
+			t.Fatal(label, ": passenger rows without riders' lists")
+		}
+		return
+	}
+	r := c.Cabin.Riders
+	if len(m.Passengers) != m.Seated+m.Standing {
+		t.Fatal(label, ": passenger rows do not match the car's people", car, len(m.Passengers), m.Seated+m.Standing)
+	}
+	real := 0
+	for place, p := range m.Passengers {
+		at := "seat"
+		if place >= len(c.Cabin.Seats) {
+			at = "standing"
+		}
+		if p.Place != place || p.Look < 0 || p.Look > len(r.Looks) || p.Pose < 0 || p.Pose >= len(r.Poses) || r.Poses[p.Pose].At != at {
+			t.Fatal(label, ": passenger row out of its lists or place", car, place, p)
+		}
+		if p.Look == len(r.Looks) && (place == 0 || r.Looks[m.Passengers[place-1].Look].Look != r.Child.AfterLook || r.Poses[p.Pose].ID != r.Child.Pose) {
+			t.Fatal(label, ": a child travels without its adult", car, place)
+		}
+		if p.Real {
+			real++
+		}
+	}
+	if real != min(m.Riders, len(m.Passengers)) {
+		t.Fatal(label, ": the real riders are not the first rows", car, real, m.Riders)
+	}
+}
+
+// Cozy v1: the rows change with the run and stay the same for one run, whatever the hour of the frame.
+func TestTrainCabinPassengersChangeEveryRun(t *testing.T) {
+	r, _ := visibleBoardingFixture(t)
+	c := r.world.TrainMotion
+	if c.Cabin == nil || c.Cabin.Riders == nil {
+		t.Skip("this world has no riders' lists")
+	}
+	full := c.cabinCapacity()
+	a := c.cabinPassengers(r.state.Seed, 7*3600, 1, 0, full)
+	if !reflect.DeepEqual(a, c.cabinPassengers(r.state.Seed, 7*3600, 1, 0, full)) {
+		t.Fatal("the same run gave other passengers")
+	}
+	differ := 0
+	for run := int64(1); run <= 8; run++ {
+		b := c.cabinPassengers(r.state.Seed, 7*3600+run*300, 1, 0, full)
+		if !reflect.DeepEqual(a, b) {
+			differ++
+		}
+	}
+	if differ < 7 {
+		t.Fatal("passengers did not change from run to run", differ)
+	}
+	looks, poses := map[int]bool{}, map[int]bool{}
+	for d := int64(0); d < 40; d++ {
+		for _, p := range c.cabinPassengers(r.state.Seed, d*300, 0, 2, full) {
+			looks[p.Look] = true
+			poses[p.Pose] = true
+		}
+	}
+	if len(looks) < len(c.Cabin.Riders.Looks) || len(poses) < 3 {
+		t.Fatal("forty runs used too few looks or poses", looks, poses)
+	}
+	if c.cabinPassengers(r.state.Seed, 300, 0, 0, 0) != nil {
+		t.Fatal("an empty car has passenger rows")
 	}
 }

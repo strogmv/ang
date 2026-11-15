@@ -39,6 +39,32 @@ type trainCabin struct {
 	BackgroundPerCarByHour []int            `json:"background_per_car_by_hour"`
 	SpreadPermille         int              `json:"spread_permille"`
 	RiderModule            string           `json:"rider_module,omitempty"`
+	// Cozy v1: the lists the passenger rows index (looks with shares, a child rule, poses by place kind).
+	Riders *trainCabinRiders `json:"riders,omitempty"`
+}
+type trainCabinRiders struct {
+	Looks []struct {
+		Look  string `json:"look"`
+		Share int    `json:"share"`
+	} `json:"looks"`
+	Child struct {
+		AfterLook string `json:"after_look"`
+		Permille  int    `json:"permille"`
+		Pose      string `json:"pose"`
+	} `json:"child"`
+	Poses []struct {
+		ID    string `json:"id"`
+		At    string `json:"at"`
+		Share int    `json:"share"`
+	} `json:"poses"`
+}
+// trainCabinPassenger: one person of a car this run. Place indexes the cabin's seats then its standing places; Look
+// indexes riders.looks (len(looks) is the child); Pose indexes riders.poses. Real: a Life rider who boarded at the berth.
+type trainCabinPassenger struct {
+	Place int  `json:"place"`
+	Look  int  `json:"look"`
+	Pose  int  `json:"pose"`
+	Real  bool `json:"real,omitempty"`
 }
 type trainCabinSpot struct {
 	XM float64 `json:"x_m"`
@@ -125,6 +151,8 @@ type trainModuleState struct {
 	Riders   int `json:"riders"`
 	Seated   int `json:"seated"`
 	Standing int `json:"standing"`
+	// Cozy v1: who they are, one row per person (the owner's rule, doc 09: nothing is simulated on board beyond it).
+	Passengers []trainCabinPassenger `json:"passengers,omitempty"`
 }
 type trainPose struct {
 	X          float64 `json:"x"`
@@ -231,7 +259,7 @@ func (r *Runtime) trainMotionSnapshot() trainMotionSnapshot {
   state:=member.render(localDistance,localSpeed,localPhase,dispatch.Run,localDoors,active)
   if i==0&&active{
    riders,seated,standing:=r.trainCabinCounts(c,dispatch)
-   for m:=range state.Modules{if m<len(riders){state.Modules[m].Riders=riders[m];state.Modules[m].Seated=seated[m];state.Modules[m].Standing=standing[m]}}
+   for m:=range state.Modules{if m<len(riders){state.Modules[m].Riders=riders[m];state.Modules[m].Seated=seated[m];state.Modules[m].Standing=standing[m];state.Modules[m].Passengers=c.cabinPassengers(r.state.Seed,dispatch.Departure,m,riders[m],seated[m]+standing[m])}}
   }
   if localDoors{state.DoorProgress=1}else if active&&localPhase=="closing"{state.DoorProgress=math.Max(0,1-float64(ns-dispatch.DepartNS)/1e9/c.DoorCloseSeconds)}
   best:=math.Inf(1)
@@ -294,4 +322,55 @@ func(r *Runtime)trainCabinCounts(c *trainMotionCatalog,s trainDispatchState)(rid
   standing[i]=total-seated[i]
  }
  return riders,seated,standing
+}
+
+// cabinUnit: a number in [0,1) from the seed, the departure slot, the car, the place and a salt (splitmix, as cabinBackground).
+func cabinUnit(seed,departure int64,module,place,salt int)float64{
+ x:=uint64(seed)*0x9E3779B97F4A7C15^uint64(departure)*0xBF58476D1CE4E5B9^uint64(module+1)*0x94D049BB133111EB^uint64(place+1)*0xD6E8FEB86659FD93^uint64(salt+1)*0xA0761D6478BD642F
+ x^=x>>30;x*=0xBF58476D1CE4E5B9;x^=x>>27;x*=0x94D049BB133111EB;x^=x>>31
+ return float64(x>>11)/float64(uint64(1)<<53)
+}
+
+// cabinPassengers: who is where in one car of a run (cozy v1, owner 15.11: the passengers change every run, decided here).
+// The real riders come first, then the background ones; places fill the seats in the cabin's order, then the standing
+// places. Each person's look and pose follow the riders' shares by the seed, the departure, the car and the place, so a
+// replay, a reconnect or a load gives the same rows. An adult of the child rule's look may bring a child: it takes the
+// next seat in the child's pose. Nothing else of them is simulated.
+func(c *trainMotionCatalog)cabinPassengers(seed,departure int64,module,real,total int)[]trainCabinPassenger{
+ k:=c.Cabin
+ if k==nil||k.Riders==nil||total<=0||len(k.Riders.Looks)==0{return nil}
+ r:=k.Riders
+ lookTotal:=0
+ after:=-1
+ for i,l:=range r.Looks{lookTotal+=l.Share;if l.Look==r.Child.AfterLook{after=i}}
+ childPose:=-1
+ kinds:=map[string]int{}
+ for i,p:=range r.Poses{kinds[p.At]+=p.Share;if p.ID==r.Child.Pose{childPose=i}}
+ pick:=func(u float64,at string)int{
+  left:=int(u*float64(kinds[at]))
+  for i,p:=range r.Poses{if p.At!=at{continue};left-=p.Share;if left<0{return i}}
+  return -1
+ }
+ seats:=len(k.Seats)
+ out:=make([]trainCabinPassenger,0,total)
+ child:=false
+ for place:=0;place<total;place++{
+  at:="seat";if place>=seats{at="standing"}
+  if child&&at=="seat"&&childPose>=0{
+   out=append(out,trainCabinPassenger{Place:place,Look:len(r.Looks),Pose:childPose,Real:place<real})
+   child=false
+   continue
+  }
+  child=false
+  look:=0
+  if lookTotal>0{
+   left:=int(cabinUnit(seed,departure,module,place,1)*float64(lookTotal))
+   for i,l:=range r.Looks{left-=l.Share;if left<0{look=i;break}}
+  }
+  pose:=pick(cabinUnit(seed,departure,module,place,2),at)
+  if pose<0{pose=0}
+  out=append(out,trainCabinPassenger{Place:place,Look:look,Pose:pose,Real:place<real})
+  if look==after&&at=="seat"&&place+1<min(total,seats)&&place>=real&&int(cabinUnit(seed,departure,module,place,3)*1000)<r.Child.Permille{child=true}
+ }
+ return out
 }

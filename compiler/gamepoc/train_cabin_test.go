@@ -101,3 +101,99 @@ func TestTrainCabinRidersSitInTheCarOfTheirDoor(t *testing.T) {
 		t.Fatal("a catalogue without a cabin changed", err)
 	}
 }
+
+func trainCabinCozyFixture() *TrainCabin {
+	k := trainCabinFixture()
+	k.Riders = &TrainCabinRiders{
+		Looks: []TrainCabinRiderLook{{"bronze", 6, "m", "#A3A591"}, {"bronze_home", 5, "f", "#C9B79B"}},
+		Child: TrainCabinChild{Look: "child", AfterLook: "bronze_home", Permille: 200, Pose: "child_window", Tint: "#9C6B4E"},
+		Poses: []TrainCabinPose{{ID: "sit", At: "seat", Share: 3}, {ID: "doze", At: "seat", Share: 1, HeadDeg: [3]float64{26, 0, 18}},
+			{ID: "stand", At: "standing", Share: 1}, {ID: "child_window", At: "seat"}},
+		Home: TrainCabinHome{Levels: []string{"level.poc_housing"}},
+	}
+	d := &TrainCabinDressing{Kit: "res://assets/train/kit.glb"}
+	d.Shade.Material, d.Shade.Emission, d.Shade.Energy = "cozy.MAT_shade", "#FFA552", 1.6
+	d.Curtains.Material, d.Curtains.Palette, d.Curtains.Backlight, d.Curtains.Glow = "cozy.MAT_curtain", []string{"#8E4630"}, "#FF9C55", .55
+	w := &d.WindowLight
+	w.Color, w.Energy, w.RangeM, w.AngleDeg, w.HeightM, w.DownDeg, w.Attenuation, w.PatternPx, w.PatternSoft = "#FFB36B", 2, 7, 60, 1.5, 30, 1.4, [2]int{512, 256}, .35
+	g := &d.Glass
+	g.Tint, g.Alpha, g.Fog, g.FogHeightM, g.FogTint, g.Drops, g.Sheen, g.Rim = "#6E7E80", .16, .4, .5, "#E9D6BC", .3, .2, .3
+	d.Haze.Color, d.Haze.Alpha, d.Haze.WidthM, d.Haze.HeightM, d.Haze.RiseMPS = "#FFD3A6", .2, 1, 1.5, .1
+	k.Dressing = d
+	p := &TrainCabinPeople{RealWithinM: 16, RealBelowMPS: 2.5, AnimateEvery: 3}
+	p.Pool = append(p.Pool, struct {
+		Look  string `json:"look"`
+		Count int    `json:"count"`
+	}{"bronze", 4})
+	p.Clips.Seated, p.Clips.Standing = "Sitting", "Idle"
+	p.Cards.Atlas, p.Cards.Mask, p.Cards.Grid = "res://assets/train/cards.png", "res://assets/train/cards-mask.png", [2]int{4, 4}
+	cell := func(pose, body, view string, x, y int) {
+		p.Cards.Cells = append(p.Cards.Cells, struct {
+			Pose string `json:"pose"`
+			Body string `json:"body"`
+			View string `json:"view"`
+			Cell [2]int `json:"cell"`
+		}{pose, body, view, [2]int{x, y}})
+	}
+	i := 0
+	for _, pose := range []string{"sit", "doze", "stand"} {
+		for _, body := range []string{"m", "f"} {
+			for _, view := range []string{"front", "back"} {
+				cell(pose, body, view, i%4, i/4)
+				i++
+			}
+		}
+	}
+	cell("child_window", "child", "front", i%4, i/4)
+	cell("child_window", "child", "back", (i+1)%4, (i+1)/4)
+	p.Cards.SizeM, p.Cards.SeatDropM, p.Cards.Breath.Amp, p.Cards.Breath.Hz, p.Cards.TintKeep, p.Cards.BackLight = [2]float64{1, 2}, .5, .008, .25, .5, .5
+	k.People = p
+	k.Paint = &TrainCabinPaint{SidePos: "res://a.png", SideNeg: "res://b.png", Roof: "res://c.png", HalfLengthM: 6.85, HalfWidthM: 1.42, Z0M: -.6, Z1M: 3, Materials: []string{"MAT_train_paint"}, Strength: 1, Tint: "#9E9886"}
+	return k
+}
+
+// Cozy v1: the riders' lists the server indexes and the client's dressing, people and paint are checked before a build.
+func TestTrainCabinCozyRejectsBrokenRidersDressingAndCards(t *testing.T) {
+	life := json.RawMessage(`{"locations":{"a":{},"b":{},"c":{}}}`)
+	valid := trainMotionFixture()
+	valid.Cabin = trainCabinCozyFixture()
+	if err := valid.validate(life); err != nil {
+		t.Fatal(err)
+	}
+	cases := map[string]func(*TrainCabin){
+		"no rider looks":             func(k *TrainCabin) { k.Riders.Looks = nil },
+		"rider look twice":           func(k *TrainCabin) { k.Riders.Looks[1].Look = "bronze" },
+		"rider without card body":    func(k *TrainCabin) { k.Riders.Looks[0].Body = "x" },
+		"child of nobody":            func(k *TrainCabin) { k.Riders.Child.AfterLook = "copper" },
+		"child is a rider look":      func(k *TrainCabin) { k.Riders.Child.Look = "bronze" },
+		"child stands":               func(k *TrainCabin) { k.Riders.Child.Pose = "stand" },
+		"no standing pose":           func(k *TrainCabin) { k.Riders.Poses[2].Share = 0 },
+		"pose twice":                 func(k *TrainCabin) { k.Riders.Poses[1].ID = "sit" },
+		"head turned around":         func(k *TrainCabin) { k.Riders.Poses[1].HeadDeg[1] = 90 },
+		"unknown prop":               func(k *TrainCabin) { k.Riders.Poses[1].Prop = "bottle" },
+		"kit not a resource":         func(k *TrainCabin) { k.Dressing.Kit = "/tmp/kit.glb" },
+		"no curtain colour":          func(k *TrainCabin) { k.Dressing.Curtains.Palette = nil },
+		"window light straight up":   func(k *TrainCabin) { k.Dressing.WindowLight.DownDeg = 95 },
+		"opaque fog beyond glass":    func(k *TrainCabin) { k.Dressing.Glass.FogHeightM = 2 },
+		"named haze colour":          func(k *TrainCabin) { k.Dressing.Haze.Color = "warm" },
+		"pool of no rider":           func(k *TrainCabin) { k.People.Pool[0].Look = "copper" },
+		"pool too big":               func(k *TrainCabin) { k.People.Pool[0].Count = 25 },
+		"card outside the grid":      func(k *TrainCabin) { k.People.Cards.Cells[0].Cell = [2]int{4, 0} },
+		"card cell twice":            func(k *TrainCabin) { k.People.Cards.Cells[1].Cell = k.People.Cards.Cells[0].Cell },
+		"pose without its back card": func(k *TrainCabin) { k.People.Cards.Cells = k.People.Cards.Cells[:len(k.People.Cards.Cells)-1] },
+		"people without riders":      func(k *TrainCabin) { k.Riders = nil },
+		"wild breathing":             func(k *TrainCabin) { k.People.Cards.Breath.Amp = .5 },
+		"paint below the beam":       func(k *TrainCabin) { k.Paint.Z0M = -4 },
+		"paint of no material":       func(k *TrainCabin) { k.Paint.Materials = nil },
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			c := trainMotionFixture()
+			c.Cabin = trainCabinCozyFixture()
+			mutate(c.Cabin)
+			if err := c.validate(life); err == nil {
+				t.Fatal("invalid cozy cabin accepted")
+			}
+		})
+	}
+}

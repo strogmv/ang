@@ -88,8 +88,8 @@ func TestLookShapesRejected(t *testing.T) {
 			p.Shapes = map[string]PopulationShape{"none": {Share: 1, Max: 0.5}}
 			a.PopulationLooks["bronze_work"] = p
 		},
-		"person shape unknown": func(a *Art) { a.PersonShapes["char.guard"] = map[string]float64{"body_tall": 0.5} },
-		"person amount above 1": func(a *Art) { a.PersonShapes["char.guard"] = map[string]float64{"body_thin": 1.2} },
+		"person shape unknown":    func(a *Art) { a.PersonShapes["char.guard"] = map[string]float64{"body_tall": 0.5} },
+		"person amount above 1":   func(a *Art) { a.PersonShapes["char.guard"] = map[string]float64{"body_thin": 1.2} },
 		"person without own look": func(a *Art) { a.PersonShapes["char.trader_a"] = map[string]float64{"body_thin": 0.2} },
 	}
 	for name, mutate := range cases {
