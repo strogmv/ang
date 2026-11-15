@@ -42,18 +42,49 @@ type ClothDraft struct {
 // and then whipping); NeighbourShare: the share of an angle
 // difference that the touching edges pass to a neighbour; ContactMarginM: clothing and hair over the bones of a body.
 type StripCurtain struct {
-	ID             string     `json:"id"`
-	LevelID        string     `json:"level_id"`
-	Instance       string     `json:"instance"`
-	Rows           []StripRow `json:"rows"`
-	Strip          StripBody  `json:"strip"`
-	ClampM         float64    `json:"clamp_m"`
-	Swing          ClothSwing `json:"swing"`
-	Bend           ClothBend  `json:"bend"`
-	NeighbourShare float64    `json:"neighbour_share"`
-	ContactMarginM float64    `json:"contact_margin_m"`
-	Draft          string     `json:"draft,omitempty"`
-	Why            string     `json:"why"`
+	ID             string      `json:"id"`
+	LevelID        string      `json:"level_id"`
+	Instance       string      `json:"instance"`
+	Rows           []StripRow  `json:"rows"`
+	Strip          StripBody   `json:"strip"`
+	ClampM         float64     `json:"clamp_m"`
+	Swing          ClothSwing  `json:"swing"`
+	Bend           ClothBend   `json:"bend"`
+	NeighbourShare float64     `json:"neighbour_share"`
+	ContactMarginM float64     `json:"contact_margin_m"`
+	Draft          string      `json:"draft,omitempty"`
+	Why            string      `json:"why"`
+	Clear          *ClearSheet `json:"clear,omitempty"`
+}
+
+// ClearSheet: the strips as a clear sheet (the game's design/painted-location/startup-v1/BRIEF.md: clear industrial PVC, the
+// kitchen seen through it), presentation only. Tint: the light through the sheet (linear, 1: no tint); Body: the share of
+// the straight view through it that takes its tint and bend; Edge: how far a grazing view and the cut edges go over to the
+// sheet's gloss; Roughness, Specular: its gloss; DistortionM: how far the view behind bends at a sheet turned fully
+// side-on; Ripple: the sheet's waviness (tilt, waves a metre); Frost: the scuffed band where hands and shoulders push it
+// (from/to above the strip's lower edge, how matte, scuffs a metre across).
+type ClearSheet struct {
+	Tint        [3]float64  `json:"tint"`
+	Body        float64     `json:"body"`
+	Edge        float64     `json:"edge"`
+	Roughness   float64     `json:"roughness"`
+	Specular    float64     `json:"specular"`
+	DistortionM float64     `json:"distortion_m"`
+	Ripple      SheetRipple `json:"ripple"`
+	Frost       SheetFrost  `json:"frost"`
+	Why         string      `json:"why"`
+}
+
+type SheetRipple struct {
+	TiltDeg   float64 `json:"tilt_deg"`
+	WavesPerM float64 `json:"waves_per_m"`
+}
+
+type SheetFrost struct {
+	FromM      float64 `json:"from_m"`
+	ToM        float64 `json:"to_m"`
+	Amount     float64 `json:"amount"`
+	ScuffsPerM float64 `json:"scuffs_per_m"`
 }
 
 type StripRow struct {
@@ -252,6 +283,11 @@ func checkClothMotion(c ClothMotion, known func(string) bool) error {
 		if err := draftOn(s.Draft, s.LevelID, "curtain "+s.ID); err != nil {
 			return err
 		}
+		if s.Clear != nil {
+			if err := checkClearSheet(*s.Clear, b.LengthM, in); err != nil {
+				return fmt.Errorf("curtain %s: clear: %w", s.ID, err)
+			}
+		}
 	}
 	for _, d := range c.Drapes {
 		if err := unique(d.ID); err != nil {
@@ -270,6 +306,35 @@ func checkClothMotion(c ClothMotion, known func(string) bool) error {
 		if err := draftOn(d.Draft, d.LevelID, "drape "+d.ID); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// checkClearSheet: a clear sheet still reads as a sheet (some tint, some gloss) and shows what is behind it (never opaque,
+// never a mirror); its frost lies on the strip.
+func checkClearSheet(c ClearSheet, length float64, in func(x, lo, hi float64) bool) error {
+	for _, t := range c.Tint {
+		if !in(t, 0.5, 1) {
+			return fmt.Errorf("tint %v: each channel 0.5..1 (light through a clear sheet, 1 is no tint)", c.Tint)
+		}
+	}
+	switch {
+	case !in(c.Body, 0.1, 0.8):
+		return fmt.Errorf("body %v is 0.1..0.8 (the share of the view through the sheet that takes its tint; more is not clear)", c.Body)
+	case !in(c.Edge, 0, 1):
+		return fmt.Errorf("edge %v is 0..1", c.Edge)
+	case !in(c.Roughness, 0.02, 0.8) || !in(c.Specular, 0, 1):
+		return fmt.Errorf("roughness %v is 0.02..0.8 and specular %v 0..1", c.Roughness, c.Specular)
+	case !in(c.DistortionM, 0, 0.05):
+		return fmt.Errorf("distortion_m %v is 0..0.05 m (a little)", c.DistortionM)
+	case !in(c.Ripple.TiltDeg, 0, 10) || !in(c.Ripple.WavesPerM, 0, 20):
+		return fmt.Errorf("ripple: tilt 0..10 degrees, 0..20 waves a metre")
+	case !in(c.Frost.FromM, 0, length) || !in(c.Frost.ToM, c.Frost.FromM, length):
+		return fmt.Errorf("frost %v..%v m: a band on the %v m strip, from below to", c.Frost.FromM, c.Frost.ToM, length)
+	case !in(c.Frost.Amount, 0, 0.9) || !in(c.Frost.ScuffsPerM, 0, 60):
+		return fmt.Errorf("frost amount %v is 0..0.9 (a frosted band still shows light through), scuffs 0..60 a metre", c.Frost.Amount)
+	case c.Why == "":
+		return fmt.Errorf("say why the strips are clear (the world's reason)")
 	}
 	return nil
 }
@@ -306,6 +371,14 @@ func clientClothMotion(c *ClothMotion) map[string]any {
 			"swing":           map[string]any{"period_s": s.Swing.PeriodS, "damping_ratio": s.Swing.DampingRatio, "max_deg": s.Swing.MaxDeg},
 			"bend":            map[string]any{"period_s": s.Bend.PeriodS, "damping_ratio": s.Bend.DampingRatio, "share": s.Bend.Share, "max_deg": s.Bend.MaxDeg},
 			"neighbour_share": s.NeighbourShare, "contact_margin_m": s.ContactMarginM, "drift_deg": deg, "drift_period_s": period})
+		if s.Clear != nil {
+			k := s.Clear
+			curtains := l["curtains"]
+			curtains[len(curtains)-1].(map[string]any)["clear"] = map[string]any{"tint": k.Tint[:], "body": k.Body, "edge": k.Edge,
+				"roughness": k.Roughness, "specular": k.Specular, "distortion_m": k.DistortionM,
+				"ripple": map[string]any{"tilt_deg": k.Ripple.TiltDeg, "waves_per_m": k.Ripple.WavesPerM},
+				"frost":  map[string]any{"from_m": k.Frost.FromM, "to_m": k.Frost.ToM, "amount": k.Frost.Amount, "scuffs_per_m": k.Frost.ScuffsPerM}}
+		}
 	}
 	for _, d := range c.Drapes {
 		deg, period := drift(d.Draft)
