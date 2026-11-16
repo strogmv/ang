@@ -97,3 +97,16 @@ func TestMaintenanceInventoryRejectedTakeHasNoSideEffects(t *testing.T){
  if string(beforeInventory)!=string(afterInventory)||string(beforeLife)!=string(afterLife)||string(beforePoses)!=string(afterPoses){t.Fatal("failed transaction changed inventory, equipment, actor focus or schedules")}
  if err:=r.validateLifeSave(r.snapshotState());err!=nil{t.Fatalf("rejection invalidated save: %v",err)}
 }
+
+// 16.11 [Р]: the commerce stock starts new. Every initial instance of a shop, a torgomat or a farm consignment has full
+// condition (the stock wrote `condition`, the inventory reads `condition_ppm`: every bought thing began at 0 and a bought
+// knife could not be taken in hand, Condition <= 0).
+func TestCommerceStockStartsNew(t *testing.T){
+ r:=lifeRuntimeFixture(t);n:=0
+ for id,i:=range r.state.Inventory.Items{
+  if !strings.HasPrefix(id,"instance:vending.")&&!strings.HasPrefix(id,"instance:commerce."){continue}
+  n++
+  if i.Condition!=1000000{t.Fatalf("%s starts at condition %d, not new",id,i.Condition)}
+ }
+ if n==0{t.Fatal("no commerce stock in the life fixture")}
+}

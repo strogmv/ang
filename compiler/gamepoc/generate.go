@@ -289,6 +289,8 @@ type Compiled struct {
 	PeopleRead *PeopleRead `json:"-"`
 	// Painted location (painted_location.go): a corner's painted albedo projected back from the game camera, presentation only.
 	PaintedLocation *PaintedLocation `json:"-"`
+	// Items display v1 (item_display.go): the look of every item in every context, presentation only; nil without it.
+	ItemDisplay *ItemDisplayCatalog `json:"-"`
 	// The tactical view (owner 04.11, world.tactical_mode): its label and switch, common to all it will show.
 	TacticalMode *TacticalMode `json:"tactical_mode,omitempty"`
 	// Crafting stage 1 (doc 93, world.crafting): the engine catalog completed from the compiled world; nil without it.
@@ -559,6 +561,12 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	}
 	if out.Craft, err = readCraft(world); err != nil {
 		return out, nil, err
+	}
+	// Items display v1 (item_display.go): one look per item, checked against the build record and the places that draw items.
+	if len(out.GodotTargets) > 0 {
+		if out.ItemDisplay, err = readItemDisplay(world, filepath.Dir(project), filepath.Join(project, out.GodotTargets[0]), out.Config.CaptureDemo.TargetActor, out.Vending, out.Craft); err != nil {
+			return out, nil, err
+		}
 	}
 	craftingIn, err := readCrafting(world)
 	if err != nil {
@@ -1262,6 +1270,7 @@ func generatePOC(project string, legacyUnity bool) error {
 		"visibility_test.go.tmpl":         filepath.Join(project, "internal/poc/visibility_generated_test.go"),
 		"visibility.cs.tmpl":              filepath.Join(unity, "Assets/Generated/Poc/PocPerceptionView.cs"),
 		"inventory_test.go.tmpl":          filepath.Join(project, "internal/poc/inventory_generated_test.go"),
+		"item_display_test.go.tmpl":       filepath.Join(project, "internal/poc/item_display_generated_test.go"),
 		"reports.go.tmpl":                 filepath.Join(project, "internal/poc/reports.gen.go"),
 		"combat.go.tmpl":                  filepath.Join(project, "internal/poc/combat.gen.go"),
 		"combat_inventory.go.tmpl":        filepath.Join(project, "internal/poc/combat_inventory.gen.go"),
@@ -1463,6 +1472,9 @@ func generatePOC(project string, legacyUnity bool) error {
 		"location_sdk_multideck_proof.cs.tmpl":  filepath.Join(unity, "Assets/Generated/Poc/PocLocationSDKMultideckProof.cs"),
 	} {
 		if strings.HasPrefix(name, "godot_screen_") && compiled.GodotScreens == nil {
+			continue
+		}
+		if strings.HasPrefix(name, "item_display_") && compiled.ItemDisplay == nil {
 			continue
 		}
 		if !legacyUnity && strings.HasPrefix(dest, unity+string(filepath.Separator)) {

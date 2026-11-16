@@ -83,6 +83,21 @@ func (r *Runtime) inventoryNear(a inv.Anchor) bool {
 	}
 	return a.Kind == "world" && a.Level == r.currentLevel() && manhattan(r.state.Player, point{a.At.X, a.At.Y}) <= 1 && r.sceneVisible(cell(r.state.Player), cell(point{a.At.X, a.At.Y}))
 }
+<<ANG if .ItemDisplay ANG>>
+// groundInSight: a thing on the floor of the hero's level within his sight range and line of sight (items display v1:
+// the client draws it from its look).
+func (r *Runtime) groundInSight(l inv.Location) bool {
+	if l.Level != r.currentLevel() {
+		return false
+	}
+	radius := r.world.Visibility.PlayerRange
+	if level, ok := r.world.Life.Locations[l.Level]; ok && level.PlayerRangeCells > 0 {
+		radius = level.PlayerRangeCells
+	}
+	at := point{l.At.X, l.At.Y}
+	return manhattan(r.state.Player, at) <= radius && r.sceneVisible(cell(r.state.Player), cell(at))
+}
+<<ANG end ANG>>
 func (r *Runtime) inventoryReach(l inv.Location) bool {
 	if !r.commerceAccessible(playerActorID, l) {
 		return false
@@ -202,7 +217,10 @@ func (r *Runtime) appendInventory(msg *pb.PocGameState, locales ...string) {
 		if owned && d.Currency != "" {
 			physical[d.Currency] += i.Quantity * d.Denomination
 		}
-		if i.Hidden || !r.inventoryReach(i.Location) {
+<<ANG if .ItemDisplay ANG>>		if i.Location.Kind == "ground" && !i.Hidden && r.groundInSight(i.Location) {
+			view.Ground = append(view.Ground, &pb.PocGroundItem{Id: id, Definition: i.Definition, Quantity: i.Quantity, ConditionPpm: i.Condition, Level: i.Location.Level, X: int32(i.Location.At.X), Y: int32(i.Location.At.Y)})
+		}
+<<ANG end ANG>>		if i.Hidden || !r.inventoryReach(i.Location) {
 			continue
 		}
 		if !owned && i.Location.Kind == "store" {
@@ -232,7 +250,8 @@ func (r *Runtime) appendInventory(msg *pb.PocGameState, locales ...string) {
 			}
 		}
 		item.Container = d.ContainerVolume > 0
-		item.Equipped = i.Location.Kind == "store" && i.Location.Store == inv.ActorStore(playerActorID) && i.Location.Slot != ""
+<<ANG if .ItemDisplay ANG>>		item.Definition = i.Definition
+<<ANG end ANG>>		item.Equipped = i.Location.Kind == "store" && i.Location.Store == inv.ActorStore(playerActorID) && i.Location.Slot != ""
 		item.CanEquip = owned && d.EquipSlot != "" && !item.Equipped && i.Quantity == 1
 		item.CanUnequip = owned && item.Equipped
 		view.Items = append(view.Items, item)

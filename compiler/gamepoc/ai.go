@@ -148,6 +148,10 @@ func clientResource(c Compiled) ([]byte, error) {
 	if c.PaintedLocation != nil {
 		view["painted_location"] = clientPaintedLocation(c.PaintedLocation)
 	}
+	// Items display v1 only in worlds that have it: bodies, looks, icons, stand-ins (item_view.gd).
+	if c.ItemDisplay != nil {
+		view["item_display"] = c.ItemDisplay.view
+	}
 	// Vending terminals (demo-hub v12-vending) only in worlds that have them.
 	if c.Vending != nil {
 		view["vending"] = clientVending(c.Vending)

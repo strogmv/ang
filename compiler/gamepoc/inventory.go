@@ -1,6 +1,7 @@
 package gamepoc
 
 import (
+	"bytes"
 	"cuelang.org/go/cue"
 	"encoding/json"
 	"fmt"
@@ -281,8 +282,8 @@ func inventoryModel(world, level cue.Value, levelID string, resolvedLife ...json
 	}
 	var businessStores []inv.Store
 	if v := policy.LookupPath(cue.ParsePath("business_stores")); v.Exists() {
-		if err := v.Decode(&businessStores); err != nil {
-			return m, err
+		if err := decodeRowsStrict(v, &businessStores); err != nil {
+			return m, fmt.Errorf("business_stores: %w", err)
 		}
 	}
 	for _, st := range businessStores {
@@ -293,8 +294,8 @@ func inventoryModel(world, level cue.Value, levelID string, resolvedLife ...json
 	}
 	var businessStock []inv.Source
 	if v := policy.LookupPath(cue.ParsePath("business_stock")); v.Exists() {
-		if err := v.Decode(&businessStock); err != nil {
-			return m, err
+		if err := decodeRowsStrict(v, &businessStock); err != nil {
+			return m, fmt.Errorf("business_stock: %w", err)
 		}
 	}
 	m.Sources = append(m.Sources, businessStock...)
@@ -303,4 +304,33 @@ func inventoryModel(world, level cue.Value, levelID string, resolvedLife ...json
 		return m, fmt.Errorf("inventory initial state: %w", err)
 	}
 	return m, nil
+}
+
+// decodeRowsStrict decodes a list of initial stock or stores refusing a field the runtime row has no place for, and names
+// the row: a misspelt field (16.11: `condition` for `condition_ppm`) was lost silently and every commerce item started at
+// condition 0.
+func decodeRowsStrict[T any](v cue.Value, out *[]T) error {
+	raw, err := v.MarshalJSON()
+	if err != nil {
+		return err
+	}
+	var rows []json.RawMessage
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		return err
+	}
+	*out = make([]T, 0, len(rows))
+	for i, row := range rows {
+		var id struct {
+			ID string `json:"id"`
+		}
+		_ = json.Unmarshal(row, &id)
+		var one T
+		d := json.NewDecoder(bytes.NewReader(row))
+		d.DisallowUnknownFields()
+		if err := d.Decode(&one); err != nil {
+			return fmt.Errorf("row %d %q: %w", i, id.ID, err)
+		}
+		*out = append(*out, one)
+	}
+	return nil
 }
