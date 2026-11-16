@@ -161,3 +161,30 @@ func TestCraftHeapSlotsAgainstTheKitAndTheStall(t *testing.T) {
 		t.Fatalf("counter rectangle and prefixes: %v", rect)
 	}
 }
+
+// Market food court v1: a counter may stand on an instance of a counter module of the data (a half-island: one straight
+// of the loop, counters of one side only, 1.5 m deep); a counter on any other module is still refused, and the client gets
+// the half-island's own depth for the counter's rectangle.
+func TestCraftCountersOnHalfIslandModules(t *testing.T) {
+	c := craftFixture()
+	c.LocationSDK.Levels[0].Instances = append(c.LocationSDK.Levels[0].Instances,
+		locationsdk.CompiledInstance{ID: "island.F5", ModuleID: "kit.geo.hub.island.half", Width: 12, Depth: 3, Height: 3})
+	c.Inventory.Shopfronts = append(c.Inventory.Shopfronts, inv.Shopfront{ID: "tenant31", Owner: "char.r"})
+	c.Craft.Counters = []CraftCounter{{Place: "F5-n0-1", Island: "island.F5", Shop: "tenant31", Side: "north", Units: []int{0, 1}, DepthMM: 1500}}
+	if err := validateCraft(c); err == nil || !strings.Contains(err.Error(), "is not an island module of the level") {
+		t.Fatalf("a counter on an unlisted module must be refused, got %v", err)
+	}
+	c.Craft.CounterModules = []string{"kit.geo.hub.island.half"}
+	if err := validateCraft(c); err != nil {
+		t.Fatalf("a counter on a half-island module rejected: %v", err)
+	}
+	rows := clientCraftCounters(c.Craft)
+	rect := rows[0]["rect_m"].([]float64)
+	if rect[3]-rect[1] != 1.5 {
+		t.Fatalf("the half-island counter's rectangle is %v deep, want its 1.5 m", rect[3]-rect[1])
+	}
+	c.Craft.Counters[0].DepthMM = 4000
+	if err := validateCraft(c); err == nil || !strings.Contains(err.Error(), "depth") {
+		t.Fatalf("a counter deeper than the passport must be refused, got %v", err)
+	}
+}

@@ -181,6 +181,9 @@ type CraftCounter struct {
 	Side     string `json:"side"`
 	Units    []int  `json:"units"`
 	PackAway bool   `json:"pack_away"`
+	// market food court v1: the plan depth of the counter's side of its island module (mm); 0 = half of the passport's
+	// depth (the loop). A half-island (one straight against a stall's wall) is its whole depth.
+	DepthMM int `json:"depth_mm,omitempty"`
 }
 type CraftStall struct {
 	Place      string         `json:"place"`
@@ -221,6 +224,9 @@ type CraftCatalog struct {
 	// market goods v2: the produce kit models and the counters of the island places
 	Models   map[string]CraftModel `json:"models,omitempty"`
 	Counters []CraftCounter        `json:"counters,omitempty"`
+	// market food court v1: modules whose instances carry counters too (a half-island: one straight of the loop, the
+	// counters of one side only); the craft kits' mount levels stay the passport's module alone.
+	CounterModules []string `json:"counter_modules,omitempty"`
 	// phase 3d: the dressed selling places (pavilion interiors, the griddle set, the benches, the decks)
 	Dress []CraftDress `json:"dress,omitempty"`
 }
@@ -327,6 +333,24 @@ func validateCraft(c Compiled) error {
 			}
 			for _, s := range lv.TextSlots {
 				slots[s.ID] = s.Instance
+			}
+		}
+	}
+	// counters also stand on the instances of the counter modules of the data (half-islands)
+	counterIslands := map[string]bool{}
+	for id := range instances {
+		counterIslands[id] = true
+	}
+	if c.LocationSDK != nil && len(g.CounterModules) > 0 {
+		extra := map[string]bool{}
+		for _, m := range g.CounterModules {
+			extra[m] = true
+		}
+		for _, lv := range c.LocationSDK.Levels {
+			for _, in := range lv.Instances {
+				if extra[in.ModuleID] {
+					counterIslands[in.ID] = true
+				}
 			}
 		}
 	}
@@ -518,7 +542,7 @@ func validateCraft(c Compiled) error {
 			return err
 		}
 	}
-	if err := validateCraftCounters(c, instances); err != nil {
+	if err := validateCraftCounters(c, counterIslands); err != nil {
 		return err
 	}
 	return validateCraftDress(c)
@@ -558,6 +582,9 @@ func validateCraftDress(c Compiled) error {
 				return fail("no counter of shop %s at this place", d.Shop)
 			}
 			length, depth = len(k.Units)*1500, g.Passport.SizeMM.D/2
+			if k.DepthMM > 0 {
+				depth = k.DepthMM
+			}
 		case "bay":
 			if len(d.AtMM) != 3 || d.AtMM[0] < 0 || d.AtMM[1] < 0 || d.AtMM[2] < 0 {
 				return fail("a bay needs its plan origin [x, y, z]")
@@ -755,6 +782,9 @@ func validateCraftCounters(c Compiled, instances map[string]bool) error {
 		if (k.Side != "north" && k.Side != "south") || len(k.Units) < 1 || len(k.Units) > 4 {
 			return fmt.Errorf("market_goods counter %s: side %q, units %v", k.Place, k.Side, k.Units)
 		}
+		if k.DepthMM < 0 || k.DepthMM > c.Craft.Passport.SizeMM.D {
+			return fmt.Errorf("market_goods counter %s: depth %d mm", k.Place, k.DepthMM)
+		}
 		for i, u := range k.Units {
 			if u < 0 || u > 3 || (i > 0 && u != k.Units[i-1]+1) {
 				return fmt.Errorf("market_goods counter %s: units %v are not adjacent units of the island", k.Place, k.Units)
@@ -779,6 +809,9 @@ func clientCraftCounters(g *CraftCatalog) []map[string]any {
 	for _, k := range g.Counters {
 		x, y := float64(k.At.X)*0.5, float64(k.At.Y)*0.5
 		half := float64(g.Passport.SizeMM.D) / 2000
+		if k.DepthMM > 0 {
+			half = float64(k.DepthMM) / 1000
+		}
 		rect := []float64{x + float64(k.Units[0])*1.5, y, x + float64(k.Units[len(k.Units)-1]+1)*1.5, y + half}
 		letter := "n"
 		if k.Side == "south" {
