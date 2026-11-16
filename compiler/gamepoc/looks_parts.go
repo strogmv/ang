@@ -256,8 +256,10 @@ func checkPersonPopulations(a Art, person func(string) bool) error {
 		if _, ok := a.PersonLooks[id]; ok {
 			return fmt.Errorf("art.person_populations %s: the person also has a look of his own in art.person_looks", id)
 		}
-		if _, ok := a.PopulationLooks[pp.Population]; !ok {
-			return fmt.Errorf("art.person_populations %s: unknown population look %q", id, pp.Population)
+		_, look := a.PopulationLooks[pp.Population]
+		_, rule := a.OutfitRules[pp.Population]
+		if !look && !rule {
+			return fmt.Errorf("art.person_populations %s: unknown population look or outfit rule %q", id, pp.Population)
 		}
 		if pp.Age < ageMin || pp.Age > ageMax {
 			return fmt.Errorf("art.person_populations %s: age %d is not within %d..%d", id, pp.Age, ageMin, ageMax)

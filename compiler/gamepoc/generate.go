@@ -179,10 +179,15 @@ type Art struct {
 	// The painted people test (looks_painttest.go): which people are drawn in which version (now, sprite, painted3d).
 	PaintTest *PaintTest `json:"paint_test,omitempty"`
 	// What age adds to a look's posture (looks_motion.go): bands from an age up, the highest reached counts.
-	PostureAge []LookPostureAge     `json:"posture_age,omitempty"`
-	Tile       struct{ W, H int }   `json:"tile"`
-	Palette    map[string]string    `json:"palette"`
-	Sprites    map[string]ArtSprite `json:"sprites"`
+	PostureAge []LookPostureAge `json:"posture_age,omitempty"`
+	// The clothing system v1 (wardrobe.go): base bodies and items checked against the wardrobe build's record; outfit rules
+	// (the crowd's kinds and the people of the world by a general rule) and people's own outfits.
+	Wardrobe      *Wardrobe               `json:"wardrobe,omitempty"`
+	OutfitRules   map[string]OutfitRule   `json:"outfit_rules,omitempty"`
+	PersonOutfits map[string]PersonOutfit `json:"person_outfits,omitempty"`
+	Tile          struct{ W, H int }      `json:"tile"`
+	Palette       map[string]string       `json:"palette"`
+	Sprites       map[string]ArtSprite    `json:"sprites"`
 }
 
 // LoadingScreen is a full-screen picture shown while the server answers a new game or load request (world.loading).
@@ -814,6 +819,15 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 		return out, nil, err
 	}
 	if err := checkPopulationLooks(out.Art, out.Visitors); err != nil {
+		return out, nil, err
+	}
+	ww, err := readWardrobeWorld(world, out.Clothing.Garments)
+	if err != nil {
+		return out, nil, err
+	}
+	if err := checkWardrobe(filepath.Dir(project), out.Art, func(id string) bool {
+		return world.LookupPath(cue.MakePath(cue.Str("persons"), cue.Str(id))).Exists()
+	}, ww); err != nil {
 		return out, nil, err
 	}
 	if err := checkPersonPopulations(out.Art, func(id string) bool {

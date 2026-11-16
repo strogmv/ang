@@ -490,6 +490,12 @@ func checkPopulationLooks(a Art, visitors *VisitorCatalog) error {
 	for _, pp := range a.PersonPopulations {
 		worn[pp.Population] = true
 	}
+	// the clothing system: a visitor kind or a person may name an outfit rule instead (wardrobe.go); a rule nobody wears is a typo
+	for name := range a.OutfitRules {
+		if !worn[name] {
+			return fmt.Errorf("art.outfit_rules %s: no kind of world.visitors wears this rule and no person of art.person_populations", name)
+		}
+	}
 	for name, p := range a.PopulationLooks {
 		if !populationName.MatchString(name) {
 			return fmt.Errorf("art.population_looks %q: a population look is a plain name (the look of a visitor kind)", name)
