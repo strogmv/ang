@@ -96,7 +96,7 @@ func compileWounds(c *Compiled) error {
 		return err
 	}
 	m := in.model
-	report, err := wounds.Report(m, func(key string) string {
+	report, err := reportWounds(m, func(key string) string {
 		if t := texts[key]["ru"]; t != "" {
 			return t
 		}

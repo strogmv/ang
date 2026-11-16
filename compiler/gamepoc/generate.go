@@ -389,10 +389,12 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	if err := out.Config.validate(); err != nil {
 		return out, nil, err
 	}
+	phases.mark("read: poc config CUE")
 	w, err := cuePackage(filepath.Join(project, out.Config.WorldDir))
 	if err != nil {
 		return out, nil, err
 	}
+	phases.mark("read: world CUE load+build")
 	world := w.LookupPath(cue.ParsePath("world"))
 	if scenes := world.LookupPath(cue.ParsePath("godot_scenes")); scenes.Exists() {
 		if err := scenes.Decode(&out.GodotScenes); err != nil {
@@ -402,6 +404,7 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	if err := world.Validate(cue.Concrete(true)); err != nil {
 		return out, nil, fmt.Errorf("world: %s", errors.Details(err, nil))
 	}
+	phases.mark("read: world CUE validate")
 	if err := world.LookupPath(cue.ParsePath("visibility")).Decode(&out.Visibility); err != nil {
 		return out, nil, err
 	}
@@ -670,6 +673,7 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 			return out, nil, fmt.Errorf("demo agent %s: %w", a.ID, err)
 		}
 	}
+	phases.mark("read: world decode (to AI)")
 	cases, err := cuePackage(filepath.Join(project, out.Config.WorldDir, "ai/scenarios"))
 	if err != nil {
 		return out, nil, err
@@ -681,6 +685,7 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	if out.AIUtility, err = psyche.utilityFixtures(cases, out.Psyche.Law); err != nil {
 		return out, nil, err
 	}
+	phases.mark("read: AI scenarios CUE")
 	wb, err := world.MarshalJSON()
 	if err != nil {
 		return out, nil, err
@@ -698,6 +703,7 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	hash.Write([]byte{0})
 	hash.Write(data)
 	out.ContentHash = hex.EncodeToString(hash.Sum(nil))
+	phases.mark("read: content hash (world JSON)")
 	level := world.LookupPath(cue.MakePath(cue.Str("levels"), cue.Str(out.Config.LevelID)))
 	if err := level.LookupPath(cue.ParsePath("layers.terrain")).Decode(&out.Terrain); err != nil {
 		return out, nil, err
@@ -991,6 +997,7 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 		return out, nil, err
 	}
 	sort.Slice(out.Entities, func(i, j int) bool { return out.Entities[i].ID < out.Entities[j].ID })
+	phases.mark("read: world decode and checks")
 	api, err := cuePackage(filepath.Join(project, "cue/api"))
 	if err != nil {
 		return out, nil, err
@@ -1032,30 +1039,38 @@ func generatePOC(project string, legacyUnity bool) error {
 	if err != nil {
 		return err
 	}
+	phases = startPhaseClock()
+	defer func() { phases = nil }()
 	if _, err := schemavendor.Sync(project, schemavendor.Options{Always: true}); err != nil {
 		return err
 	}
+	phases.mark("schema vendor sync")
 	compiled, def, err := readCompiled(project)
 	if err != nil {
 		return err
 	}
+	phases.mark("read: api CUE, normalize")
 	compiled.ViewDelivery = def.ViewSubscription != ""
 	compiled.WebSocket = def.WebSocket
 	if err := writeGodotScreens(project, compiled, def); err != nil {
 		return err
 	}
+	phases.mark("emit: godot screens")
 	unity := filepath.Clean(filepath.Join(project, compiled.Config.UnityDir))
 	worldJSON, err := json.MarshalIndent(compiled, "", "  ")
 	if err != nil {
 		return err
 	}
+	phases.mark("emit: world.json marshal")
 	compiled.WorldTextDrawn, err = compileWorldText(project, compiled)
 	if err != nil {
 		return err
 	}
+	phases.mark("emit: world text")
 	if err := compileBarks(project, &compiled); err != nil {
 		return err
 	}
+	phases.mark("emit: barks")
 	if err := compileWounds(&compiled); err != nil {
 		return err
 	}
@@ -1074,9 +1089,11 @@ func generatePOC(project string, legacyUnity bool) error {
 	if compiled.BarksView == nil {
 		compiled.BarksView = defaultBarksView()
 	}
+	phases.mark("emit: wounds, checks")
 	if err := writeGodotLocations(project, compiled); err != nil {
 		return err
 	}
+	phases.mark("emit: godot locations")
 	if err := writeGodotTheme(project, compiled.GodotTheme); err != nil {
 		return err
 	}
@@ -1086,10 +1103,12 @@ func generatePOC(project string, legacyUnity bool) error {
 	if err := writeGodotWorldText(project, compiled); err != nil {
 		return err
 	}
+	phases.mark("emit: godot theme, translations, world text")
 	viewJSON, err := clientResource(compiled)
 	if err != nil {
 		return err
 	}
+	phases.mark("emit: presentation.json")
 	if compiled.LocationSDK != nil {
 		if err := checkLocationSDKSurfaceImages(unity, *compiled.LocationSDK); err != nil {
 			return err
@@ -1130,6 +1149,7 @@ func generatePOC(project string, legacyUnity bool) error {
 	for name, data := range sprites {
 		files[filepath.Join(unity, "Assets/Resources/Sprites/generated", name)] = data
 	}
+	phases.mark("emit: image checks, sprites")
 	clothingJSON, err := json.MarshalIndent(compiled.Clothing, "", "  ")
 	if err != nil {
 		return err
@@ -1188,6 +1208,7 @@ func generatePOC(project string, legacyUnity bool) error {
 	for name, data := range behaviorFiles {
 		files[filepath.Join(project, "internal/behavior", name)] = data
 	}
+	phases.mark("emit: clothing, crafting, barks, wounds, inventory, behavior")
 	for _, name := range []string{"LICENSE.go-behaviortree", "NOTICE.go-behaviortree"} {
 		files[filepath.Join(unity, "Assets/StreamingAssets/GameServer", name)] = behaviorFiles[name]
 	}
@@ -1468,6 +1489,7 @@ func generatePOC(project string, legacyUnity bool) error {
 		}
 		files[dest] = b
 	}
+	phases.mark("emit: templates (Go, gofmt)")
 	if def.GDScriptOut != "" {
 		gd, err := emitter.RenderGDScriptContract(def, "angelsdemons/server")
 		if err != nil {
@@ -1520,6 +1542,7 @@ func generatePOC(project string, legacyUnity bool) error {
 		}
 		files[filepath.Join(csDir, "Sessions", sm.Service.Name+sm.Method.Name+"Session.cs")] = []byte(emitter.RenderCSharpSession(def, sm.Service, sm.Method))
 	}
+	phases.mark("emit: GDScript contract, proto, pb, gRPC")
 	names := make([]string, 0, len(files))
 	for path := range files {
 		if !legacyUnity && strings.HasPrefix(path, unity+string(filepath.Separator)) {
@@ -1541,6 +1564,7 @@ func generatePOC(project string, legacyUnity bool) error {
 			return err
 		}
 	}
+	phases.mark("write: files")
 	// Remove only obsolete outputs owned by this generator after successful rendering.
 	for _, name := range []string{"planner.gen.go", "planner_generated_test.go", "planning_scenarios.json"} {
 		if err := os.Remove(filepath.Join(project, "internal/poc", name)); err != nil && !os.IsNotExist(err) {

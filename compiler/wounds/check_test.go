@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -124,6 +125,30 @@ func TestDurations(t *testing.T) {
 	for s, want := range map[int64]string{14: "14 с", 242: "4 мин 2 с", 300: "5 мин", 1601: "27 мин", 6522: "1 ч 49 мин", 216520: "2 сут 12 ч", 7200: "2 ч"} {
 		if got := dur(s); got != want {
 			t.Errorf("dur(%d) = %q, want %q", s, got, want)
+		}
+	}
+}
+
+// The timeline rows run side by side (runScenarios); they must equal the rows played one after another.
+func TestScenariosSideBySideEqualSequential(t *testing.T) {
+	m := snapshot(t)
+	for i := range m.Scenarios {
+		m.Scenarios[i].RiskRuns = min(m.Scenarios[i].RiskRuns, 50)
+	}
+	got, err := runScenarios(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != len(m.Scenarios) || len(got) == 0 {
+		t.Fatalf("%d rows for %d scenarios", len(got), len(m.Scenarios))
+	}
+	for i, s := range m.Scenarios {
+		want, err := m.RunScenario(s, runtime.ScenarioSeed)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(got[i], want) {
+			t.Errorf("row %d (%s) differs from the sequential run", i, s.ID)
 		}
 	}
 }

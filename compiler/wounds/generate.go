@@ -6,13 +6,41 @@ import (
 	"encoding/json"
 	"fmt"
 	"go/format"
+	goruntime "runtime"
 	"strings"
+	"sync"
 
 	runtime "github.com/strogmv/ang/compiler/wounds/runtime"
 )
 
 //go:embed runtime/*.go
 var sources embed.FS
+
+// runScenarios plays every scenario row of the timeline table. The rows are independent runs of the same read-only
+// model with their own body and seed, so they run side by side (ANG speed v1: 4.6 s of the generation one after another);
+// the rows and the first error keep the order of m.Scenarios, so the table is the same byte for byte.
+func runScenarios(m runtime.Model) ([]runtime.Timeline, error) {
+	rows := make([]runtime.Timeline, len(m.Scenarios))
+	errs := make([]error, len(m.Scenarios))
+	slots := make(chan struct{}, goruntime.GOMAXPROCS(0))
+	var wg sync.WaitGroup
+	for i, s := range m.Scenarios {
+		wg.Add(1)
+		slots <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-slots }()
+			rows[i], errs[i] = m.RunScenario(s, runtime.ScenarioSeed)
+		}()
+	}
+	wg.Wait()
+	for _, err := range errs {
+		if err != nil {
+			return nil, err
+		}
+	}
+	return rows, nil
+}
 
 // Render emits the standalone engine package and the exact validated catalog (internal/wounds). Nothing calls it from
 // combat yet: the fighting layer connects ApplyHit / Tick / ApplyAid (design/wounds/codex-handoff.md).
@@ -131,13 +159,9 @@ func Report(m runtime.Model, text func(key string) string) ([]byte, error) {
 	b.WriteString("Строка — один и тот же заданный канал раны (seed 42); помощь в строке считается удавшейся ")
 	b.WriteString("(вероятность успеха — в таблице помощи док. 97); время помощи — момент, когда она начала действовать (начало + время работы). ")
 	fmt.Fprintf(&b, "Горизонт — %s. Все числа — предложение (док. 97), сложность одна: `%s`.\n\n", dur(runtime.Horizon), m.Difficulty.ID)
-	rows := make([]runtime.Timeline, 0, len(m.Scenarios))
-	for _, s := range m.Scenarios {
-		tl, err := m.RunScenario(s, runtime.ScenarioSeed)
-		if err != nil {
-			return nil, err
-		}
-		rows = append(rows, tl)
+	rows, err := runScenarios(m)
+	if err != nil {
+		return nil, err
 	}
 	b.WriteString("## 1. Сроки\n\n| Что | Задето | Упадёт | Без сознания | Умрёт без помощи | Помощь | С помощью |\n|---|---|---|---|---|---|---|\n")
 	for i, s := range m.Scenarios {
