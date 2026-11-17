@@ -58,6 +58,15 @@ func TestNormalProjectionDoesNotLeakUnseenNPCsOrInternalOrders(t *testing.T){
  r.appendPerception(m)
  if len(m.DemoAgents)!=1||m.DemoAgents[0].Id!="visible"||m.DemoAgents[0].DecisionReason!=""||len(m.DemoAgents[0].Path)!=0||m.CaptureOrder!=nil||len(m.DebugViews)>0||m.Terrain[2][6]!='?'||len(m.PlayerView.HearingCells)>0{t.Fatalf("normal projection leaked: %+v",m)}
 }
+// The presentation of what a visible person does reaches the normal projection whole — the activity, its phase, the spot and
+// the thing it names (activity_item: food court v1.1's table meal of a resident, the market musician's tune); the debug view
+// is not needed to see a resident eat.
+func TestNormalProjectionKeepsTheVisibleActivityItem(t *testing.T){
+ r:=perceptionFixture(t);r.updateExploration();r.world.Config.DebugPerception=false
+ m:=&pb.PocGameState{Terrain:r.world.Terrain,DemoAgents:[]*pb.PocAgentState{{Id:"eater",X:3,Y:2,Activity:"seated_food",ActivityPhase:"sit",ActivityItem:"item.yatai_porridge",ActivitySpot:&pb.PocActivitySpot{Id:"table/n1",Pose:"table"}},{Id:"hidden",X:6,Y:2,ActivityItem:"item.secret"}}}
+ r.appendPerception(m)
+ if len(m.DemoAgents)!=1||m.DemoAgents[0].Id!="eater"||m.DemoAgents[0].ActivityItem!="item.yatai_porridge"||m.DemoAgents[0].ActivityPhase!="sit"||m.DemoAgents[0].ActivitySpot==nil||m.DemoAgents[0].ActivitySpot.Pose!="table"{t.Fatalf("the visible activity was cut or the unseen one leaked: %+v",m.DemoAgents)}
+}
 func TestHearingDoesNotRevealGeometryOrActorAndQuieterSoundsReachLess(t *testing.T){
  r:=perceptionFixture(t);r.updateExploration();h:=r.world.AI.Policy.Perception.Hearing
  sound:=behavior.Sound{ID:"s",Kind:"drop",SourceID:"secret",Cause:"secret",Origin:behavior.Cell{X:6,Y:2},Loudness:1,Tick:10};r.hearPlayer(sound)
