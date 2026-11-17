@@ -9,6 +9,9 @@ uniform int style = 0;
 uniform bool debug_coverage = false;
 uniform float deformation_times[64];
 #include "world_text_deformation.gdshaderinc"
+// the see-through circle around the hero (owner 16.11; client-godot/shaders/see_through.gdshaderinc): letters in front of
+// him dissolve with the thing they are painted on
+#include "res://shaders/see_through.gdshaderinc"
 varying vec2 slot_mm;
 varying vec4 params;
 varying vec4 ink;
@@ -60,6 +63,10 @@ float hash21(vec2 v) {vec2 p=fract(v*vec2(123.34,456.21));p+=dot(p,p+45.32);retu
 float noise21(vec2 p) {vec2 i=floor(p),f=fract(p),w=f*f*(3.0-2.0*f);return mix(mix(hash21(i),hash21(i+vec2(1,0)),w.x),mix(hash21(i+vec2(0,1)),hash21(i+1.0),w.x),w.y);}
 float fbm(vec2 v) {vec2 p=v;float s=0.0,a=0.5;for(int k=0;k<4;k++){s+=a*noise21(p);p=p*2.03+17.1;a*=0.5;}return s;}
 void fragment() {
+ // an opaque board's back shows no letters (owner 16.11: a half-island's sign read mirrored through the see-through circle);
+ // clear PVC (surface 0) shows them from both sides, as the sheet does
+ if(!FRONT_FACING&&params.y>0.5) discard;
+ {float st_rim;float st_cut=st_zone((INV_VIEW_MATRIX*vec4(VERTEX,1.0)).xyz,INV_VIEW_MATRIX,st_rim);if(st_cut>st_bayer(FRAGCOORD.xy)) discard;}
  float d=texture(atlas,UV).r;
  float aa=max(fwidth(d),0.0001)*0.8;
  float wear=params.x,surface=params.y;

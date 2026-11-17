@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 
@@ -56,6 +57,8 @@ type VisitorTarget struct {
 	Spots     []inv.Cell   `json:"spots,omitempty"`
 	Face      *VisitorFace `json:"face,omitempty"`
 	TakeTicks int64        `json:"take_ticks,omitempty"`
+	// food court v1.1: a counter its cook serves — the purchase is made at the cook's post (the showcase's anchor)
+	ServeAt *inv.Cell `json:"serve_at,omitempty"`
 	// walkers v1, addendum 1: how long a walker looks here before he buys (a terminal: a short look; none = the catalog's)
 	DwellTicks *VisitorRange `json:"dwell_ticks,omitempty"`
 	// market people part C: what his hands do with the machine of the place in a phase (a terminal's panel, its window); the
@@ -247,6 +250,37 @@ type VisitorCatalog struct {
 	} `json:"supply"`
 	// filled by ANG: the buyer slots (slot 0 is the unseen buyer)
 	Slots []string `json:"slots,omitempty"`
+	// Tables (food court v1.1, owner 16.11): a walker who bought at one of Shops, by ChancePermille, eats standing at a free
+	// place of a standing table for EatTicks, then walks on. Places: the Life brain places of the same tables (their
+	// holders keep a place from the walkers).
+	Tables *VisitorTables `json:"tables,omitempty"`
+}
+
+// VisitorTables: the standing tables of the hall for its walkers (food court v1.1).
+type VisitorTables struct {
+	Shops []string `json:"shops"`
+	// Meals: what one eats at a table — only a walker who bought one of these goes there (a vitamin strip or a plain
+	// flatbread goes into the bag); each a known item (the client draws it eaten: item_display bodies' eaten)
+	Meals          []string           `json:"meals"`
+	ChancePermille int64              `json:"chance_permille"`
+	EatTicks       VisitorRange       `json:"eat_ticks"`
+	Spots          []VisitorTableSpot `json:"spots"`
+	Places         []string           `json:"places,omitempty"`
+}
+
+// VisitorTableSpot: a place at a table — the cell he stands on, the way he faces (plan x east / y south), where his tray
+// stands (plan metres, z over the floor).
+type VisitorTableSpot struct {
+	At   inv.Cell `json:"at"`
+	Face struct {
+		X float64 `json:"x"`
+		Y float64 `json:"y"`
+	} `json:"face"`
+	Table struct {
+		X float64 `json:"x"`
+		Y float64 `json:"y"`
+		Z float64 `json:"z"`
+	} `json:"table"`
 }
 
 const visitorSlotPrefix = "visitor."
@@ -294,6 +328,12 @@ func applyVisitors(c *Compiled) error {
 				Activity string   `json:"activity"`
 			} `json:"steps"`
 		} `json:"actors"`
+		Brain struct {
+			Places []struct {
+				ID   string `json:"id"`
+				Kind string `json:"kind"`
+			} `json:"places"`
+		} `json:"brain"`
 	}
 	if err := json.Unmarshal(c.Life, &life); err != nil {
 		return fail("life: %v", err)
@@ -364,6 +404,9 @@ func applyVisitors(c *Compiled) error {
 		if !ok || st.Locked || st.Anchor.Kind != "world" || st.Anchor.Level != p.Level {
 			return fail("target %s: showcase %q is not an open store of the level", t.ID, t.Store)
 		}
+		if t.ServeAt != nil && (*t.ServeAt != st.Anchor.At || t.Shop == "") {
+			return fail("target %s: served at %v, not at its shop's showcase %v", t.ID, *t.ServeAt, st.Anchor.At)
+		}
 		if t.Shop != "" {
 			sh, ok := shops[t.Shop]
 			if !ok || sh.DisplayStore != t.Store || sh.Mobile() {
@@ -395,6 +438,45 @@ func applyVisitors(c *Compiled) error {
 	}
 	if share < 1 {
 		return fail("kinds have no share")
+	}
+	if t := p.Tables; t != nil {
+		if len(t.Shops) == 0 || len(t.Spots) == 0 || len(t.Spots) > 64 || t.ChancePermille < 1 || t.ChancePermille > 1000 || t.EatTicks.Min < 100 || t.EatTicks.Max < t.EatTicks.Min || t.EatTicks.Max > 36000 {
+			return fail("tables: shops, 1..64 places, a chance 1..1000 and eat_ticks 100..36000 needed")
+		}
+		sold := map[string]bool{}
+		for _, tg := range p.Targets {
+			sold[tg.Shop] = tg.Shop != ""
+		}
+		for _, sh := range t.Shops {
+			if !sold[sh] {
+				return fail("tables: shop %q is not a selling place of the walkers", sh)
+			}
+		}
+		cells := map[inv.Cell]bool{}
+		for i, sp := range t.Spots {
+			if !walk(sp.At) || cells[sp.At] || sp.Face.X == 0 && sp.Face.Y == 0 || sp.Table.Z < 0.5 || sp.Table.Z > 1.6 ||
+				math.Abs(sp.Table.X-(float64(sp.At.X)+0.5)*float64(loc.CellMM)/1000) > 1.0 || math.Abs(sp.Table.Y-(float64(sp.At.Y)+0.5)*float64(loc.CellMM)/1000) > 1.0 {
+				return fail("tables: place %d %v: not on the floor, twice, facing nowhere, or its tray off his reach", i, sp.At)
+			}
+			cells[sp.At] = true
+		}
+		if len(t.Meals) == 0 {
+			return fail("tables: no meals (what one eats at a table)")
+		}
+		for _, meal := range t.Meals {
+			if _, ok := m.Definitions[meal]; !ok {
+				return fail("tables: meal %q is not an item", meal)
+			}
+		}
+		places := map[string]bool{}
+		for _, raw := range life.Brain.Places {
+			places[raw.ID] = raw.Kind == "seated_food"
+		}
+		for _, id := range t.Places {
+			if !places[id] {
+				return fail("tables: %q is not a seated Life place", id)
+			}
+		}
 	}
 	// the outside account and the buyer slots
 	o := p.Outside

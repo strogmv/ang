@@ -106,12 +106,15 @@ func(r *Runtime)npcBuySeated(id string,p behavior.LifeAffordance,meal bool)bool{
 // Spots of a seated place that are reserved by another brain or stand under another body (level, place, self).
 func(r *Runtime)npcSeatsTaken(level,place,self string)map[behavior.Cell]bool{
  taken:=map[behavior.Cell]bool{};q,ok:=r.world.Life.Brain.SeatedPlace(place);if !ok{return taken}
- spots:=map[behavior.Cell]bool{};for _,g:=range [][]behavior.LifeSpot{q.Seating.Seats,q.Seating.Queue}{for _,x:=range g{spots[x.At]=true}}
- mark:=func(id,at string,pos behavior.Cell,b behavior.LifeBrain,body bool){if id==self{return};if body&&at==level&&spots[pos]{taken[pos]=true};if b.Seat!=""&&b.Place.ID==place{taken[b.Target.At]=true}}
+ spots:=map[behavior.Cell]bool{};for _,g:=range [][]behavior.LifeSpot{q.Seating.Seats,q.Seating.Queue,q.Seating.Pickup}{for _,x:=range g{spots[x.At]=true}}
+ // a standing-table guest (food court v1.1) holds his place at the table while he is at the counter's pickup place too
+ mark:=func(id,at string,pos behavior.Cell,b behavior.LifeBrain,body bool){if id==self{return};if body&&at==level&&spots[pos]{taken[pos]=true};if b.Seat!=""&&b.Place.ID==place{taken[b.Target.At]=true;if x,ok:=q.Seating.Spot(b.Seat);ok{taken[x.At]=true}}}
  // demo-hub v20-yatai-boss: a regular's seat is held from the moment its routine heads there (its own stool is not
  // offered to a passer-by while the regular walks over from the night shift or the hall).
  for _,a:=range r.state.Life.Actors{mark(a.ID,a.Level,a.Position,a.Brain,a.OnFloor());if a.ID!=self&&a.Level==level&&q.Seating.IsRegular(a.ID)&&spots[a.Goal]&&a.Brain.Seat==""{taken[a.Goal]=true}}
  for _,a:=range r.state.Life.Population.Actors{mark(a.ID,a.Level,a.Position,a.Brain,a.Trip==nil)}
+ // food court v1.1: a hall visitor bound for or eating at a place of a standing table holds it too
+ if t:=r.world.Visitors.Tables;t!=nil&&r.world.Visitors.Level==level{for _,b:=range r.state.Visitors.Bodies{if b.Table>0&&b.Table<=len(t.Spots){c:=behavior.Cell{X:t.Spots[b.Table-1].At.X,Y:t.Spots[b.Table-1].At.Y};if spots[c]{taken[c]=true}}}}
  return taken
 }
 // NPCDebugJournalLines is the HUD "Отладка" projection of the Life/population

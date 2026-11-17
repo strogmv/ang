@@ -168,6 +168,61 @@ func TestYataiSeatedMealReservesSitsAndRises(t *testing.T){
  b.NextDecision=0;b.advance(m,svc,"p0","market","rest",Cell{6,6},true,true,false,schedule,home,0,rise+60,42)
  if b.Goal.GoalID=="seated_food"{t.Fatal("came back in the same meal window")}
 }
+// Food court v1.1 (owner 16.11 «пару столиков на которых нпс смогут стоя поесть»): a standing-table guest reserves his place
+// at the table, buys at a pickup place of the counter, waits to be handed the meal, carries it to the table, eats standing,
+// rises and leaves; the place is held all the while; the saved state is valid at every step.
+func TestStandingTableBuyAtCounterEatAtTable(t *testing.T){
+ m:=seatedFixture();s:=m.Places[0].Seating
+ s.Seats=[]LifeSpot{{ID:"t1n",At:Cell{4,2},Pose:"table",Yaw:180},{ID:"t1e",At:Cell{5,3},Pose:"table",Yaw:270}}
+ s.Queue=nil;s.Pickup=[]LifeSpot{{ID:"p1",At:Cell{1,6},Pose:"stand",Yaw:0}};s.PickupSeconds=20;s.SitDown=4;s.Rise=3
+ s.Items=[]LifeServiceItem{{Definition:"porridge",Food:true,ChancePPM:1000000},{Definition:"tea",Food:false,ChancePPM:600000}}
+ l:=LifeModel{Locations:map[string]LifeLocation{"market":{Terrain:[]string{"........","........","........","........","........","........","........","........"}}},Walkable:map[string]bool{".":true}}
+ if err:=s.validate(l,m.Places[0]);err!=nil{t.Fatal(err)}
+ for name,mut:=range map[string]func(x *LifeSeating){
+  "no_pickup":func(x *LifeSeating){x.Pickup=nil},
+  "queue":func(x *LifeSeating){x.Queue=[]LifeSpot{{ID:"q1",At:Cell{1,7},Pose:"stand"}}},
+  "mixed":func(x *LifeSeating){x.Seats=append(x.Seats,LifeSpot{ID:"s9",At:Cell{6,6},Pose:"sit"})},
+  "pickup_seconds":func(x *LifeSeating){x.PickupSeconds=0},
+  "pickup_pose":func(x *LifeSeating){x.Pickup=[]LifeSpot{{ID:"p1",At:Cell{1,6},Pose:"sit"}}},
+  "pickup_on_table":func(x *LifeSeating){x.Pickup=[]LifeSpot{{ID:"p1",At:Cell{4,2},Pose:"stand"}}},
+ }{bad:=*s;bad.Seats=append([]LifeSpot{},s.Seats...);mut(&bad);if bad.validate(l,m.Places[0])==nil{t.Fatalf("%s accepted",name)}}
+ held:=map[string]Cell{};bought:=0
+ svc:=LifeBrainServices{Offers:func(_,kind,_ string)[]LifeAffordance{if kind!="seated_food"{return nil};return []LifeAffordance{{ID:"yatai",Kind:kind,Level:"market"}}},
+  Buy:func(_ string,p LifeAffordance,food bool)bool{bought++;return p.Kind=="seated_food"},
+  SeatsTaken:func(_,_,self string)map[Cell]bool{out:=map[Cell]bool{};for id,at:=range held{if id!=self{out[at]=true}};return out},
+  TravelSeconds:func(string,Cell,Cell)int64{return 30}}
+ schedule:=LifeStep{Level:"market",At:Cell{6,6},Activity:"market"};home:=LifeStep{Level:"home",Activity:"sleep"}
+ noon:=int64(13*3600+59*60)
+ b:=&LifeBrain{Initialized:true,RationOrder:"order.fixture",LastSecond:noon,Needs:[5]int64{150000,100000,0,0,0},WorkDays:map[int64]int64{}}
+ target:=b.advance(m,svc,"p0","market","rest",Cell{6,6},true,true,false,schedule,home,0,noon,42)
+ if b.Goal.GoalID!="seated_food"||b.Seat==""||target.At!=(Cell{1,6})||b.SeatPicked{t.Fatalf("not to the pickup place first: %+v -> %+v",b,target)}
+ if err:=b.Validate(m,noon);err!=nil{t.Fatal(err)}
+ seat,_:=s.spot(b.Seat);held["p0"]=seat.At
+ // at the counter: bought on arrival, then served for PickupSeconds
+ b.advance(m,svc,"p0","market","eat_at_yatai",Cell{1,6},true,true,false,schedule,home,0,noon+30,42)
+ if bought!=1||b.PickedAt!=noon+30||b.SeatItem!="porridge"||b.SeatPicked{t.Fatalf("not bought at the counter: %d %+v",bought,b)}
+ if err:=b.Validate(m,noon+30);err!=nil{t.Fatal(err)}
+ if x,phase,_,ok:=b.SeatPresentation(m,"market",Cell{1,6});!ok||phase!="queue"||x.ID!="p1"{t.Fatal("waiting at the counter not presented")}
+ target=b.advance(m,svc,"p0","market","eat_at_yatai",Cell{1,6},true,true,false,schedule,home,0,noon+40,42)
+ if target.At!=(Cell{1,6}){t.Fatal("left the counter before being served")}
+ target=b.advance(m,svc,"p0","market","eat_at_yatai",Cell{1,6},true,true,false,schedule,home,0,noon+50,42)
+ if !b.SeatPicked||target.At!=seat.At{t.Fatalf("not on to the table: %+v",target)}
+ if err:=b.Validate(m,noon+50);err!=nil{t.Fatal(err)}
+ // another guest finds the place held while the first walks over
+ c:=&LifeBrain{Initialized:true,RationOrder:"order.fixture",LastSecond:noon,Needs:[5]int64{150000,100000,0,0,0},WorkDays:map[int64]int64{}}
+ c.advance(m,svc,"p1","market","rest",Cell{6,6},true,true,false,schedule,home,0,noon+50,42)
+ if c.Seat==b.Seat{t.Fatal("a held table place was given again")}
+ // at the table: no second purchase, the meal eaten standing
+ b.advance(m,svc,"p0","market","eat_at_yatai",seat.At,true,true,false,schedule,home,0,noon+80,42)
+ if bought!=1||b.SeatedAt!=noon+80||b.Needs[0]!=0||b.SitUntil<noon+80+4+600{t.Fatalf("not eating at the table: bought %d %+v",bought,b)}
+ if x,phase,_,ok:=b.SeatPresentation(m,"market",seat.At);!ok||phase!="sit"||x.Pose!="table"{t.Fatal("eating at the table not presented")}
+ if err:=b.Validate(m,noon+80);err!=nil{t.Fatal(err)}
+ b.advance(m,svc,"p0","market","eat_at_yatai",seat.At,true,true,false,schedule,home,0,b.SitUntil,42)
+ rise:=b.RiseAt;b.advance(m,svc,"p0","market","eat_at_yatai",seat.At,true,true,false,schedule,home,0,rise+3,42)
+ if b.Seat!=""||b.SeatItem!=""||b.PickedAt!=0{t.Fatalf("table place not released: %+v",b)}
+ // a saved guest at the counter with a forged target is refused
+ d:=*c;if d.Seat!=""{d.Target.At=Cell{7,7};if d.Validate(m,noon+50)==nil{t.Fatal("a guest away from the pickup place was saved")}}
+}
 // demo-hub v11-text: occupancy windows - below min_seated anyone free comes at once (no delay, no chance roll, not even
 // hungry: then a mug of tea, no meal), at max_seated nobody new comes; regulars hold seats as posts and never queue.
 func TestYataiOccupancyWindowsTopUpAndCap(t *testing.T){

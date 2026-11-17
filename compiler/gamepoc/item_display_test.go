@@ -177,3 +177,82 @@ func TestItemIconKeyFollowsItsInputs(t *testing.T) {
 		t.Fatal("the icon key line differs from the game's script")
 	}
 }
+
+// food court v1.1: a body eaten standing at a table (eat_loop.gd) — the way's parts, points on the model, the head never
+// thrown back, the shared rhythm.
+func eatenFixture(t *testing.T) (*ItemDisplayCatalog, map[string]itemWorldItem, string) {
+	c, items, client := itemDisplayFixture(t)
+	b := c.Bodies["body.bottle"]
+	b.Eaten = &ItemEaten{Way: "sip", Hand: "right", AtM: [3]float64{-0.1, -0.12, 0.28}, GripM: [3]float64{0, 0.1, 0},
+		MouthM: [3]float64{0, 0.22, 0}, SipDeg: 40, HeadDeg: -8}
+	c.Bodies["body.bottle"] = b
+	c.Bodies["body.stirrer"] = ItemBody{Model: "res://kit/items/item.bottle.glb", Budget: "small", Rest: "lie",
+		Carried: ItemCarried{At: "none"}, Icon: ItemIcon{YawDeg: 25, PitchDeg: 20, Zoom: 1}, Source: "test", Note: "a stirrer"}
+	c.Eating = &ItemEating{ToMouthS: 0.8, AtMouthS: 0.4, BackS: 0.7, ChewS: [2]float64{2, 4}, SipPauseS: [2]float64{3, 6},
+		LookDownDeg: 12, ChewDeg: 1, ChewHz: 1.5, GlanceEvery: [2]int{2, 4}, GlanceS: 2, GlanceDeg: 40, GlanceUpDeg: 10,
+		WordNods: 2, NodDeg: 3, RestHandSideM: 0.2, FadeS: 0.6}
+	return c, items, client
+}
+
+func TestItemDisplayEatenAtTheTable(t *testing.T) {
+	c, items, client := eatenFixture(t)
+	if err := checkItemDisplay(c, items, client); err != nil {
+		t.Fatal(err)
+	}
+	view := clientItemDisplay(c)
+	if view["eating"] == nil || view["bodies"].(map[string]any)["body.bottle"].(map[string]any)["eaten"] == nil {
+		t.Fatalf("the client gets no eating: %v", view["eating"])
+	}
+	down, back := [3]float64{0.5, -0.6, 0.2}, [3]float64{0.3, 0.3, -0.9}
+	spoon := func(c *ItemDisplayCatalog) *ItemEaten {
+		b := c.Bodies["body.bottle"]
+		e := *b.Eaten
+		e.Way, e.SipDeg, e.HeadDeg, e.LineRest, e.LineMouth = "spoon", 0, 6, &down, &back
+		food := [3]float64{0, 0.1, 0}
+		e.FoodM = &food
+		e.Tool = &struct {
+			Body  string     `json:"body"`
+			GripM [3]float64 `json:"grip_m"`
+		}{"body.stirrer", [3]float64{0, 0.02, 0}}
+		e.MouthM = [3]float64{0, 0.2, 0}
+		b.Eaten = &e
+		c.Bodies["body.bottle"] = b
+		return &e
+	}
+	c2, items2, client2 := eatenFixture(t)
+	spoon(c2)
+	if err := checkItemDisplay(c2, items2, client2); err != nil {
+		t.Fatalf("a spoon with its tool: %v", err)
+	}
+	cases := map[string]func(c *ItemDisplayCatalog){
+		"no eating rhythm":       func(c *ItemDisplayCatalog) { c.Eating = nil },
+		"never thrown back":      func(c *ItemDisplayCatalog) { c.Bodies["body.bottle"].Eaten.HeadDeg = -25 },
+		"a spoon needs its tool": func(c *ItemDisplayCatalog) { spoon(c).Tool = nil },
+		"is eaten itself": func(c *ItemDisplayCatalog) {
+			spoon(c)
+			s := c.Bodies["body.stirrer"]
+			s.Eaten = c.Bodies["body.bottle"].Eaten
+			c.Bodies["body.stirrer"] = s
+		},
+		"down into the food": func(c *ItemDisplayCatalog) { spoon(c).LineRest = &back },
+		"in front of the face": func(c *ItemDisplayCatalog) {
+			e := spoon(c)
+			e.LineMouth = &down
+		},
+		"not a part of the model": func(c *ItemDisplayCatalog) { c.Bodies["body.bottle"].Eaten.Hide = []string{"lid"} },
+		"within reach":            func(c *ItemDisplayCatalog) { c.Bodies["body.bottle"].Eaten.AtM = [3]float64{0, 0, 0.9} },
+		"a cup tips":              func(c *ItemDisplayCatalog) { c.Bodies["body.bottle"].Eaten.SipDeg = 0 },
+		"eating.chew_s[1]":        func(c *ItemDisplayCatalog) { c.Eating.ChewS = [2]float64{4, 2} },
+		"off the model":           func(c *ItemDisplayCatalog) { c.Bodies["body.bottle"].Eaten.MouthM = [3]float64{0, 0.6, 0} },
+	}
+	for want, breakIt := range cases {
+		t.Run(want, func(t *testing.T) {
+			c, items, client := eatenFixture(t)
+			breakIt(c)
+			err := checkItemDisplay(c, items, client)
+			if err == nil || !strings.Contains(err.Error(), want) {
+				t.Fatalf("want an error with %q, got %v", want, err)
+			}
+		})
+	}
+}

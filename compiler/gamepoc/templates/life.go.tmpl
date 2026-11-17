@@ -904,6 +904,10 @@ func (r *Runtime) setLifeActivity(a *pb.PocAgentState, b lifeActivityBody) {
 		a.Activity = s.Activity
 		a.ActivityPhase = phase
 		a.ActivitySpot = lifeSpotPB(x)
+		// food court v1.1: what a standing-table guest carries (the presentation puts it on the table)
+		if b.brain.SeatPicked {
+			a.ActivityItem = b.brain.SeatItem
+		}
 		a.ActivitySinceSeconds = since
 		a.ActivitySinceNs = r.lifeGameNS(since)
 		a.ActivityPhaseNs = a.ActivitySinceNs

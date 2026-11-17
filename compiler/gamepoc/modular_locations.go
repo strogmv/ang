@@ -180,7 +180,7 @@ func materializeModularPopulation(life map[string]json.RawMessage, locations map
 		Places []struct {
 			Level   string `json:"level"`
 			Seating *struct {
-				Seats, Queue, Posts []struct {
+				Seats, Queue, Posts, Pickup []struct {
 					At Point `json:"at"`
 				}
 			} `json:"seating"`
@@ -237,7 +237,7 @@ func materializeModularPopulation(life map[string]json.RawMessage, locations map
 			if p.Level == b.LevelID && p.Seating != nil {
 				for _, group := range [][]struct {
 					At Point `json:"at"`
-				}{p.Seating.Seats, p.Seating.Queue, p.Seating.Posts} {
+				}{p.Seating.Seats, p.Seating.Queue, p.Seating.Posts, p.Seating.Pickup} {
 					for _, spot := range group {
 						reserved[spot.At] = true
 					}

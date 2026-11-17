@@ -49,6 +49,18 @@ type CutawaySeeThrough struct {
 	// FloorKeepM: below this height over his floor nothing dissolves (the floor, the marking, what lies on it).
 	NearM      float64 `json:"near_m"`
 	FloorKeepM float64 `json:"floor_keep_m"`
+	// Hidden (v1.1, owner 16.11: the circle opened the gantry beam over the hero when nothing hid him): the circle opens
+	// only while something hides him — rays from points of his body (HeightsM over his feet) toward the camera, at least
+	// MinCovered of them blocked; it grows open in GrowSeconds and closes HoldSeconds after he is free.
+	Hidden SeeThroughHidden `json:"hidden"`
+}
+
+// SeeThroughHidden: when the see-through circle opens (client-godot/see_through.gd tests it).
+type SeeThroughHidden struct {
+	HeightsM    []float64 `json:"heights_m"`
+	MinCovered  int       `json:"min_covered"`
+	HoldSeconds float64   `json:"hold_seconds"`
+	GrowSeconds float64   `json:"grow_seconds"`
 }
 
 // CameraCutawayLevel: one level where the rule applies, with the structure kinds that count as occluders there.
@@ -218,6 +230,23 @@ func checkSeeThrough(s *CutawaySeeThrough) error {
 		return fmt.Errorf("near_m %v: 0..2 m nearer the camera than the hero", s.NearM)
 	case !finite(s.FloorKeepM) || s.FloorKeepM < 0 || s.FloorKeepM > 0.5:
 		return fmt.Errorf("floor_keep_m %v: the floor and what lies on it stay, 0..0.5 m", s.FloorKeepM)
+	}
+	h := s.Hidden
+	if len(h.HeightsM) < 2 || len(h.HeightsM) > 8 {
+		return fmt.Errorf("hidden.heights_m %v: 2..8 points of the body (one point opens the circle for a beam over his head)", h.HeightsM)
+	}
+	for i, x := range h.HeightsM {
+		if !finite(x) || x < 0.1 || x > 2.2 || i > 0 && x <= h.HeightsM[i-1] {
+			return fmt.Errorf("hidden.heights_m %v: rising, 0.1..2.2 m over the feet", h.HeightsM)
+		}
+	}
+	switch {
+	case h.MinCovered < 1 || h.MinCovered > len(h.HeightsM):
+		return fmt.Errorf("hidden.min_covered %d: 1..%d (the body points)", h.MinCovered, len(h.HeightsM))
+	case !finite(h.HoldSeconds) || h.HoldSeconds < 0 || h.HoldSeconds > 5:
+		return fmt.Errorf("hidden.hold_seconds %v: 0..5 s", h.HoldSeconds)
+	case !finite(h.GrowSeconds) || h.GrowSeconds <= 0 || h.GrowSeconds > 2:
+		return fmt.Errorf("hidden.grow_seconds %v: more than 0 (it would pop) and at most 2 s", h.GrowSeconds)
 	}
 	return nil
 }

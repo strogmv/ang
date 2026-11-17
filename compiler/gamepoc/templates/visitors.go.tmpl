@@ -63,6 +63,9 @@ type visitorTarget struct {
 	} `json:"face,omitempty"`
 	TakeTicks  int64         `json:"take_ticks,omitempty"`
 	DwellTicks *visitorRange `json:"dwell_ticks,omitempty"`
+	// food court v1.1: a counter its cook serves (the yatai, the shawarma): the purchase is made at the cook's post, where
+	// the showcase stands, while the walker waits at the pickup place
+	ServeAt *inv.Cell `json:"serve_at,omitempty"`
 	// market people part C: what the hands do with the machine of the place in a phase (compiler/gamepoc/visitors.go)
 	Acts []visitorAct `json:"acts,omitempty"`
 }
@@ -96,6 +99,32 @@ type visitorSupply struct {
 	Store string       `json:"store"`
 	Lots  []visitorLot `json:"lots"`
 }
+// Food court v1.1 (owner 16.11 «пару столиков на которых нпс смогут стоя поесть»): a walker who bought at a hot-food
+// place (Shops), by his draw, takes a free place at a standing table, eats there standing (EatTicks) and walks on. The
+// places are shared with the people of the hall (the Life brain places Places): a place one of them holds or stands on is
+// not free.
+type visitorTableSpot struct {
+	At   inv.Cell `json:"at"`
+	Face struct {
+		X float64 `json:"x"`
+		Y float64 `json:"y"`
+	} `json:"face"`
+	// where his tray stands: plan metres, z over the floor
+	Table struct {
+		X float64 `json:"x"`
+		Y float64 `json:"y"`
+		Z float64 `json:"z"`
+	} `json:"table"`
+}
+type visitorTables struct {
+	Shops          []string           `json:"shops"`
+	Meals          []string           `json:"meals"` // what one eats at a table (the only things that take him there)
+	ChancePermille int64              `json:"chance_permille"`
+	EatTicks       visitorRange       `json:"eat_ticks"`
+	Spots          []visitorTableSpot `json:"spots"`
+	Places         []string           `json:"places,omitempty"`
+}
+
 type visitorCatalog struct {
 	Level       string       `json:"level"`
 	OpenSecond  int64        `json:"open_second"`
@@ -123,7 +152,8 @@ type visitorCatalog struct {
 		Skip          []string        `json:"skip"`
 		Rules         []visitorSupply `json:"rules"`
 	} `json:"supply"`
-	Slots []string `json:"slots"`
+	Slots  []string       `json:"slots"`
+	Tables *visitorTables `json:"tables,omitempty"`
 }
 
 // One thing of the list still to buy.
@@ -153,6 +183,9 @@ type visitorBody struct {
 	Blocked int64 `json:"blocked,omitempty"`
 	Yield   int64 `json:"yield,omitempty"`
 	Since   int64 `json:"since,omitempty"`
+	// food court v1.1: the place at a standing table he holds (number + 1) and what he bought to eat there
+	Table int    `json:"table,omitempty"`
+	Meal  string `json:"meal,omitempty"`
 }
 
 // The ledger of the visitors' trade since the game began (never sent to the client).
@@ -477,6 +510,105 @@ func (r *Runtime) visitorSpotsTaken() map[behavior.Cell]int {
 	return taken
 }
 
+// visitorTableTaken (food court v1.1): the places at the tables held now — by a walker bound for or eating at one, by a person
+// of the hall who reserved one (the Life brain places of the tables) or stands on it.
+func (r *Runtime) visitorTableTaken() map[int]bool {
+	t := r.world.Visitors.Tables
+	out := map[int]bool{}
+	if t == nil {
+		return out
+	}
+	for _, b := range r.state.Visitors.Bodies {
+		if b.Table > 0 {
+			out[b.Table-1] = true
+		}
+	}
+	level := r.world.Visitors.Level
+	held := map[behavior.Cell]bool{}
+	for _, p := range t.Places {
+		for c := range r.npcSeatsTaken(level, p, "") {
+			held[c] = true
+		}
+	}
+	for c := range r.state.Life.BlockedCells(level, "") {
+		held[c] = true
+	}
+	for i, s := range t.Spots {
+		if held[behavior.Cell{X: s.At.X, Y: s.At.Y}] {
+			out[i] = true
+		}
+	}
+	return out
+}
+
+// visitorMeal: what he bought at the place to eat at a table (in his bag, a thing the place sells that is one of the
+// tables' meals), the first by name.
+func (r *Runtime) visitorMeal(slot string, t *visitorTarget) string {
+	meals := map[string]bool{}
+	for _, m := range r.world.Visitors.Tables.Meals {
+		meals[m] = true
+	}
+	sells := map[string]bool{}
+	for _, i := range r.state.Inventory.Items {
+		if i.Location.Kind == "store" && i.Location.Store == t.Store && meals[i.Definition] {
+			sells[i.Definition] = true
+		}
+	}
+	bag := inv.ActorStore(slot)
+	var defs []string
+	for _, i := range r.state.Inventory.Items {
+		if i.Location.Kind == "store" && i.Location.Store == bag && sells[i.Definition] {
+			defs = append(defs, i.Definition)
+		}
+	}
+	if len(defs) == 0 {
+		return ""
+	}
+	sort.Strings(defs)
+	return defs[0]
+}
+
+// visitorToTable (food court v1.1): having bought at a hot-food place, by his draw he walks to the free place at a table
+// nearest to him; false when he does not (the draw, nothing he can eat, no free place, no way there).
+func (r *Runtime) visitorToTable(b *visitorBody, slot string) bool {
+	t := r.world.Visitors.Tables
+	tg := r.visitorTargetOf(b.Target)
+	if t == nil || tg == nil {
+		return false
+	}
+	ok := false
+	for _, sh := range t.Shops {
+		ok = ok || sh == tg.Shop
+	}
+	if !ok || int64(r.visitorDraw(b.Serial, fmt.Sprintf("table.%d", len(b.Stops)))%1000) >= t.ChancePermille {
+		return false
+	}
+	meal := r.visitorMeal(slot, tg)
+	if meal == "" {
+		return false
+	}
+	taken := r.visitorTableTaken()
+	best, bestD := -1, 0
+	for i, s := range t.Spots {
+		if taken[i] {
+			continue
+		}
+		if d := manhattan(location(b.At), point{s.At.X, s.At.Y}); best < 0 || d < bestD {
+			best, bestD = i, d
+		}
+	}
+	if best < 0 {
+		return false
+	}
+	path, found := r.visitorPath(b.At, behavior.Cell{X: t.Spots[best].At.X, Y: t.Spots[best].At.Y})
+	if !found {
+		return false
+	}
+	b.Phase, b.Target, b.Units, b.Path, b.Table, b.Meal = "walk", "", 0, path, best+1, meal
+	b.Blocked, b.Yield = 0, 0
+	return true
+}
+
 // visitorTargetOf: the selling place a walker is at (nil for a peddler or none).
 func (r *Runtime) visitorTargetOf(id string) *visitorTarget {
 	r.visitorIndex()
@@ -605,8 +737,12 @@ func (r *Runtime) visitorBuy(slot string, serial int64, n int, target string, at
 		}
 		roll -= units[d]
 	}
-	// he may stand a cell or two aside along the counter: the purchase is made across it at the customer's cell
+	// he may stand a cell or two aside along the counter: the purchase is made across it at the customer's cell (a counter
+	// its cook serves: at the cook's post, handed over to the pickup place)
 	cell := t.At
+	if t.ServeAt != nil {
+		cell = *t.ServeAt
+	}
 	var bought int64
 	for bought < want {
 		// the lowest instance of the chosen thing that is still there
@@ -774,6 +910,7 @@ func (r *Runtime) visitorArrive(day int64, a visitorArrival) {
 // visitorHead: the next thing of the list that has an open selling place he can walk to; with none left, the way out.
 func (r *Runtime) visitorHead(b *visitorBody) {
 	v := r.world.Visitors
+	b.Table, b.Meal = 0, ""
 	// a walker in transit keeps the cell he is stepping into: the new way starts there
 	from, prefix := b.At, []behavior.Cell(nil)
 	if b.Going && len(b.Path) > 0 {
@@ -917,6 +1054,11 @@ func (r *Runtime) advanceVisitors() error {
 		}
 		switch b.Phase {
 		case "walk": // at the stall: he looks, then buys
+			if b.Table > 0 { // food court v1.1: at his place at a table — he eats standing
+				e := v.Tables.EatTicks
+				b.Phase, b.Wait = "eat", e.Min+int64(r.visitorDraw(b.Serial, "eat")%uint64(e.Max-e.Min+1))
+				break
+			}
 			b.Phase = "stand"
 			// walkers v1, addendum 1: he looks at the showcase (or trades) standing still, as long as the place asks
 			b.Wait = r.visitorDwell(b)
@@ -928,8 +1070,13 @@ func (r *Runtime) advanceVisitors() error {
 				b.Phase, b.Wait = "take", t.TakeTicks
 				break
 			}
+			if got > 0 && r.visitorToTable(&b, slot) {
+				break
+			}
 			r.visitorHead(&b)
 		case "take":
+			r.visitorHead(&b)
+		case "eat": // eaten: on to the rest of his list, or out
 			r.visitorHead(&b)
 		default: // at the way out
 			w.release(b)
@@ -1039,6 +1186,16 @@ func (r *Runtime) appendVisitors(view *pb.PocLifeView, hero *behavior.LifeActor,
 			row.FaceX, row.FaceY = t.Face.X, t.Face.Y
 		}
 		row.Act = r.visitorAct(b)
+		// food court v1.1: what he carries from the counter to his table and eats there; eating, he faces the table and
+		// the point of it in front of him is given
+		if b.Table > 0 {
+			row.Meal = b.Meal
+		}
+		if b.Phase == "eat" && b.Table > 0 && r.world.Visitors.Tables != nil && len(b.Path) == 0 && !b.Going {
+			s := r.world.Visitors.Tables.Spots[b.Table-1]
+			row.FaceX, row.FaceY = s.Face.X, s.Face.Y
+			row.TableXMm, row.TableYMm, row.TableZMm = int32(s.Table.X*1000), int32(s.Table.Y*1000), int32(s.Table.Z*1000)
+		}
 		view.Visitors = append(view.Visitors, row)
 	}
 }
@@ -1139,8 +1296,15 @@ func (r *Runtime) validateVisitorSave(s state) error {
 	}
 	slots := map[int]bool{}
 	for _, b := range s.Visitors.Bodies {
-		if b.Slot < 1 || b.Slot >= len(v.Slots) || slots[b.Slot] || b.Kind < 0 || b.Kind >= len(v.Kinds) || b.Exit < 0 || b.Exit >= len(v.Entries) || b.Wait < 0 || b.Wait > max(v.DwellTicks.Max, r.visitorMaxTake(), r.visitorMaxDwell())+v.MoveTicks ||
-			(b.Phase != "walk" && b.Phase != "stand" && b.Phase != "take" && b.Phase != "leave") || b.At.X < 0 || b.At.Y < 0 || len(b.Stops) > v.MaxStops || b.Units < 0 || b.Bought < 0 || b.Held < 0 || b.Held > visitorHoldTicks ||
+		eatMax, spots := int64(0), 0
+		if v.Tables != nil {
+			eatMax, spots = v.Tables.EatTicks.Max, len(v.Tables.Spots)
+		}
+		if b.Table < 0 || b.Table > spots || (b.Table > 0) != (b.Meal != "") || b.Phase == "eat" && b.Table == 0 {
+			return errors.New("invalid visitor at a table")
+		}
+		if b.Slot < 1 || b.Slot >= len(v.Slots) || slots[b.Slot] || b.Kind < 0 || b.Kind >= len(v.Kinds) || b.Exit < 0 || b.Exit >= len(v.Entries) || b.Wait < 0 || b.Wait > max(v.DwellTicks.Max, r.visitorMaxTake(), r.visitorMaxDwell(), eatMax)+v.MoveTicks ||
+			(b.Phase != "walk" && b.Phase != "stand" && b.Phase != "take" && b.Phase != "leave" && b.Phase != "eat") || b.At.X < 0 || b.At.Y < 0 || len(b.Stops) > v.MaxStops || b.Units < 0 || b.Bought < 0 || b.Held < 0 || b.Held > visitorHoldTicks ||
 			(b.Going && len(b.Path) == 0) || b.Blocked < 0 || b.Blocked > visitorStuckTicks+1 || b.Yield < 0 || b.Since < 0 || b.Since > s.Tick {
 			return errors.New("invalid visitor")
 		}

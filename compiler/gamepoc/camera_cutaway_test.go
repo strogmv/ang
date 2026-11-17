@@ -12,7 +12,8 @@ func cameraCutawayFixture() (CameraCutaway, func(string) bool, map[string][]stri
 			Parts: []CameraCutawayPart{{ModuleID: "kit.geo.stall", Kind: "wall", Why: "the stall's back hides the half-island",
 				RegionM: CutawayRegion{X: [2]float64{0.16, 5.9}, Up: [2]float64{1.25, 2.7}, South: [2]float64{0, 0.5}}}}},
 		{LevelID: "level.hub", OccluderTerrains: []string{"wall"}, Why: "the hub's bay walls"},
-	}, SeeThrough: &CutawaySeeThrough{RadiusM: 1.7, CentreUpM: 0.9, FadeM: 0.35, EdgeM: 0.05, EdgeColor: "#17130F", NearM: 0.25, FloorKeepM: 0.06}}
+	}, SeeThrough: &CutawaySeeThrough{RadiusM: 1.7, CentreUpM: 0.9, FadeM: 0.35, EdgeM: 0.05, EdgeColor: "#17130F", NearM: 0.25, FloorKeepM: 0.06,
+		Hidden: SeeThroughHidden{HeightsM: []float64{0.6, 1.15, 1.6}, MinCovered: 2, HoldSeconds: 0.8, GrowSeconds: 0.35}}}
 	known := func(id string) bool { return id == "level.market" || id == "level.hub" }
 	// The market is also a world level with the view hint (in another order); the hub is not.
 	views := map[string][]string{"level.market": {"rock", "wall", "pillar"}}
@@ -29,7 +30,7 @@ func TestCameraCutawayAcceptedAndProjected(t *testing.T) {
 	for _, want := range []string{`"stub_m":1.2`, `"reach_m":10`, `"seconds":0.4`, `"hold_seconds":1`, `"cap_color":"#16130F"`,
 		`"level.hub":{"occluder_terrains":["wall"]}`, `"occluder_terrains":["wall","pillar","rock"]`,
 		`"parts":[{"kind":"wall","module_id":"kit.geo.stall","region_m":{"x":[0.16,5.9],"up":[1.25,2.7],"south":[0,0.5]}}]`,
-		`"see_through":{"radius_m":1.7,"centre_up_m":0.9,"fade_m":0.35,"edge_m":0.05,"edge_color":"#17130F","near_m":0.25,"floor_keep_m":0.06}`} {
+		`"see_through":{"radius_m":1.7,"centre_up_m":0.9,"fade_m":0.35,"edge_m":0.05,"edge_color":"#17130F","near_m":0.25,"floor_keep_m":0.06,"hidden":{"heights_m":[0.6,1.15,1.6],"min_covered":2,"hold_seconds":0.8,"grow_seconds":0.35}}`} {
 		if !strings.Contains(string(raw), want) {
 			t.Fatalf("client cutaway lacks %s: %s", want, raw)
 		}
@@ -84,6 +85,16 @@ func TestCameraCutawayRejected(t *testing.T) {
 		"see_near_far":      func(c *CameraCutaway, _ map[string][]string) { c.SeeThrough.NearM = 3 },
 		"see_centre_high":   func(c *CameraCutaway, _ map[string][]string) { c.SeeThrough.CentreUpM = 2.5 },
 		"see_floor_cut":     func(c *CameraCutaway, _ map[string][]string) { c.SeeThrough.FloorKeepM = -0.1 },
+		// v1.1: when it opens
+		"see_one_point": func(c *CameraCutaway, _ map[string][]string) { c.SeeThrough.Hidden.HeightsM = []float64{1.2} },
+		"see_points_order": func(c *CameraCutaway, _ map[string][]string) {
+			c.SeeThrough.Hidden.HeightsM = []float64{1.6, 0.6, 1.15}
+		},
+		"see_point_high":   func(c *CameraCutaway, _ map[string][]string) { c.SeeThrough.Hidden.HeightsM = []float64{0.6, 3} },
+		"see_covered_zero": func(c *CameraCutaway, _ map[string][]string) { c.SeeThrough.Hidden.MinCovered = 0 },
+		"see_covered_many": func(c *CameraCutaway, _ map[string][]string) { c.SeeThrough.Hidden.MinCovered = 4 },
+		"see_hold_long":    func(c *CameraCutaway, _ map[string][]string) { c.SeeThrough.Hidden.HoldSeconds = 9 },
+		"see_grow_pop":     func(c *CameraCutaway, _ map[string][]string) { c.SeeThrough.Hidden.GrowSeconds = 0 },
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -91,6 +102,7 @@ func TestCameraCutawayRejected(t *testing.T) {
 			c.Levels = append([]CameraCutawayLevel{}, c.Levels...)
 			c.Levels[0].Parts = append([]CameraCutawayPart{}, c.Levels[0].Parts...)
 			see := *c.SeeThrough
+			see.Hidden.HeightsM = append([]float64{}, see.Hidden.HeightsM...)
 			c.SeeThrough = &see
 			mutate(&c, views)
 			if err := checkCameraCutaway(c, known, views, placed); err == nil {

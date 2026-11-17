@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"testing"
 
+	pb "angelsdemons/server/internal/transport/grpc/pb/game/v1"
 	behavior "angelsdemons/server/internal/behavior"
 )
 
@@ -208,6 +210,104 @@ func TestVisitorsWalkTheFloorCellByCell(t *testing.T) {
 	})
 	if seen == 0 || phases["walk"] == 0 || phases["stand"] == 0 || phases["leave"] == 0 {
 		t.Fatalf("twenty minutes after the opening: samples %d, phases %v", seen, phases)
+	}
+}
+
+// Food court v1.1 (owner 16.11 «пару столиков на которых нпс смогут стоя поесть»): walkers who bought at the yatai or the
+// shawarma eat standing at the tables — on the table's places only, one walker a place, never on a place a person of the
+// hall holds, with what they bought there, facing the table and with the tray on it; at lunch two to four a table; the
+// state saves and loads.
+func TestVisitorsEatStandingAtTheTables(t *testing.T) {
+	r := visitorsRuntime(t, 5)
+	v := r.world.Visitors
+	if v.Tables == nil {
+		t.Skip("the hall has no standing tables")
+	}
+	spots := map[behavior.Cell]int{}
+	for i, s := range v.Tables.Spots {
+		spots[behavior.Cell{X: s.At.X, Y: s.At.Y}] = i
+	}
+	visitorsRun(t, r, (11*3600-r.state.Life.Seconds%86400+86400)%86400, nil)
+	most, ate := 0, map[string]int{}
+	visitorsRun(t, r, 3*3600, func() {
+		held := map[int]int64{}
+		n := 0
+		for _, b := range r.state.Visitors.Bodies {
+			if b.Table == 0 {
+				if b.Phase == "eat" {
+					t.Fatalf("visitor %d eats without a place", b.Serial)
+				}
+				continue
+			}
+			if other, ok := held[b.Table-1]; ok {
+				t.Fatalf("visitors %d and %d hold table place %d", other, b.Serial, b.Table-1)
+			}
+			held[b.Table-1] = b.Serial
+			if b.Meal == "" {
+				t.Fatalf("visitor %d at a table with nothing to eat", b.Serial)
+			}
+			// only a meal eaten at a table takes him there (not a vitamin strip, not a plain flatbread)
+			if !slices.Contains(v.Tables.Meals, b.Meal) {
+				t.Fatalf("visitor %d at a table with %s, not a table meal %v", b.Serial, b.Meal, v.Tables.Meals)
+			}
+			if b.Phase == "eat" {
+				if i, ok := spots[b.At]; !ok || i != b.Table-1 {
+					t.Fatalf("visitor %d eats at %v, not at his place %d", b.Serial, b.At, b.Table-1)
+				}
+				n++
+				ate[b.Meal]++
+			}
+		}
+		most = max(most, n)
+	})
+	if most < 2 || len(ate) == 0 {
+		t.Fatalf("lunch at the tables: at most %d eating, what %v", most, ate)
+	}
+	// the view: phase eat, facing the table, the meal and where it stands
+	view := &pb.PocLifeView{}
+	hero := r.state.Life.Actor(playerActorID)
+	if hero != nil {
+		hero.Level = v.Level
+		all := &pb.PocObserverView{}
+		for _, row := range r.world.Life.Locations[v.Level].Terrain {
+			line := make([]byte, len(row))
+			for i := range line {
+				line[i] = '2'
+			}
+			all.Cells = append(all.Cells, string(line))
+		}
+		r.appendVisitors(view, hero, all)
+		for _, row := range view.Visitors {
+			if row.Phase == "eat" && (row.Meal == "" || row.TableZMm < 500 || row.FaceX == 0 && row.FaceY == 0) {
+				t.Fatalf("an eating walker shown without his meal, table or facing: %+v", row)
+			}
+			if row.Phase != "eat" && row.TableZMm != 0 {
+				t.Fatalf("a walker not eating shown at a table point: %+v", row)
+			}
+		}
+		// the meal is shown on the way to the table too (the hand carries it): every walker going to a table is shown with it
+		going := map[int64]string{}
+		for _, b := range r.state.Visitors.Bodies {
+			if b.Table > 0 {
+				going[b.Serial] = b.Meal
+			}
+		}
+		for _, row := range view.Visitors {
+			if meal, ok := going[row.Id]; ok && row.Meal != meal {
+				t.Fatalf("walker %d goes to a table with %q, shown with %q", row.Id, meal, row.Meal)
+			}
+		}
+	}
+	raw, err := json.Marshal(r.state.Visitors)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back visitorState
+	if err = json.Unmarshal(raw, &back); err != nil {
+		t.Fatal(err)
+	}
+	if err = r.validateVisitorSave(r.state); err != nil {
+		t.Fatal(err)
 	}
 }
 

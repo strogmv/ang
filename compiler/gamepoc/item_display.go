@@ -41,6 +41,9 @@ type ItemDisplayCatalog struct {
 		Tint     [3]float64 `json:"tint"`
 		SoftM    float64    `json:"soft_m"`
 	} `json:"contact"`
+	// food court v1.1: the rhythm of eating standing at a table (client-godot/eat_loop.gd; the bodies' Eaten say what goes
+	// where). Presentation only.
+	Eating    *ItemEating         `json:"eating,omitempty"`
 	view      map[string]any      // the client's resource (clientItemDisplay)
 	record    itemRecord          // the build record as read
 	worn      map[string]string   // item -> wardrobe view
@@ -59,6 +62,7 @@ type ItemBody struct {
 	Icon    ItemIcon    `json:"icon"`
 	States  []string    `json:"states"`
 	Shop    *ItemShop   `json:"shop,omitempty"`
+	Eaten   *ItemEaten  `json:"eaten,omitempty"`
 	Source  string      `json:"source"`
 	Note    string      `json:"note"`
 }
@@ -73,6 +77,48 @@ type ItemHeld struct {
 	GripM   [3]float64 `json:"grip_m"`
 	TurnDeg [3]float64 `json:"turn_deg"`
 }
+
+// ItemEaten: how a body is eaten standing at a table (food court v1.1) over the person's standing idle, no eating clip.
+// The eater's frame: +x his left, +y up, +z forward, metres from his upper chest; the model's: x across, y up, z its front.
+type ItemEaten struct {
+	Way     string     `json:"way"`  // spoon (the other hand brings the tool), bite (the thing to the mouth), sip (a cup, tipped)
+	Hand    string     `json:"hand"` // the hand that holds it
+	AtM     [3]float64 `json:"at_m"` // where the grip point is held (eater's frame)
+	TurnDeg float64    `json:"turn_deg"`
+	GripM   [3]float64 `json:"grip_m"` // the point of the model in that hand
+	Hide    []string   `json:"hide,omitempty"`
+	Tool    *struct {
+		Body  string     `json:"body"`
+		GripM [3]float64 `json:"grip_m"`
+	} `json:"tool,omitempty"`
+	MouthM    [3]float64  `json:"mouth_m"` // the point that meets the mouth: the tool's (spoon), else the thing's
+	LineRest  *[3]float64 `json:"line_rest,omitempty"`
+	LineMouth *[3]float64 `json:"line_mouth,omitempty"`
+	FoodM     *[3]float64 `json:"food_m,omitempty"`
+	SipDeg    float64     `json:"sip_deg"`
+	HeadDeg   float64     `json:"head_deg"`
+}
+
+// ItemEating: the shared rhythm of a meal at a standing table (seconds, degrees, metres).
+type ItemEating struct {
+	ToMouthS      float64    `json:"to_mouth_s"`
+	AtMouthS      float64    `json:"at_mouth_s"`
+	BackS         float64    `json:"back_s"`
+	ChewS         [2]float64 `json:"chew_s"`
+	SipPauseS     [2]float64 `json:"sip_pause_s"`
+	LookDownDeg   float64    `json:"look_down_deg"`
+	ChewDeg       float64    `json:"chew_deg"`
+	ChewHz        float64    `json:"chew_hz"`
+	GlanceEvery   [2]int     `json:"glance_every"`
+	GlanceS       float64    `json:"glance_s"`
+	GlanceDeg     float64    `json:"glance_deg"`
+	GlanceUpDeg   float64    `json:"glance_up_deg"`
+	WordNods      int        `json:"word_nods"`
+	NodDeg        float64    `json:"nod_deg"`
+	RestHandSideM float64    `json:"rest_hand_side_m"`
+	FadeS         float64    `json:"fade_s"`
+}
+
 type ItemCarried struct {
 	At      string      `json:"at"`
 	OffsetM *[3]float64 `json:"offset_m,omitempty"`
@@ -349,6 +395,9 @@ func checkItemDisplay(c *ItemDisplayCatalog, items map[string]itemWorldItem, cli
 			return fmt.Errorf("contact.tint[%d] %v: 0..1", k, v)
 		}
 	}
+	if err := checkItemEating(c); err != nil {
+		return err
+	}
 	// the record: every model file is still the recorded one
 	checked := map[string]itemRecordModel{}
 	model := func(where, res string, limit int) (itemRecordModel, error) {
@@ -447,6 +496,26 @@ func checkItemDisplay(c *ItemDisplayCatalog, items map[string]itemWorldItem, cli
 				if !finite(h.GripM[k]) || h.GripM[k] < m.MinM[k]-0.02 || h.GripM[k] > m.MinM[k]+m.SizeM[k]+0.02 {
 					return fmt.Errorf("%s: the grip %v is off the model (bounds from %v, size %v)", where, h.GripM, m.MinM, m.SizeM)
 				}
+			}
+		}
+		if e := b.Eaten; e != nil {
+			var tool *itemRecordModel
+			if e.Tool != nil {
+				tb, ok := c.Bodies[e.Tool.Body]
+				if !ok {
+					return fmt.Errorf("%s: eaten with %s, which is not a body", where, e.Tool.Body)
+				}
+				if tb.Eaten != nil {
+					return fmt.Errorf("%s: its tool %s is eaten itself", where, e.Tool.Body)
+				}
+				tm, err := model(where+" tool", tb.Model, itemBudgets[tb.Budget])
+				if err != nil {
+					return err
+				}
+				tool = &tm
+			}
+			if err := checkItemEaten(where, e, m, tool); err != nil {
+				return err
 			}
 		}
 		if b.Carried.At != "none" && (b.Carried.OffsetM == nil || b.Carried.TurnDeg == nil) {
@@ -696,6 +765,160 @@ func checkItemDisplayPlaces(c *ItemDisplayCatalog, vending *VendingCatalog, craf
 	return nil
 }
 
+// itemOnModel: a point lies on the model (its recorded bounds and 2 cm).
+func itemOnModel(p [3]float64, m itemRecordModel) bool {
+	for k := 0; k < 3; k++ {
+		if math.IsNaN(p[k]) || math.IsInf(p[k], 0) || p[k] < m.MinM[k]-0.02 || p[k] > m.MinM[k]+m.SizeM[k]+0.02 {
+			return false
+		}
+	}
+	return true
+}
+
+// checkItemEating: the rhythm of a meal at a standing table (food court v1.1) — needed once any body is eaten.
+func checkItemEating(c *ItemDisplayCatalog) error {
+	eaten := ""
+	for id, b := range c.Bodies {
+		if b.Eaten != nil && (eaten == "" || id < eaten) {
+			eaten = id
+		}
+	}
+	e := c.Eating
+	if e == nil {
+		if eaten != "" {
+			return fmt.Errorf("body %s is eaten at a table, but the catalog has no eating rhythm", eaten)
+		}
+		return nil
+	}
+	in := func(name string, v, lo, hi float64) error {
+		if math.IsNaN(v) || math.IsInf(v, 0) || v < lo || v > hi {
+			return fmt.Errorf("eating.%s %v: %v..%v", name, v, lo, hi)
+		}
+		return nil
+	}
+	for _, r := range []struct {
+		name      string
+		v, lo, hi float64
+	}{
+		{"to_mouth_s", e.ToMouthS, 0.2, 3}, {"at_mouth_s", e.AtMouthS, 0.1, 3}, {"back_s", e.BackS, 0.2, 3},
+		{"chew_s[0]", e.ChewS[0], 0.5, 10}, {"chew_s[1]", e.ChewS[1], e.ChewS[0], 15},
+		{"sip_pause_s[0]", e.SipPauseS[0], 0.5, 15}, {"sip_pause_s[1]", e.SipPauseS[1], e.SipPauseS[0], 30},
+		{"look_down_deg", e.LookDownDeg, 0, 25}, {"chew_deg", e.ChewDeg, 0, 4}, {"chew_hz", e.ChewHz, 0.05, 3},
+		{"glance_every[0]", float64(e.GlanceEvery[0]), 1, 20}, {"glance_every[1]", float64(e.GlanceEvery[1]), float64(e.GlanceEvery[0]), 30},
+		{"glance_s", e.GlanceS, 0.5, 6}, {"glance_deg", e.GlanceDeg, 0, 60}, {"glance_up_deg", e.GlanceUpDeg, 0, 25},
+		{"word_nods", float64(e.WordNods), 0, 6}, {"nod_deg", e.NodDeg, 0, 8}, {"rest_hand_side_m", e.RestHandSideM, 0, 0.4},
+		{"fade_s", e.FadeS, 0.1, 2},
+	} {
+		if err := in(r.name, r.v, r.lo, r.hi); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// checkItemEaten: how a body is eaten standing at a table — the way's parts, points on the models, a grip within reach in
+// front of the chest, the line at the mouth coming from in front of the face, the head never thrown back (owner's
+// coordinator 16.11: the drinking clip threw every head back).
+func checkItemEaten(where string, e *ItemEaten, m itemRecordModel, tool *itemRecordModel) error {
+	where += " eaten"
+	if e.Hand != "left" && e.Hand != "right" {
+		return fmt.Errorf("%s: hand %q (left or right)", where, e.Hand)
+	}
+	finite := func(v [3]float64) bool {
+		for _, x := range v {
+			if math.IsNaN(x) || math.IsInf(x, 0) {
+				return false
+			}
+		}
+		return true
+	}
+	if a := e.AtM; !finite(a) || a[0] < -0.3 || a[0] > 0.3 || a[1] < -0.4 || a[1] > 0.2 || a[2] < 0.1 || a[2] > 0.6 {
+		return fmt.Errorf("%s: at_m %v is not in front of the chest within reach (x ±0.3, y -0.4..0.2, z 0.1..0.6 m)", where, e.AtM)
+	}
+	if math.IsNaN(e.TurnDeg) || e.TurnDeg < -180 || e.TurnDeg > 180 {
+		return fmt.Errorf("%s: turn_deg %v", where, e.TurnDeg)
+	}
+	if !itemOnModel(e.GripM, m) {
+		return fmt.Errorf("%s: the grip %v is off the model (bounds from %v, size %v)", where, e.GripM, m.MinM, m.SizeM)
+	}
+	for _, part := range e.Hide {
+		found := false
+		for _, n := range m.Nodes {
+			found = found || n == part
+		}
+		if !found {
+			return fmt.Errorf("%s: hides %q, which is not a part of the model (%v)", where, part, m.Nodes)
+		}
+	}
+	if math.IsNaN(e.HeadDeg) || e.HeadDeg < -10 || e.HeadDeg > 20 {
+		return fmt.Errorf("%s: head_deg %v: -10..20 (a drink tips the head back at most 10°, never thrown back)", where, e.HeadDeg)
+	}
+	line := func(name string, v *[3]float64) (*[3]float64, error) {
+		if v == nil {
+			return nil, fmt.Errorf("%s: a %s needs %s", where, e.Way, name)
+		}
+		if !finite(*v) || math.Hypot(math.Hypot(v[0], v[1]), v[2]) < 0.1 {
+			return nil, fmt.Errorf("%s: %s %v has no direction", where, name, *v)
+		}
+		return v, nil
+	}
+	switch e.Way {
+	case "spoon":
+		if e.Tool == nil || tool == nil {
+			return fmt.Errorf("%s: a spoon needs its tool", where)
+		}
+		if !itemOnModel(e.Tool.GripM, *tool) || !itemOnModel(e.MouthM, *tool) {
+			return fmt.Errorf("%s: the tool's grip %v or its point %v is off the tool %v+%v", where, e.Tool.GripM, e.MouthM, tool.MinM, tool.SizeM)
+		}
+		if e.FoodM == nil || !itemOnModel(*e.FoodM, m) {
+			return fmt.Errorf("%s: a spoon needs the food point on the model", where)
+		}
+		rest, err := line("line_rest", e.LineRest)
+		if err != nil {
+			return err
+		}
+		if rest[1] >= 0 {
+			return fmt.Errorf("%s: line_rest %v must go down into the food", where, *rest)
+		}
+		if e.SipDeg != 0 {
+			return fmt.Errorf("%s: a spoon does not tip (sip_deg %v)", where, e.SipDeg)
+		}
+	case "bite":
+		if e.Tool != nil || e.FoodM != nil {
+			return fmt.Errorf("%s: a bite takes the thing itself (no tool, no food point)", where)
+		}
+		if _, err := line("line_rest", e.LineRest); err != nil {
+			return err
+		}
+		if e.SipDeg != 0 {
+			return fmt.Errorf("%s: a bite does not tip (sip_deg %v)", where, e.SipDeg)
+		}
+	case "sip":
+		if e.Tool != nil || e.FoodM != nil || e.LineRest != nil || e.LineMouth != nil {
+			return fmt.Errorf("%s: a sip takes the cup itself: no tool, food point or lines", where)
+		}
+		if math.IsNaN(e.SipDeg) || e.SipDeg <= 0 || e.SipDeg > 60 {
+			return fmt.Errorf("%s: sip_deg %v: a cup tips (0..60]", where, e.SipDeg)
+		}
+	default:
+		return fmt.Errorf("%s: way %q (spoon, bite or sip)", where, e.Way)
+	}
+	if e.Way != "spoon" && !itemOnModel(e.MouthM, m) {
+		return fmt.Errorf("%s: the point to the mouth %v is off the model", where, e.MouthM)
+	}
+	if e.Way != "sip" {
+		at, err := line("line_mouth", e.LineMouth)
+		if err != nil {
+			return err
+		}
+		// at the mouth the hand is in front of the face: the line runs back toward the eater
+		if at[2] >= 0 {
+			return fmt.Errorf("%s: line_mouth %v must come from in front of the face (z < 0)", where, *at)
+		}
+	}
+	return nil
+}
+
 // clientItemDisplay: what item_view.gd reads (presentation.json item_display).
 func clientItemDisplay(c *ItemDisplayCatalog) map[string]any {
 	bodies := map[string]any{}
@@ -714,6 +937,9 @@ func clientItemDisplay(c *ItemDisplayCatalog) map[string]any {
 		}
 		if b.Shop != nil {
 			row["shop"] = b.Shop
+		}
+		if b.Eaten != nil {
+			row["eaten"] = b.Eaten
 		}
 		bodies[id] = row
 	}
@@ -743,7 +969,11 @@ func clientItemDisplay(c *ItemDisplayCatalog) map[string]any {
 			glyph++
 		}
 	}
-	return map[string]any{"near_up_to_frame_m": c.NearUpToFrameM, "bodies": bodies, "items": looks, "stand_ins": c.standIns,
+	out := map[string]any{"near_up_to_frame_m": c.NearUpToFrameM, "bodies": bodies, "items": looks, "stand_ins": c.standIns,
 		"contact":  map[string]any{"strength": c.Contact.Strength, "tint": c.Contact.Tint, "soft_m": c.Contact.SoftM},
 		"coverage": map[string]int{"own": own, "glyph": glyph, "stand_in": len(c.standIns)}}
+	if c.Eating != nil {
+		out["eating"] = c.Eating
+	}
+	return out
 }
