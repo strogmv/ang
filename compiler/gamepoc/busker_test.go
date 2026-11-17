@@ -46,6 +46,7 @@ func buskerFixture() Compiled {
 	k := BuskerKeep{ID: "aisle", Axis: "x", MinM: 1.0}
 	k.Rect.X, k.Rect.Y, k.Rect.W, k.Rect.H = 1, 0, 3, 12
 	b.Spot.Keep = []BuskerKeep{k}
+	b.Spot.Front = BuskerFront{DepthM: 2.5, HalfM: 0.65, CameraAzimuthDeg: 37}
 	b.Day.AbsentPermille = 150
 	b.Day.Arrive.From, b.Day.Arrive.To = 30000, 33000
 	b.Day.Leave.From, b.Day.Leave.To = 57000, 60000
@@ -89,6 +90,28 @@ func TestBuskerSpotDayAndTunesAgainstTheHall(t *testing.T) {
 	}
 	if _, ok := c.Inventory.Stores[BuskerKitStore("char.m")]; !ok || len(c.Inventory.Sources) != 1 {
 		t.Fatal("no carried kit store with the bayan in it")
+	}
+	// the clear front: from the seat (8,6) toward the camera at azimuth 37 (x east, y south), 2.5 m deep, 0.65 m either side
+	want := []BuskerCell{{9, 6}, {8, 7}, {9, 7}, {10, 7}, {8, 8}, {9, 8}, {10, 8}, {11, 8}, {9, 9}, {10, 9}, {11, 9}, {10, 10}, {11, 10}}
+	if got := c.Busker.Spot.Clear; len(got) != len(want) {
+		t.Fatalf("clear front %v, want %v", got, want)
+	} else {
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("clear front %v, want %v", got, want)
+			}
+		}
+	}
+	terrain := func(c *Compiled, edit func(rows []string) []string) {
+		var life map[string]any
+		_ = json.Unmarshal(c.Life, &life)
+		loc := life["locations"].(map[string]any)["level.m"].(map[string]any)
+		var rows []string
+		for _, r := range loc["terrain"].([]any) {
+			rows = append(rows, r.(string))
+		}
+		loc["terrain"] = edit(rows)
+		c.Life, _ = json.Marshal(life)
 	}
 	cases := []struct {
 		name, want string
@@ -136,6 +159,31 @@ func TestBuskerSpotDayAndTunesAgainstTheHall(t *testing.T) {
 			c.Inventory.Accounts["acc.m"] = inv.Account{ID: "acc.m", Owner: "char.other", Currency: "CRD"}
 		}},
 		{"listeners slower than walking", "faster than the visitors", func(c *Compiled) { c.Busker.Listeners.SlowMoveTicks = 3 }},
+		{"a listener between him and the camera", "stands between him and the camera", func(c *Compiled) {
+			c.Busker.Spot.Listen[0].At = BuskerCell{10, 8}
+			c.Busker.Spot.Listen[0].Face.X, c.Busker.Spot.Listen[0].Face.Y = -1, -1
+		}},
+		{"a counter in front of him", "is not floor (it hides him)", func(c *Compiled) {
+			terrain(c, func(rows []string) []string {
+				r := []byte(rows[9])
+				r[10] = '#'
+				rows[9] = string(r)
+				return rows
+			})
+		}},
+		{"the front cuts a visitors' place off", "no longer reach t", func(c *Compiled) {
+			// rows 10-11 walled but for the front's (10,10)/(11,10) and the place (10,11) under them
+			terrain(c, func(rows []string) []string {
+				r10, r11 := []byte(strings.Repeat("#", 20)), []byte(strings.Repeat("#", 20))
+				r10[10], r10[11], r11[10] = '.', '.', '.'
+				rows[10], rows[11] = string(r10), string(r11)
+				return rows
+			})
+			c.Busker.Spot.Keep = nil
+			c.Visitors.Entries = []VisitorEntry{{ID: "e", At: inv.Cell{X: 19, Y: 0}}}
+			c.Visitors.Targets = []VisitorTarget{{ID: "t", At: inv.Cell{X: 10, Y: 11}}}
+		}},
+		{"a front too shallow", "depth_m 1.5-3.5", func(c *Compiled) { c.Busker.Spot.Front.DepthM = 1.0 }},
 	}
 	for _, tc := range cases {
 		c := buskerFixture()

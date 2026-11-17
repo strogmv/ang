@@ -71,7 +71,9 @@ type buskerCatalog struct {
 		Case     buskerCell   `json:"case"`
 		ReaderMM buskerMM     `json:"reader_mm"`
 		Pay      []buskerCell `json:"pay"`
-		Listen   []struct {
+		// the clear front (ANG-made from spot.front): the floor between him and the camera
+		Clear  []buskerCell `json:"clear"`
+		Listen []struct {
 			At   buskerCell `json:"at"`
 			Face struct {
 				X float64 `json:"x"`
@@ -175,6 +177,8 @@ type buskerRuntime struct {
 	plan  buskerPlan
 	ready bool
 	seed  int64
+	front map[behavior.Cell]bool
+	round map[behavior.Cell]bool
 }
 
 func (r *Runtime) buskerOn() bool {
@@ -315,6 +319,45 @@ func (r *Runtime) buskerAtSeat() bool {
 // buskerSetUp: the stool and the case stand at the spot (he unpacks, plays, rests or packs).
 func (r *Runtime) buskerSetUp() bool {
 	return r.buskerOn() && r.state.Busker.Phase != ""
+}
+
+// buskerFront: while he is set up, the cells of his clear front (the floor between him and the camera); the hall's walkers
+// plan round them (visitorPath) and a walker about to step in plans again. Nil when he is not set up.
+func (r *Runtime) buskerFront() map[behavior.Cell]bool {
+	if !r.buskerSetUp() || len(r.world.Busker.Spot.Clear) == 0 {
+		return nil
+	}
+	if r.busker.front == nil {
+		r.busker.front = make(map[behavior.Cell]bool, len(r.world.Busker.Spot.Clear))
+		for _, c := range r.world.Busker.Spot.Clear {
+			r.busker.front[c.cell()] = true
+		}
+	}
+	return r.busker.front
+}
+
+// buskerRound: while he is set up, the cells a walk plans round: his clear front, his seat and his case (the two are
+// bodies then: a way through them only ends in a detour beside him). Nil when he is not set up.
+func (r *Runtime) buskerRound() map[behavior.Cell]bool {
+	front := r.buskerFront()
+	if front == nil {
+		return nil
+	}
+	if r.busker.round == nil {
+		r.busker.round = make(map[behavior.Cell]bool, len(front)+2)
+		for c := range front {
+			r.busker.round[c] = true
+		}
+		r.busker.round[r.world.Busker.Spot.Seat.cell()] = true
+		r.busker.round[r.world.Busker.Spot.Case.cell()] = true
+	}
+	return r.busker.round
+}
+
+// buskerInFront: the cell is in his clear front while he is set up.
+func (r *Runtime) buskerInFront(at behavior.Cell) bool {
+	f := r.buskerFront()
+	return f != nil && f[at]
 }
 
 // buskerPlaying: a tune sounds now (the listeners' rule).

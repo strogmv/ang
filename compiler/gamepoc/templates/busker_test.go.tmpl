@@ -225,8 +225,38 @@ func TestBuskerListenersStopPayAndKeepTheAislesClear(t *testing.T) {
 	stopped0, paid0, earned0 := r.state.Busker.Stopped, r.state.Busker.Paid, r.state.Busker.Earned
 	acct0 := r.state.Inventory.Accounts[b.Account].Balance
 	most, payActs := 0, 0
+	// the clear front (the camera's line to him): nobody steps into it while he is set up
+	front := map[behavior.Cell]bool{}
+	for _, c := range b.Spot.Clear {
+		front[c.cell()] = true
+		if spots[c.cell()] {
+			t.Fatalf("listening place %v in the clear front", c)
+		}
+	}
+	if len(front) == 0 {
+		t.Fatal("no clear front in the world")
+	}
+	inFront := func(o visitorBody) bool { return front[o.At] || (o.Going && len(o.Path) > 0 && front[o.Path[0]]) }
+	was := map[int64]bool{}
+	for _, o := range r.state.Visitors.Bodies {
+		was[o.Serial] = inFront(o)
+	}
+	entered, passed := 0, map[int64]bool{}
 	visitorsRun(t, r, 2400, func() {
 		n := 0
+		now := map[int64]bool{}
+		for _, o := range r.state.Visitors.Bodies {
+			in := inFront(o)
+			if in && !was[o.Serial] && r.buskerSetUp() {
+				entered++
+				t.Logf("walker %d (%s) steps into the clear front at %v (way %v)", o.Serial, o.Phase, o.At, o.Path)
+			}
+			now[o.Serial] = in
+			if behavior.Distance(o.At, b.Spot.Seat.cell()) <= 8 {
+				passed[o.Serial] = true
+			}
+		}
+		was = now
 		for _, o := range r.state.Visitors.Bodies {
 			if o.Listen > 0 {
 				n++
@@ -248,6 +278,12 @@ func TestBuskerListenersStopPayAndKeepTheAislesClear(t *testing.T) {
 		most = max(most, n)
 	})
 	stopped, paid := r.state.Busker.Stopped-stopped0, r.state.Busker.Paid-paid0
+	if entered > 0 {
+		t.Fatalf("%d steps into the clear front while he was set up (%d walkers came within 4 m)", entered, len(passed))
+	}
+	if len(passed) < 20 {
+		t.Fatalf("only %d walkers came within 4 m of him: the front was not tried", len(passed))
+	}
 	if stopped == 0 || most == 0 {
 		t.Fatalf("nobody stopped to listen in 2400 ticks of his set (stopped %d, most %d)", stopped, most)
 	}
@@ -257,7 +293,7 @@ func TestBuskerListenersStopPayAndKeepTheAislesClear(t *testing.T) {
 	if earned := r.state.Busker.Earned - earned0; r.state.Inventory.Accounts[b.Account].Balance-acct0 != earned {
 		t.Fatalf("his account moved %d, his earnings %d", r.state.Inventory.Accounts[b.Account].Balance-acct0, earned)
 	}
-	t.Logf("in 2400 ticks (4 real minutes) of a set: %d stopped, at most %d at once, %d paid (%d ticks of the palm on the reader), %d minor units", stopped, most, paid, payActs, r.state.Busker.Earned-earned0)
+	t.Logf("in 2400 ticks (4 real minutes) of a set: %d stopped, at most %d at once, %d paid (%d ticks of the palm on the reader), %d minor units; %d walkers within 4 m, none into the clear front", stopped, most, paid, payActs, r.state.Busker.Earned-earned0, len(passed))
 	// a payer at the case, step by step: the palm on the reader for pay_ticks, then the money moves from his purse
 	slot := -1
 	used := map[int]bool{}

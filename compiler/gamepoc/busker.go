@@ -61,7 +61,45 @@ type BuskerSpot struct {
 	Pay        []BuskerCell       `json:"pay"`
 	Listen     []BuskerListenSpot `json:"listen"`
 	Keep       []BuskerKeep       `json:"keep"`
+	Front      BuskerFront        `json:"front"`
+	// Clear: ANG-made from Front, the floor cells between him and the camera that the hall's walkers do not plan through
+	// while he is set up (listeners and payers stand beside and behind him as the camera sees him, never in front)
+	Clear []BuskerCell `json:"clear,omitempty"`
 }
+
+// BuskerFront: the strip of floor from him towards the game camera (orthographic, the azimuth of the level's camera):
+// toward the camera on the plan floor is (sin az, cos az) in cells x east, y south (measured on the game's frames: plan
+// east draws screen left-down, plan south screen right-down). A cell is in it when its centre lies 0 < along <= depth_m
+// and |across| <= half_m from the seat cell's centre.
+type BuskerFront struct {
+	DepthM           float64 `json:"depth_m"`
+	HalfM            float64 `json:"half_m"`
+	CameraAzimuthDeg float64 `json:"camera_azimuth_deg"`
+}
+
+// BuskerFrontCells: the cells of the strip in front of seat (seat and case excluded; walls are not asked here).
+func BuskerFrontCells(seat, kase BuskerCell, f BuskerFront, cellMM int64) []BuskerCell {
+	az := f.CameraAzimuthDeg * math.Pi / 180
+	tx, ty := math.Sin(az), math.Cos(az)
+	m := float64(cellMM) / 1000
+	r := int(math.Ceil((f.DepthM+f.HalfM)/m)) + 1
+	var out []BuskerCell
+	for y := seat.Y - r; y <= seat.Y+r; y++ {
+		for x := seat.X - r; x <= seat.X+r; x++ {
+			at := BuskerCell{X: x, Y: y}
+			if at == seat || at == kase {
+				continue
+			}
+			vx, vy := float64(x-seat.X)*m, float64(y-seat.Y)*m
+			along, across := vx*tx+vy*ty, math.Abs(vx*ty-vy*tx)
+			if along > 1e-9 && along <= f.DepthM+1e-9 && across <= f.HalfM+1e-9 {
+				out = append(out, at)
+			}
+		}
+	}
+	return out
+}
+
 type BuskerBreakPlace struct {
 	Level string     `json:"level"`
 	At    BuskerCell `json:"at"`
@@ -415,6 +453,26 @@ func applyBusker(c *Compiled) error {
 			return fail("listening place %v does not face the musician", l.At)
 		}
 	}
+	// the clear front: the floor between him and the camera; nothing stands there (no wall, no counter, no listener, no payer)
+	// and the hall's walkers plan round it while he is set up
+	f := s.Front
+	if f.DepthM < 1.5 || f.DepthM > 3.5 || f.HalfM < 0.4 || f.HalfM > 1.0 || f.CameraAzimuthDeg < 5 || f.CameraAzimuthDeg > 85 {
+		return fail("front: depth_m 1.5-3.5, half_m 0.4-1.0, camera_azimuth_deg 5-85 (have %+v)", f)
+	}
+	clear := BuskerFrontCells(s.Seat, s.Case, f, cellMM)
+	if len(clear) == 0 {
+		return fail("front: no cell between him and the camera")
+	}
+	for _, at := range clear {
+		if !walk(at) {
+			return fail("front: %v between him and the camera is not floor (it hides him)", at)
+		}
+		if used[at] != "" {
+			return fail("front: the %s %v stands between him and the camera", used[at], at)
+		}
+		used[at] = "clear front"
+	}
+	b.Spot.Clear = clear
 	// the aisles keep their width: every cell of a keep rect is floor and none of the spot's cells is in it
 	for _, k := range s.Keep {
 		for y := k.Rect.Y; y < k.Rect.Y+k.Rect.H; y++ {
@@ -500,7 +558,42 @@ func applyBusker(c *Compiled) error {
 		if p := public[at]; p != "" {
 			return fail("the %s %v takes the %s", what, at, p)
 		}
-		// the torgomat block's end cells for the service robot: no spot cell right beside a unit's service approach either
+	}
+	// the walkers still reach every visitors' place from the entries with his seat, his case and the clear front closed
+	if v := c.Visitors; v != nil && v.Level == b.Level {
+		reach := func(closed map[BuskerCell]string) map[BuskerCell]bool {
+			seen := map[BuskerCell]bool{}
+			var q []BuskerCell
+			for _, e := range v.Entries {
+				at := BuskerCell{e.At.X, e.At.Y}
+				if walk(at) && closed[at] == "" && !seen[at] {
+					seen[at] = true
+					q = append(q, at)
+				}
+			}
+			for len(q) > 0 {
+				at := q[0]
+				q = q[1:]
+				for _, d := range [4][2]int{{1, 0}, {0, 1}, {-1, 0}, {0, -1}} {
+					n := BuskerCell{at.X + d[0], at.Y + d[1]}
+					if !seen[n] && walk(n) && closed[n] == "" {
+						seen[n] = true
+						q = append(q, n)
+					}
+				}
+			}
+			return seen
+		}
+		shut := map[BuskerCell]string{s.Seat: "seat", s.Case: "case"}
+		for _, at := range clear {
+			shut[at] = "clear front"
+		}
+		before, after := reach(nil), reach(shut)
+		for _, t := range v.Targets {
+			if at := (BuskerCell{t.At.X, t.At.Y}); before[at] && !after[at] {
+				return fail("with his seat, case and clear front closed the walkers no longer reach %s %v", t.ID, at)
+			}
+		}
 	}
 	// ---------------------------------------------------------------- the day
 	d := &b.Day

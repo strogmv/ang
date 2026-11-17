@@ -369,6 +369,10 @@ func (r *Runtime) visitorFloor() {
 		}
 		h = (h ^ 10) * 1099511628211
 	}
+	// market musician v1.1: his clear front shuts for planning while he is set up
+	if r.buskerFront() != nil {
+		h = (h ^ 0x627573) * 1099511628211
+	}
 	if h != c.floor || c.paths == nil {
 		c.floor, c.paths = h, map[[2]behavior.Cell][]behavior.Cell{}
 	}
@@ -388,6 +392,28 @@ func (r *Runtime) visitorPath(from, to behavior.Cell) ([]behavior.Cell, bool) {
 		return p, len(p) > 0
 	}
 	p := r.world.Life.SpaceFor(r.world.Visitors.Level, nil, "").Path(from, to, behavior.Cell{}, 0)
+	// market musician v1.1: while he is set up a walk goes round his clear front (the camera's line to him), his seat and
+	// his case when a way round exists; a walk that starts or ends in them keeps those two cells
+	if front := r.buskerRound(); front != nil {
+		crosses := false
+		for _, at := range p {
+			if front[at] && at != to {
+				crosses = true
+				break
+			}
+		}
+		if crosses {
+			shut := make(map[behavior.Cell]bool, len(front))
+			for at := range front {
+				if at != from && at != to {
+					shut[at] = true
+				}
+			}
+			if q := r.world.Life.SpaceFor(r.world.Visitors.Level, shut, "").Path(from, to, behavior.Cell{}, 0); len(q) > 0 {
+				p = q
+			}
+		}
+	}
 	if len(c.paths) > 1<<14 {
 		c.paths = map[[2]behavior.Cell][]behavior.Cell{}
 	}
@@ -1040,6 +1066,13 @@ func (r *Runtime) advanceVisitors() error {
 				continue
 			}
 			b.Held = 0
+			// market musician v1.1: the next cell is in his clear front (his way was planned before he set up, or he stepped
+			// aside into it): he plans again round it, out of it at once
+			if goal := b.Path[len(b.Path)-1]; r.buskerInFront(b.Path[0]) && !r.buskerInFront(goal) {
+				if path, ok := r.visitorPath(b.At, goal); ok && len(path) > 0 && !r.buskerInFront(path[0]) {
+					b.Path = append([]behavior.Cell(nil), path...)
+				}
+			}
 			if b.Phase == "leave" && len(b.Path) == 1 && !r.walkerOpen(w, b.Path[0], b.Serial) {
 				// the last cell of his way out is taken (somebody steps in there): he is at the way out
 				b.Path = nil

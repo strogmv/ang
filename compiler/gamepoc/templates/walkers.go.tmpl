@@ -432,7 +432,8 @@ func (r *Runtime) visitorStepAside(b *visitorBody, w *walkersPass, avoid []behav
 	return false
 }
 
-// walkerSides: his four neighbours, those off the given way first, in an order fixed by his serial.
+// walkerSides: his four neighbours, those off the given way first, in an order fixed by his serial; never a cell of the
+// musician's clear front (market musician v1.1, while he is set up: nobody stands between him and the camera).
 func (r *Runtime) walkerSides(b *visitorBody, avoid []behavior.Cell) []behavior.Cell {
 	dirs := []behavior.Cell{{X: 0, Y: -1}, {X: 1, Y: 0}, {X: 0, Y: 1}, {X: -1, Y: 0}}
 	turn := int(b.Serial % 4)
@@ -448,9 +449,11 @@ func (r *Runtime) walkerSides(b *visitorBody, avoid []behavior.Cell) []behavior.
 	for i := range dirs {
 		d := dirs[(i+turn)%4]
 		c := behavior.Cell{X: b.At.X + d.X, Y: b.At.Y + d.Y}
-		if on(c) {
+		switch {
+		case r.buskerInFront(c):
+		case on(c):
 			then = append(then, c)
-		} else {
+		default:
 			first = append(first, c)
 		}
 	}
@@ -652,6 +655,10 @@ func (r *Runtime) visitorDetour(w *walkersPass, from, to behavior.Cell, serial i
 				continue
 			}
 			if n != to && !r.walkerOpen(w, n, serial) || n == to && !r.world.Life.WalksFor(w.level, n, "") {
+				continue
+			}
+			// market musician v1.1: a way round does not go through his clear front (the camera's line to him)
+			if n != to && r.buskerInFront(n) {
 				continue
 			}
 			c.searchSeen[index(n)] = stamp
