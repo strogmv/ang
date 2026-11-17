@@ -707,6 +707,7 @@ func (r *Runtime) snapshotState() state {
 	s.Vending = r.state.Vending.clone()
 	s.Peddlers = r.state.Peddlers.clone()
 	s.Visitors = r.state.Visitors.clone()
+	s.Busker = r.state.Busker.clone()
  s.CalendarEncounter=r.state.CalendarEncounter.clone()
 	s.Crafting = r.state.Crafting.Clone()
 	s.Barks = r.state.Barks.Clone()

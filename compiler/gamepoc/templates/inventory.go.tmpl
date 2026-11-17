@@ -308,6 +308,9 @@ func (r *Runtime) validateInventory(s state) error {
 		if err := r.validateVisitorSave(s); err != nil {
 			return err
 		}
+		if err := r.validateBuskerSave(s); err != nil {
+			return err
+		}
 	}
 	if s.Inventory.Clock > s.Tick {
 		return errors.New("inventory clock exceeds world clock")

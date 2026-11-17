@@ -186,6 +186,11 @@ type visitorBody struct {
 	// food court v1.1: the place at a standing table he holds (number + 1) and what he bought to eat there
 	Table int    `json:"table,omitempty"`
 	Meal  string `json:"meal,omitempty"`
+	// market musician v1 (busker.go.tmpl): the listening place he heads for or stands at (number + 1), whether the
+	// musician's music has reached him on this visit (one draw a visit), whether he goes to pay by the reader of the case
+	Listen int  `json:"listen,omitempty"`
+	Heard  bool `json:"heard,omitempty"`
+	Paying bool `json:"paying,omitempty"`
 }
 
 // The ledger of the visitors' trade since the game began (never sent to the client).
@@ -911,6 +916,7 @@ func (r *Runtime) visitorArrive(day int64, a visitorArrival) {
 func (r *Runtime) visitorHead(b *visitorBody) {
 	v := r.world.Visitors
 	b.Table, b.Meal = 0, ""
+	b.Listen, b.Paying = 0, false
 	// a walker in transit keeps the cell he is stepping into: the new way starts there
 	from, prefix := b.At, []behavior.Cell(nil)
 	if b.Going && len(b.Path) > 0 {
@@ -994,6 +1000,12 @@ func (r *Runtime) advanceVisitors() error {
 			// he has stepped into the cell he held
 			w.free(b.At, b.Serial)
 			b.At, b.Path, b.Going = b.Path[0], b.Path[1:], false
+			// market musician v1: within earshot he may stop and listen
+			r.buskerNotice(&b)
+		}
+		// market musician v1: the music has stopped — the listener goes on
+		if b.Phase == "listen" && !r.buskerPlaying() && b.Wait > 0 {
+			b.Wait = 0
 		}
 		// the hero (or the cabinet) is about to take his cell, or a person of the hall waits for it: he steps aside, at a
 		// stall too
@@ -1036,7 +1048,7 @@ func (r *Runtime) advanceVisitors() error {
 		if len(b.Path) > 0 {
 			if r.walkerOpen(w, b.Path[0], b.Serial) {
 				w.take(b.Path[0], b.Serial)
-				b.Going, b.Wait, b.Blocked, b.Yield = true, v.MoveTicks-1, 0, 0
+				b.Going, b.Wait, b.Blocked, b.Yield = true, r.visitorStepTicks(b)-1, 0, 0
 				kept = append(kept, b)
 				continue
 			}
@@ -1054,6 +1066,16 @@ func (r *Runtime) advanceVisitors() error {
 		}
 		switch b.Phase {
 		case "walk": // at the stall: he looks, then buys
+			// market musician v1: at a listening place he listens; at the case he pays by its reader
+			if b.Listen > 0 {
+				l := r.world.Busker.Listeners
+				b.Phase, b.Wait = "listen", buskerSpan(r.visitorDraw(b.Serial, "listen.ticks"), l.ListenTicks)
+				break
+			}
+			if b.Paying {
+				b.Phase, b.Wait = "pay", r.world.Busker.Listeners.PayTicks
+				break
+			}
 			if b.Table > 0 { // food court v1.1: at his place at a table — he eats standing
 				e := v.Tables.EatTicks
 				b.Phase, b.Wait = "eat", e.Min+int64(r.visitorDraw(b.Serial, "eat")%uint64(e.Max-e.Min+1))
@@ -1077,6 +1099,11 @@ func (r *Runtime) advanceVisitors() error {
 		case "take":
 			r.visitorHead(&b)
 		case "eat": // eaten: on to the rest of his list, or out
+			r.visitorHead(&b)
+		case "listen": // market musician v1: he has listened; some pay by the reader of the case
+			r.buskerListened(&b)
+		case "pay":
+			r.buskerPaid(slot, b.Serial)
 			r.visitorHead(&b)
 		default: // at the way out
 			w.release(b)
@@ -1186,6 +1213,17 @@ func (r *Runtime) appendVisitors(view *pb.PocLifeView, hero *behavior.LifeActor,
 			row.FaceX, row.FaceY = t.Face.X, t.Face.Y
 		}
 		row.Act = r.visitorAct(b)
+		// market musician v1: a listener faces the musician, a payer the reader of the case
+		if !b.Going && len(b.Path) == 0 {
+			if b.Phase == "listen" && b.Listen > 0 && b.Listen <= len(r.world.Busker.Spot.Listen) {
+				f := r.world.Busker.Spot.Listen[b.Listen-1].Face
+				row.FaceX, row.FaceY = f.X, f.Y
+			}
+			if b.Phase == "pay" {
+				k := r.world.Busker.Spot
+				row.FaceX, row.FaceY = float64(k.Case.X-b.At.X), float64(k.Case.Y-b.At.Y)
+			}
+		}
 		// food court v1.1: what he carries from the counter to his table and eats there; eating, he faces the table and
 		// the point of it in front of him is given
 		if b.Table > 0 {
@@ -1218,6 +1256,10 @@ func (r *Runtime) visitorDwell(b visitorBody) int64 {
 // act's start and length come from the state as it is (nothing new is saved); the touches' ticks are resolved for this
 // length (compiler/gamepoc/visitors.go VisitorTouchSpan, checked at build time for the shortest and longest phase).
 func (r *Runtime) visitorAct(b visitorBody) *pb.PocMachineAct {
+	// market musician v1: the palm on the reader of the case
+	if b.Phase == "pay" {
+		return r.buskerPayAct(b)
+	}
 	t := r.visitorTargetOf(b.Target)
 	if t == nil || len(t.Acts) == 0 || b.Going || len(b.Path) > 0 || (b.Phase != "stand" && b.Phase != "take") {
 		return nil
@@ -1303,8 +1345,8 @@ func (r *Runtime) validateVisitorSave(s state) error {
 		if b.Table < 0 || b.Table > spots || (b.Table > 0) != (b.Meal != "") || b.Phase == "eat" && b.Table == 0 {
 			return errors.New("invalid visitor at a table")
 		}
-		if b.Slot < 1 || b.Slot >= len(v.Slots) || slots[b.Slot] || b.Kind < 0 || b.Kind >= len(v.Kinds) || b.Exit < 0 || b.Exit >= len(v.Entries) || b.Wait < 0 || b.Wait > max(v.DwellTicks.Max, r.visitorMaxTake(), r.visitorMaxDwell(), eatMax)+v.MoveTicks ||
-			(b.Phase != "walk" && b.Phase != "stand" && b.Phase != "take" && b.Phase != "leave" && b.Phase != "eat") || b.At.X < 0 || b.At.Y < 0 || len(b.Stops) > v.MaxStops || b.Units < 0 || b.Bought < 0 || b.Held < 0 || b.Held > visitorHoldTicks ||
+		if b.Slot < 1 || b.Slot >= len(v.Slots) || slots[b.Slot] || b.Kind < 0 || b.Kind >= len(v.Kinds) || b.Exit < 0 || b.Exit >= len(v.Entries) || b.Wait < 0 || b.Wait > max(v.DwellTicks.Max, r.visitorMaxTake(), r.visitorMaxDwell(), eatMax, r.buskerMaxWait())+max(v.MoveTicks, r.world.Busker.Listeners.SlowMoveTicks) ||
+			(b.Phase != "walk" && b.Phase != "stand" && b.Phase != "take" && b.Phase != "leave" && b.Phase != "eat" && b.Phase != "listen" && b.Phase != "pay") || b.At.X < 0 || b.At.Y < 0 || len(b.Stops) > v.MaxStops || b.Units < 0 || b.Bought < 0 || b.Held < 0 || b.Held > visitorHoldTicks ||
 			(b.Going && len(b.Path) == 0) || b.Blocked < 0 || b.Blocked > visitorStuckTicks+1 || b.Yield < 0 || b.Since < 0 || b.Since > s.Tick {
 			return errors.New("invalid visitor")
 		}

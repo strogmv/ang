@@ -168,6 +168,10 @@ func clientResource(c Compiled) ([]byte, error) {
 	if c.Vending != nil {
 		view["vending"] = clientVending(c.Vending)
 	}
+	// The street musician (market musician v1) only in worlds that have him: the spot, the props, the tunes' phrase plans.
+	if c.Busker != nil {
+		view["busker"] = clientBusker(c.Busker)
+	}
 	// Craft places of the hub islands (demo-hub v16-goods) only in worlds that have them.
 	if c.Craft != nil {
 		view["craft"] = clientCraft(c.Craft)

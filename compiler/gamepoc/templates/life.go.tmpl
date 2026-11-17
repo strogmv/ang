@@ -46,6 +46,7 @@ func (r *Runtime) initLifeState(life behavior.LifeState) {
 	r.initVending()
 	r.initPeddlers()
 	r.initVisitors()
+	r.state.Busker = buskerState{}
  r.initCalendarEncounter()
 	r.initCrafting()
 	r.initBarks()
@@ -109,6 +110,8 @@ func (r *Runtime) advanceLifeFrameBy(delta int64) error {
 	r.state.Life.Seed = r.state.Seed
  r.combatLifeBeforeFrame()
  r.calendarEncounterBeforeFrame()
+ // market musician v1: his routine override for this frame (busker.go.tmpl)
+ r.buskerBeforeFrame()
 	defer r.state.Life.ObserveDecisions()
 	r.state.Life.ControlledActorID = playerActorID
 	r.state.Life.BrainServices = r.npcServices()
@@ -148,6 +151,8 @@ func (r *Runtime) advanceLifeFrameBy(delta int64) error {
 	if err := r.advancePeddlers(); err != nil {
 		return err
 	}
+	// market musician v1: his phase, the tune, the hero by the case — before the visitors, who listen to him
+	r.advanceBusker()
 	if err := r.advanceVisitors(); err != nil {
 		return err
 	}
@@ -353,6 +358,7 @@ func (r *Runtime) sendLifeState(c *connection) {
 <<ANG if .GodotScreens ANG>> r.appendScreenTrade(msg,c.locale);r.appendScreenServices(msg,c.locale) <<ANG end ANG>>
  view.CartParkingJson=r.cartParkingJSON(hero,msg.PlayerView)
  r.appendConversation(msg,c.locale)
+ r.appendBuskerConversation(msg,c.locale)
 	r.appendCraft(view, hero, msg.PlayerView)
 	r.appendGoodsDress(view, hero, msg.PlayerView)
 	r.appendSoundscape(view, hero)
@@ -416,6 +422,7 @@ func (r *Runtime) lifeCommand(q *pb.PocLifeCommand) error {
  case "hear_rumour":
   return r.hearRegionRumour(q.Destination)
  case "encounter_choice", "encounter_greet", "debug_next_morning": return r.encounterCommand(q)
+ case "busker_choice": return r.buskerCommand(q)
  case "interact":return r.playableInteract(q.Destination)
  case "illumination_power_off","illumination_power_on":return r.illuminationCommand(q.Action,q.Destination)
  case "stealth":return r.stealthCommand(q.Destination)
@@ -898,6 +905,10 @@ func (r *Runtime) sellerPostWork(id string) string {
 }
 func (r *Runtime) setLifeActivity(a *pb.PocAgentState, b lifeActivityBody) {
 	m := r.world.Life.Brain
+	// market musician v1: set up at his spot he is drawn by his own phase (busker.go.tmpl)
+	if r.buskerActivity(a, b.id) {
+		return
+	}
 	if x, phase, since, ok := b.brain.SeatPresentation(m, b.level, b.at); ok {
 		q, _ := m.SeatedPlace(b.brain.Place.ID)
 		s := q.Seating

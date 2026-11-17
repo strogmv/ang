@@ -61,6 +61,8 @@ func (r *Runtime) walkersDynamic(visitors, cabinet bool) map[string]map[behavior
 		}
 		// cargo to the market v1: the convoy, the parked trailers and the crane's band while it carries one
 		r.cargoBodies(add)
+		// market musician v1: his case on its legs while he is set up
+		r.buskerBodies(add)
 	}
 	return out
 }

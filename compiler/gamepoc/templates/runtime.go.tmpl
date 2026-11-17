@@ -109,6 +109,7 @@ type worldData struct {
 	CalendarEncounter *CalendarEncounter `json:"calendar_encounter"`
  Peddlers                peddlerCatalog                  `json:"peddlers"`
 	Visitors                visitorCatalog                  `json:"visitors"`
+	Busker                  buskerCatalog                   `json:"busker"`
 	Craft                   craftCatalog                    `json:"craft"`
 	Soundscape              soundCatalog                    `json:"soundscape"`
 	NoiseWaves              noiseWaveCatalog                `json:"noise_waves"`
@@ -167,6 +168,7 @@ type state struct {
 	CalendarEncounter encounterState
  Peddlers             peddlerState
 	Visitors             visitorState
+	Busker               buskerState `json:",omitempty"`
 	Crafting             crafting.State
 	Barks                barks.State
 	Inventory            inv.State
@@ -232,6 +234,7 @@ type Runtime struct {
 	sound soundRuntime
 	// hall visitors (memory only, visitors.go.tmpl): the day's arrivals and the walked paths
 	visitors visitorRuntime
+	busker   buskerRuntime
 	// the noise waves on the floor (memory only, noise_waves.go.tmpl)
 	noise noiseWaveRuntime
  illuminationCache *illuminationGeometryCache

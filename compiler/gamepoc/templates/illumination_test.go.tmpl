@@ -79,8 +79,9 @@ func TestIlluminationActualCatalogKeepsEngineeringAndCommerceIdentities(t *testi
  // +4 food court v1 (16.11, 58eb90a0): src.grill.lamp_s, .hood, .elements, .strips (F4-s0-1/-s2-3 renamed F5-n0-1/-n2-3,
  //    not added) = 219;
  // +7 market polish v1.1 (17.11, the owner's night light at the yatai): src.yatai.lamp_s split into .lamp_s.w/.e (+1),
- //    src.yatai.work (+1), src.yatai.strips split into .strips.sw/.se/.e (+2), src.yatai.fill.s/.w/.e (+3) = 226.
- if len(c.Emitters) != 226 || len(c.StaticOccluders) == 0 || len(c.GateLeaves) != expectedLeaves || len(c.PowerLinks) == 0 || len(c.PowerRefs) == 0 {
+ //    src.yatai.work (+1), src.yatai.strips split into .strips.sw/.se/.e (+2), src.yatai.fill.s/.w/.e (+3) = 226;
+ // +2 market musician v1 (17.11): src.vm.end.e/.w, the service lamps over the torgomat block's end caps = 228.
+ if len(c.Emitters) != 228 || len(c.StaticOccluders) == 0 || len(c.GateLeaves) != expectedLeaves || len(c.PowerLinks) == 0 || len(c.PowerRefs) == 0 {
 		t.Fatalf("physical market export missing: emitters=%d static=%d leaves=%d links=%d", len(c.Emitters), len(c.StaticOccluders), len(c.GateLeaves), len(c.PowerLinks))
 	}
 	seen := map[string]bool{}
