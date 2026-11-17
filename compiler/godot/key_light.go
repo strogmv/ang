@@ -43,7 +43,12 @@ type KeyLight struct {
 	FillElevationDegrees float64       `json:"fill_elevation_degrees"`
 	FillColor            [3][3]float64 `json:"fill_color"`
 	FillEnergy           [3]float64    `json:"fill_energy"`
-	Provenance           string        `json:"provenance"`
+	// The hall's light bounced off its lit floor (optional, market finish v1): from the side opposite the key, from below the
+	// horizon (elevation -30..0), shadowless, in the fill's colour. It reaches the vertical faces turned from the key (a far
+	// ring wall's hall face) and never a floor, so the approved shadow floor of the fill stays as it is.
+	BounceElevationDegrees float64    `json:"bounce_elevation_degrees,omitempty"`
+	BounceEnergy           [3]float64 `json:"bounce_energy,omitempty"`
+	Provenance             string     `json:"provenance"`
 }
 
 func (k *KeyLight) validate() error {
@@ -55,7 +60,8 @@ func (k *KeyLight) validate() error {
 		return fail("needs the real source and its provenance")
 	}
 	values := []float64{k.AzimuthDegrees, k.ElevationDegrees, k.ShadowAngularDegrees, k.ShadowBlur, k.ShadowBias, k.ShadowNormalBias,
-		k.ShadowDepthM[0], k.ShadowDepthM[1], k.FillElevationDegrees}
+		k.ShadowDepthM[0], k.ShadowDepthM[1], k.FillElevationDegrees, k.BounceElevationDegrees}
+	values = append(values, k.BounceEnergy[:]...)
 	values = append(values, k.Energy[:]...)
 	values = append(values, k.FillEnergy[:]...)
 	for _, c := range append(k.Color[:], k.FillColor[:]...) {
@@ -75,7 +81,10 @@ func (k *KeyLight) validate() error {
 	if k.AzimuthDegrees < -180 || k.AzimuthDegrees > 180 {
 		return fail("azimuth must lie in [-180, 180] degrees")
 	}
-	for _, e := range append(k.Energy[:], k.FillEnergy[:]...) {
+	if k.bounces() && (k.BounceElevationDegrees < -30 || k.BounceElevationDegrees > 0) {
+		return fail("bounce elevation must lie in [-30, 0] degrees (it comes up off the floor)")
+	}
+	for _, e := range append(append(k.Energy[:], k.FillEnergy[:]...), k.BounceEnergy[:]...) {
 		if e < 0 || e > 16 {
 			return fail("energy must lie in [0, 16]")
 		}
@@ -103,6 +112,17 @@ func (k *KeyLight) validate() error {
 // DirectionalLight3D shines along -Z. It is the camera's own basis at the light's angles.
 func (k *KeyLight) Basis() [3]placement.Vec3 {
 	return placement.CameraBasis(k.ElevationDegrees, k.AzimuthDegrees)
+}
+
+// bounces: the key light carries a floor bounce (any of its energies above zero).
+func (k *KeyLight) bounces() bool {
+	return k.BounceEnergy[0] > 0 || k.BounceEnergy[1] > 0 || k.BounceEnergy[2] > 0
+}
+
+// BounceBasis: the floor bounce comes from the side opposite the key, from below the horizon.
+func (k *KeyLight) BounceBasis() [3]placement.Vec3 {
+	az := math.Mod(k.AzimuthDegrees+360, 360) - 180
+	return placement.CameraBasis(k.BounceElevationDegrees, az)
 }
 
 // FillBasis: the fill comes from the side opposite the key, at its own elevation.
@@ -158,6 +178,26 @@ func (k *KeyLight) render(name, parent string) (string, error) {
 	fmt.Fprintf(&b, "metadata/key_source = %s\n", strconv.Quote(k.Source+" (fill)"))
 	fmt.Fprintf(&b, "metadata/key_fill = true\n")
 	modeMetadata(&b, k.FillEnergy, k.FillColor)
+	if k.bounces() {
+		// A plain lamp for the client's day / night blend (day_night.gd scales a light by metadata/mode against its own
+		// energy): the day energy is the node's, the modes are each energy over it.
+		day := k.BounceEnergy[0]
+		mode := func(e float64) float64 {
+			if day <= 0 {
+				return 0
+			}
+			return e / day
+		}
+		fmt.Fprintf(&b, "\n[node name=%s type=\"DirectionalLight3D\" parent=%s]\n", strconv.Quote(name+"Bounce"), strconv.Quote(parent))
+		fmt.Fprintf(&b, "transform = %s\n", transform(k.BounceBasis(), placement.Vec3{}))
+		fmt.Fprintf(&b, "light_color = %s\n", srgbColor(k.FillColor[0]))
+		fmt.Fprintf(&b, "light_energy = %s\n", number(day))
+		b.WriteString("light_bake_mode = 2\n")
+		b.WriteString("shadow_enabled = false\n")
+		fmt.Fprintf(&b, "metadata/key_source = %s\n", strconv.Quote(k.Source+" (floor bounce)"))
+		fmt.Fprintf(&b, "metadata/key_bounce = true\n")
+		fmt.Fprintf(&b, "metadata/mode = Vector3(%s, %s, %s)\n", number(1), number(mode(k.BounceEnergy[1])), number(mode(k.BounceEnergy[2])))
+	}
 	return b.String(), nil
 }
 

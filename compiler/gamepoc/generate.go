@@ -286,6 +286,10 @@ type Compiled struct {
 	NoiseWaves *NoiseWaveCatalog `json:"noise_waves,omitempty"`
 	// Camera cutaway (camera_cutaway.go): occluder kinds per level and the cut's numbers, presentation only.
 	CameraCutaway *CameraCutaway `json:"-"`
+	// Edge fog (edge_fog.go): every level fades into black at the edge of the hero's reach, presentation only.
+	EdgeFog *EdgeFog `json:"-"`
+	// Platform beacons (platform_beacons.go): flashing posts at an open platform edge before a train arrives, presentation only.
+	PlatformBeacons *PlatformBeacons `json:"-"`
 	// Foot contact (foot_contact.go): the client's step that keeps soles on the floor, presentation only.
 	FootContact *FootContact `json:"-"`
 	// Cloth motion (cloth_motion.go): strip curtains people push and drapes a named draft sways, presentation only.
@@ -769,6 +773,12 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 		if noise, err := tiles.Value().LookupPath(cue.ParsePath("noise")).Int64(); err == nil && noise > 0 {
 			out.Scene.TileNoise[key] = int(noise)
 		}
+	}
+	if out.EdgeFog, err = readEdgeFog(world, out); err != nil {
+		return out, nil, err
+	}
+	if out.PlatformBeacons, err = readPlatformBeacons(world, out); err != nil {
+		return out, nil, err
 	}
 	if out.Spatial, err = compileSpatial(world.LookupPath(cue.ParsePath("spatial")), out.Walkable); err != nil {
 		return out, nil, fmt.Errorf("world.spatial: %w", err)

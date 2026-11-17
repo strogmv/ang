@@ -136,6 +136,14 @@ func clientResource(c Compiled) ([]byte, error) {
 	if c.CameraCutaway != nil {
 		view["camera_cutaway"] = clientCameraCutaway(c.CameraCutaway)
 	}
+	// Platform beacons v1 only in worlds that have them.
+	if c.PlatformBeacons != nil {
+		view["platform_beacons"] = clientPlatformBeacons(c.PlatformBeacons)
+	}
+	// Edge fog v1: the shared numbers and the levels' own; every level of a world with levels has it.
+	if c.EdgeFog != nil {
+		view["edge_fog"] = clientEdgeFog(c.EdgeFog)
+	}
 	// Foot contact v1 only in worlds that have it: the numbers of the client's sole-on-the-floor step.
 	if c.FootContact != nil {
 		view["foot_contact"] = clientFootContact(c.FootContact)

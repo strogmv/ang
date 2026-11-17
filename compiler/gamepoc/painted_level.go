@@ -224,7 +224,16 @@ func serverDrivenOn(c Compiled, level string) []ServerDriven {
 				continue
 			}
 			for _, g := range l.Gates {
-				out = append(out, ServerDriven{System: "gate", Instance: g.InstanceID})
+				// Market finish v1: a gate's moving nodes (its leaves and hoist cables) are what the server moves; a live entry
+				// of its instance may name only them (the medical intake's concrete niche is painted with the ring wall).
+				var samples []string
+				for _, leaf := range g.Leaves {
+					samples = append(samples, leaf.Node)
+				}
+				for _, cable := range g.Cables {
+					samples = append(samples, cable.Node)
+				}
+				out = append(out, ServerDriven{System: "gate", Instance: g.InstanceID, Samples: samples})
 			}
 			lamps := false
 			for _, i := range l.Instances {

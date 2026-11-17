@@ -304,3 +304,29 @@ func TestPaintedLevelLight(t *testing.T) {
 		t.Fatalf("a short tint must fail, got %v", err)
 	}
 }
+
+// Market finish v1: a gate's leaves and hoist cables are its server-driven samples, so a live entry of the gate's instance
+// may name only them (the medical intake's concrete niche is painted with the ring wall; its leaf and cable stay live).
+func TestPaintedLevelGateParts(t *testing.T) {
+	l, c, known, root := paintedLevelFixture(t)
+	c.LocationSDK = &locationsdk.RuntimeBundle{Levels: []locationsdk.RuntimeLevel{{ID: "example.market",
+		Gates: []locationsdk.RuntimeGate{{InstanceID: "wall.med.1", Leaves: []locationsdk.GateLeaf{{Node: "leaf.med16", Axis: "up", TravelMM: 2400}},
+			Cables: []locationsdk.GateCable{{Node: "cable.med16", LengthMM: 2650, TravelMM: 2400}}}}}}}
+	err := checkPaintedLevels([]PaintedLevel{l}, c, known, root)
+	if err == nil || !strings.Contains(err.Error(), "wall.med.1") {
+		t.Fatalf("a gate not live must fail, got %v", err)
+	}
+	l.LiveParts = append(l.LiveParts, PaintedLivePart{Instance: "wall.med.1", Parts: []string{"leaf?med16"}, Why: "the intake's leaf lifts"})
+	err = checkPaintedLevels([]PaintedLevel{l}, c, known, root)
+	if err == nil || !strings.Contains(err.Error(), "cable.med16") {
+		t.Fatalf("a gate whose cable is not live must fail, got %v", err)
+	}
+	l.LiveParts[len(l.LiveParts)-1].Parts = []string{"leaf?med16", "cable?med16"}
+	if err := checkPaintedLevels([]PaintedLevel{l}, c, known, root); err != nil {
+		t.Fatal(err)
+	}
+	l.LiveParts[len(l.LiveParts)-1].Parts = nil
+	if err := checkPaintedLevels([]PaintedLevel{l}, c, known, root); err != nil {
+		t.Fatal(err)
+	}
+}

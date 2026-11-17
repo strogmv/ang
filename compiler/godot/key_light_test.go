@@ -65,6 +65,8 @@ func TestKeyLightRejectsUnusableData(t *testing.T) {
 		"depth":         func(k *KeyLight) { k.ShadowDepthM = [2]float64{200, 60} },
 		"fill below":    func(k *KeyLight) { k.FillElevationDegrees = 0 },
 		"fill colour":   func(k *KeyLight) { k.FillColor[0][2] = 2 },
+		"bounce above":  func(k *KeyLight) { k.BounceEnergy = [3]float64{.3, .1, 0}; k.BounceElevationDegrees = 10 },
+		"bounce low":    func(k *KeyLight) { k.BounceEnergy = [3]float64{.3, .1, 0}; k.BounceElevationDegrees = -45 },
 		"nan":           func(k *KeyLight) { k.AzimuthDegrees = math.NaN() },
 	} {
 		k := sideKey()
@@ -101,5 +103,34 @@ func TestKeyLightReplacesPlaceholderInScene(t *testing.T) {
 	}
 	if !strings.Contains(without.String(), "rotation_degrees = Vector3(-55, -25, 0)") {
 		t.Fatal("placeholder lost without a key")
+	}
+}
+
+// Market finish v1: the floor bounce comes from the side opposite the key, from below the horizon, shadowless, with its
+// day / dusk / night levels as a lamp's mode; without a bounce energy nothing is drawn.
+func TestKeyLightFloorBounce(t *testing.T) {
+	k := sideKey()
+	out, err := k.render("Key", "LightingRig")
+	if err != nil || strings.Contains(out, "KeyBounce") {
+		t.Fatal("no bounce energy, no bounce node", err)
+	}
+	k.BounceElevationDegrees, k.BounceEnergy = -10, [3]float64{.4, .2, 0}
+	b := k.BounceBasis()[2]
+	key := k.Basis()[2]
+	if b[0]*key[0]+b[2]*key[2] >= 0 || math.Abs(math.Asin(b[1])*180/math.Pi+10) > 1e-9 {
+		t.Fatal("the bounce must come from the side opposite the key, from below the horizon", b)
+	}
+	out, err = k.render("Key", "LightingRig")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, part := range []string{`[node name="KeyBounce" type="DirectionalLight3D" parent="LightingRig"]`, "metadata/key_bounce = true",
+		"metadata/mode = Vector3(1.000000000000, 0.500000000000, 0.000000000000)", "light_energy = 0.400000000000"} {
+		if !strings.Contains(out, part) {
+			t.Fatal("missing", part, out)
+		}
+	}
+	if strings.Count(out[strings.Index(out, "KeyBounce"):], "shadow_enabled = false") != 1 {
+		t.Fatal("the bounce casts no shadow")
 	}
 }
