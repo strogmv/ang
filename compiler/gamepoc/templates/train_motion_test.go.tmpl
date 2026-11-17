@@ -61,6 +61,146 @@ func TestTrainActuallyStandsThroughoutTheUnchangedLifeWindowAtX1(t *testing.T){
   if math.Abs(distance-c.BerthDistanceM)>1e-8||speed!=0||(phase!="berthed"&&phase!="closing"){t.Fatalf("actual Life boarding window has no standing train at %gs: phase=%s speed=%g",at,phase,speed)}
  }
 }
+// Market polish v1 (B2): the world's own speed limits — a passenger run and a freight run hold each section's limit while
+// any car is on it, run at line speed elsewhere after the pull-away, and the stand at the berth keeps its time.
+func TestTrainMotionSlowSectionsOfTheWorld(t *testing.T){
+ r:=lifeRuntimeFixture(t);c:=r.world.TrainMotion;if c==nil||len(c.SlowSections)==0{t.Skip("no slow section in this world")}
+ front,tail:=c.trainFrontM(),c.trainTailM()
+ for _,s:=range []trainDispatchState{{Active:1,StartNS:0,DepartNS:int64((c.approachSeconds()+c.BerthDwellSeconds)*1e9)},{Active:2,StartNS:0}}{
+  slow:=0
+  for at:=0.0;at<float64(c.finishNS(s))/1e9;at+=.02{
+   d,v,phase,_:=c.dispatchPose(s,int64(at*1e9))
+   for _,sec:=range c.SlowSections{if d+front>=sec.StartM&&d-tail<=sec.EndM&&v>sec.SpeedMPS+1e-9{t.Fatalf("%s: %.2f m/s at %.1f m on %s (limit %.1f)",phase,v,d,sec.ID,sec.SpeedMPS)};if d+front>=sec.StartM&&d-tail<=sec.EndM{slow++}}
+  }
+  if slow==0{t.Fatal("the run never met its slow section")}
+ }
+ if c.leadSeconds(false,1)!=c.approachSeconds()+c.BerthDwellSeconds+c.DoorCloseSeconds{t.Fatal("the berth's lead moved")}
+}
+// Market polish v1: the hub's forecast is what the dispatcher does (the platform beacons flash 10 s ahead from it). For every
+// passenger and freight run of a day and a night of the world's own timetable (calendar rates 1 and 10), the arrival at the
+// hub is forecast at least 10 s ahead and every forecast of the last 10 s names the real arrival within 0.1 s.
+func TestTrainForecastIsTheDispatcherAtTheHub(t *testing.T){
+ base:=lifeRuntimeFixture(t);c:=base.world.TrainMotion;if c==nil{t.Skip("no train")}
+ hub:=-1;for i,b:=range c.Bindings{if b.LevelID==c.BerthLevelID{hub=i}};if hub<0{t.Fatal("no hub binding")}
+ target:=c.Bindings[hub].StartM-c.Modules[0].LengthM/2
+ for _,rate:=range []int64{1,10}{for _,start:=range []int64{21600,79200}{
+  r:=lifeRuntimeFixture(t);r.state.TrainDispatch=trainDispatchState{};r.state.Life.Seconds=start;r.state.Tick=0;r.state.PhaseNS=0
+  type seen struct{at,predicted float64}
+  forecasts:=[2][]seen{};arrivals:=[2][]float64{};lastRun:=int64(0)
+  for tick:=int64(1);tick<=12000;tick++{
+   prior:=r.state.Life.Seconds;r.state.Tick=tick;r.state.Life.Seconds+=rate;r.advanceTrainMotion(prior)
+   s:=r.state.TrainDispatch;ns:=r.simNS();now:=float64(ns)/1e9
+   distance,_,_,_:=c.dispatchPose(s,ns)
+   if s.Active!=0&&s.Run!=lastRun{
+    lastRun=s.Run;m:=s.Active-1;arrive:=float64(s.StartNS)/1e9
+    if m==0{arrive+=c.secondsToDistance(target,c.BerthDwellSeconds,false)}else{arrive+=trainProfileTime(c.freightProfile(),target)}
+    arrivals[m]=append(arrivals[m],arrive)
+   }
+   if tick%3==0{for m:=0;m<2;m++{if eta:=c.arrivalETA(s,m,ns,r.state.Life.Seconds,distance,target);eta>0{forecasts[m]=append(forecasts[m],seen{now,now+eta})}}}
+  }
+  end:=float64(r.simNS())/1e9
+  // the freight must run at the ordinary pace; at fast-forward (rate 10) its paths crowd and it yields to the passenger (the
+  // safety rule), so there only the runs that come are checked
+  if len(arrivals[0])==0||(start==79200&&rate==1&&len(arrivals[1])==0){t.Fatalf("rate %d from %d: runs %d passenger, %d freight",rate,start,len(arrivals[0]),len(arrivals[1]))}
+  for m:=0;m<2;m++{for _,arrive:=range arrivals[m]{
+   if arrive<30||arrive>end{continue}
+   early:=false
+   for _,f:=range forecasts[m]{if f.at>=arrive||f.at<arrive-10.5{continue};if math.Abs(f.predicted-arrive)>0.1{t.Fatalf("rate %d from %d member %d: at %.2f s the forecast named %.2f, the run arrived at %.2f",rate,start,m,f.at,f.predicted,arrive)};if f.at<=arrive-10{early=true}}
+   if !early{t.Fatalf("rate %d from %d member %d: the arrival at %.2f had no forecast 10 s ahead",rate,start,m,arrive)}
+  }}
+ }}
+}
+// Market polish v1 (owner 16.11: the freight «делает вид что город живёт своей жизнью»): at the ordinary pace (calendar rate
+// 1) over a whole day of the world's timetable, the freight runs on every one of its paths, day and night; no run overlaps
+// another on the shared track and a freight keeps its gap to every passenger run; its hub arrival is forecast at least 10 s
+// ahead and within 0.1 s; the passenger still runs every day hour. And the riders (coordinator 16.11): an observed rider
+// who comes to the berth for a passenger slot that yields to the freight is never offered a train that does not come — no
+// passenger train stands at the berth for that slot — the hub's hint names the next run, and the rider boards that run.
+func TestTrainFreightRunsEveryPathAtTheOrdinaryPace(t *testing.T){
+ r,e,id:=observedNPCBoardingFixture(t);r.client=&connection{}
+ c:=r.world.TrainMotion;if c==nil||len(c.AdditionalFleet)==0{t.Skip("no freight")}
+ hub:=-1;for i,b:=range c.Bindings{if b.LevelID==c.BerthLevelID{hub=i}}
+ target:=c.Bindings[hub].StartM-c.Modules[0].LengthM/2
+ type hint struct{at,arrive float64}
+ waiting:=false;var since float64;var hints []hint;lastNext:=int64(0);lastRun:=int64(0);yields,boarded:=0,0
+ reset:=func(){a:=r.state.Life.Actor(id);a.Level=e.From;a.Position=e.Exit;a.Goal=e.Exit;a.Trip=nil;a.BoardedEdge="";a.Path=nil;a.PendingPath=nil;a.Body=nil;a.WaitingDeparture=0}
+ trainFreightDay(t,r,c,func(){
+  s:=r.state.TrainDispatch;ns:=r.simNS();now:=float64(ns)/1e9
+  started:=s.Run!=lastRun;lastRun=s.Run
+  // a passenger slot was used up this tick with no run started and the track clear: it yielded to the freight's path
+  if lastNext!=0&&s.Next[0]!=lastNext&&!started&&s.Active==0&&!waiting{
+   if _,on:=r.state.TrainPassengers[id];!on{reset();waiting=true;since=now;hints=nil;yields++}
+  }
+  lastNext=s.Next[0]
+  if waiting{
+   if _,on:=r.state.TrainPassengers[id];!on{
+    r.observedRailTravel(id,e)
+    if p,on:=r.state.TrainPassengers[id];on{
+     // boarded: the first passenger run after the yield, standing at the berth with its doors open
+     _,_,phase,doors:=c.dispatchPose(s,ns)
+     if s.Active!=1||phase!="berthed"||!doors||p.Run!=s.Run{t.Fatalf("the rider of a yielded slot boarded run %d (active %d, %s)",p.Run,s.Active,phase)}
+     arrive:=float64(s.StartNS)/1e9+c.secondsToDistance(target,c.BerthDwellSeconds,false)
+     for _,h:=range hints{if h.at<arrive-0.5&&math.Abs(h.arrive-arrive)>0.1{t.Fatalf("while the rider waited (from %.1f s) the hub hint at %.1f s named %.2f s; the next run reached the hub at %.2f s",since,h.at,h.arrive,arrive)}}
+     if len(hints)==0{t.Fatal("no hub hint while the rider waited")}
+     boarded++;waiting=false
+    }else{
+     _,_,phase,doors:=c.dispatchPose(s,ns)
+     if s.Active==1&&phase=="berthed"&&doors{t.Fatalf("a passenger train stood open at the berth at %.1f s and the waiting rider did not board",now)}
+     for _,tr:=range r.trainMotionSnapshot().Trains{if tr.TrainID!=c.TrainID{continue};for _,ps:=range tr.Passages{if ps.LevelID==c.BerthLevelID&&ps.ETASeconds>0{hints=append(hints,hint{now,now+ps.ETASeconds})}}}
+    }
+   }
+  }
+  if _,on:=r.state.TrainPassengers[id];on{r.advanceTrainPassengers(1)}
+ })
+ if yields==0||boarded<yields-1{t.Fatalf("riders: %d yielded slots, %d boarded the next run",yields,boarded)}
+ t.Logf("riders of %d yielded passenger slots waited; %d boarded the next run",yields,boarded)
+}
+func trainFreightDay(t *testing.T,r *Runtime,c *trainMotionCatalog,each func()){
+ t.Helper()
+ hub:=-1;for i,b:=range c.Bindings{if b.LevelID==c.BerthLevelID{hub=i}};if hub<0{t.Fatal("no hub binding")}
+ target:=c.Bindings[hub].StartM-c.Modules[0].LengthM/2
+ r.state.TrainDispatch=trainDispatchState{};r.state.Life.Seconds=0;r.state.Tick=0;r.state.PhaseNS=0
+ type run struct{member int;departure int64;start,end,arrive float64}
+ type seen struct{at,predicted float64}
+ runs:=[]run{};forecasts:=[]seen{};lastRun:=int64(0)
+ const ticks=86400+7200
+ for tick:=int64(1);tick<=ticks;tick++{
+  prior:=r.state.Life.Seconds;r.state.Tick=tick;r.state.Life.Seconds++;r.advanceTrainMotion(prior)
+  s:=r.state.TrainDispatch;ns:=r.simNS()
+  if s.Active!=0&&s.Run!=lastRun{
+   lastRun=s.Run;x:=run{member:s.Active-1,departure:s.Departure,start:float64(s.StartNS)/1e9,end:float64(c.finishNS(s))/1e9}
+   if x.member==1{x.arrive=x.start+trainProfileTime(c.freightProfile(),target)}
+   runs=append(runs,x)
+  }
+  if tick%3==0{distance,_,_,_:=c.dispatchPose(s,ns);if eta:=c.arrivalETA(s,1,ns,r.state.Life.Seconds,distance,target);eta>0{forecasts=append(forecasts,seen{float64(ns)/1e9,float64(ns)/1e9+eta})}}
+  if each!=nil{each()}
+ }
+ end:=float64(r.simNS())/1e9
+ gap:=c.Timetable.FreightGapSeconds
+ for i:=1;i<len(runs);i++{
+  a,b:=runs[i-1],runs[i]
+  if b.start<a.end-1e-6{t.Fatalf("run %d (member %d) starts at %.2f s before run %d ends at %.2f s",i,b.member,b.start,i-1,a.end)}
+  if (a.member==1||b.member==1)&&a.member!=b.member&&b.start-a.end<gap-1e-6{t.Fatalf("only %.2f s between a freight and a passenger run at %.2f s (gap %.1f s)",b.start-a.end,a.end,gap)}
+ }
+ ran:=map[int64]bool{};for _,x:=range runs{if x.member==1{ran[x.departure]=true}}
+ day,night:=0,0
+ for due:=c.Timetable.next(1,true);due<86400;due=c.Timetable.next(due+1,true){
+  if !ran[due]{t.Fatalf("the freight path of game second %d (%02d:%02d) did not run",due,due/3600,due%3600/60)}
+  if clock:=due%86400;clock>=c.Timetable.DayStartSecond&&clock<c.Timetable.DayEndSecond{day++}else{night++}
+ }
+ if day==0||night==0{t.Fatalf("freight paths: %d by day, %d by night",day,night)}
+ hours:=map[int64]bool{};for _,x:=range runs{if x.member==0{hours[x.departure/3600]=true}}
+ for h:=c.Timetable.DayStartSecond/3600;h<c.Timetable.DayEndSecond/3600;h++{if !hours[h]{t.Fatalf("no passenger run in day hour %d",h)}}
+ for _,x:=range runs{
+  if x.member!=1||x.arrive<30||x.arrive>end{continue}
+  early:=false
+  for _,f:=range forecasts{if f.at>=x.arrive||f.at<x.arrive-10.5{continue};if math.Abs(f.predicted-x.arrive)>0.1{t.Fatalf("at %.2f s the freight forecast named %.2f, it arrived at %.2f",f.at,f.predicted,x.arrive)};if f.at<=x.arrive-10{early=true}}
+  if !early{t.Fatalf("the freight arrival at %.2f had no forecast 10 s ahead",x.arrive)}
+ }
+ passengers:=0;for _,x:=range runs{if x.member==0{passengers++}}
+ dayPassengers:=0;for _,x:=range runs{if x.member==0&&x.departure>=c.Timetable.DayStartSecond&&x.departure<c.Timetable.DayEndSecond{dayPassengers++}}
+ t.Logf("a day at rate 1: %d freight paths by day, %d by night, all run; %d passenger runs (%d by day)",day,night,passengers,dayPassengers)
+}
 func TestTrainMotionFastTravelUsesTheSameSavedPhysicalFrames(t *testing.T) {
 	for _, rate := range []int64{1, 30} {
 		r, edge := instantEdgeFixture(t, false, 0, 12345, rate)

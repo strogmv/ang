@@ -57,22 +57,30 @@ type StripCurtain struct {
 	Clear          *ClearSheet `json:"clear,omitempty"`
 }
 
-// ClearSheet: the strips as a clear sheet (the game's design/painted-location/startup-v1/BRIEF.md: clear industrial PVC, the
-// kitchen seen through it), presentation only. Tint: the light through the sheet (linear, 1: no tint); Body: the share of
-// the straight view through it that takes its tint and bend; Edge: how far a grazing view and the cut edges go over to the
-// sheet's gloss; Roughness, Specular: its gloss; DistortionM: how far the view behind bends at a sheet turned fully
-// side-on; Ripple: the sheet's waviness (tilt, waves a metre); Frost: the scuffed band where hands and shoulders push it
-// (from/to above the strip's lower edge, how matte, scuffs a metre across).
+// ClearSheet: the strips as clear industrial PVC (the game's design/painted-location/startup-v1/BRIEF.md: the kitchen seen
+// through them; market polish v1, design/market-polish/v1/BRIEF.md: as a real strip door — thin clear sheets, each over the
+// next by a part of its width), presentation only. Tint: the light through one sheet (linear, 1: no tint); two sheets over
+// each other let through its square. Edge: the light through the sheet's thickness seen on its cut edge (Tint) and the
+// line's width (the thickness, mm). OverlapM: how far each strip lies over its neighbour on the rail. Roughness, Specular:
+// the sheet's own gloss. Ripple: its waviness (tilt, waves a metre). Frost: the scuffed band where hands and shoulders push
+// it (from/to above the strip's lower edge, how scuffed, scuffs a metre across, deep scratches a strip, the light it takes
+// from what is behind, the room's light it scatters).
 type ClearSheet struct {
-	Tint        [3]float64  `json:"tint"`
-	Body        float64     `json:"body"`
-	Edge        float64     `json:"edge"`
-	Roughness   float64     `json:"roughness"`
-	Specular    float64     `json:"specular"`
-	DistortionM float64     `json:"distortion_m"`
-	Ripple      SheetRipple `json:"ripple"`
-	Frost       SheetFrost  `json:"frost"`
-	Why         string      `json:"why"`
+	Tint      [3]float64  `json:"tint"`
+	Edge      SheetEdge   `json:"edge"`
+	OverlapM  float64     `json:"overlap_m"`
+	Roughness float64     `json:"roughness"`
+	Specular  float64     `json:"specular"`
+	Ripple    SheetRipple `json:"ripple"`
+	Frost     SheetFrost  `json:"frost"`
+	Why       string      `json:"why"`
+}
+
+type SheetEdge struct {
+	Tint    [3]float64 `json:"tint"`
+	WidthMM float64    `json:"width_mm"`
+	// the light the cut edge scatters back (it catches the hall's and the lamps' light: a pale hair line on dark behind)
+	Scatter float64 `json:"scatter"`
 }
 
 type SheetRipple struct {
@@ -85,6 +93,9 @@ type SheetFrost struct {
 	ToM        float64 `json:"to_m"`
 	Amount     float64 `json:"amount"`
 	ScuffsPerM float64 `json:"scuffs_per_m"`
+	Scratches  int     `json:"scratches"`
+	Loss       float64 `json:"loss"`
+	Scatter    float64 `json:"scatter"`
 }
 
 type StripRow struct {
@@ -284,7 +295,7 @@ func checkClothMotion(c ClothMotion, known func(string) bool) error {
 			return err
 		}
 		if s.Clear != nil {
-			if err := checkClearSheet(*s.Clear, b.LengthM, in); err != nil {
+			if err := checkClearSheet(*s.Clear, b.LengthM, b.WidthM, in); err != nil {
 				return fmt.Errorf("curtain %s: clear: %w", s.ID, err)
 			}
 		}
@@ -310,29 +321,38 @@ func checkClothMotion(c ClothMotion, known func(string) bool) error {
 	return nil
 }
 
-// checkClearSheet: a clear sheet still reads as a sheet (some tint, some gloss) and shows what is behind it (never opaque,
-// never a mirror); its frost lies on the strip.
-func checkClearSheet(c ClearSheet, length float64, in func(x, lo, hi float64) bool) error {
+// checkClearSheet: a clear sheet still reads as a sheet (some tint, an edge, some gloss) and shows what is behind it (never
+// opaque, never a mirror); the overlap is a part of a strip, not more than half; its frost lies on the strip.
+func checkClearSheet(c ClearSheet, length, width float64, in func(x, lo, hi float64) bool) error {
 	for _, t := range c.Tint {
 		if !in(t, 0.5, 1) {
 			return fmt.Errorf("tint %v: each channel 0.5..1 (light through a clear sheet, 1 is no tint)", c.Tint)
 		}
 	}
+	for _, t := range c.Edge.Tint {
+		if !in(t, 0.2, 1) {
+			return fmt.Errorf("edge tint %v: each channel 0.2..1 (light through the sheet's thickness, never black)", c.Edge.Tint)
+		}
+	}
 	switch {
-	case !in(c.Body, 0.1, 0.8):
-		return fmt.Errorf("body %v is 0.1..0.8 (the share of the view through the sheet that takes its tint; more is not clear)", c.Body)
-	case !in(c.Edge, 0, 1):
-		return fmt.Errorf("edge %v is 0..1", c.Edge)
+	case !in(c.Edge.WidthMM, 0.5, 10):
+		return fmt.Errorf("edge width_mm %v is 0.5..10 (the sheet's thickness)", c.Edge.WidthMM)
+	case !in(c.Edge.Scatter, 0, 1):
+		return fmt.Errorf("edge scatter %v is 0..1", c.Edge.Scatter)
+	case !in(c.OverlapM, 0, width/2):
+		return fmt.Errorf("overlap_m %v is 0..%v m (at most half of the %v m strip)", c.OverlapM, width/2, width)
 	case !in(c.Roughness, 0.02, 0.8) || !in(c.Specular, 0, 1):
 		return fmt.Errorf("roughness %v is 0.02..0.8 and specular %v 0..1", c.Roughness, c.Specular)
-	case !in(c.DistortionM, 0, 0.05):
-		return fmt.Errorf("distortion_m %v is 0..0.05 m (a little)", c.DistortionM)
 	case !in(c.Ripple.TiltDeg, 0, 10) || !in(c.Ripple.WavesPerM, 0, 20):
 		return fmt.Errorf("ripple: tilt 0..10 degrees, 0..20 waves a metre")
 	case !in(c.Frost.FromM, 0, length) || !in(c.Frost.ToM, c.Frost.FromM, length):
 		return fmt.Errorf("frost %v..%v m: a band on the %v m strip, from below to", c.Frost.FromM, c.Frost.ToM, length)
 	case !in(c.Frost.Amount, 0, 0.9) || !in(c.Frost.ScuffsPerM, 0, 60):
 		return fmt.Errorf("frost amount %v is 0..0.9 (a frosted band still shows light through), scuffs 0..60 a metre", c.Frost.Amount)
+	case c.Frost.Scratches < 0 || c.Frost.Scratches > 4:
+		return fmt.Errorf("frost scratches %v is 0..4 a strip (a few)", c.Frost.Scratches)
+	case !in(c.Frost.Loss, 0, 0.8) || !in(c.Frost.Scatter, 0, 1):
+		return fmt.Errorf("frost loss %v is 0..0.8 (a scuffed band still lets light through) and scatter %v 0..1", c.Frost.Loss, c.Frost.Scatter)
 	case c.Why == "":
 		return fmt.Errorf("say why the strips are clear (the world's reason)")
 	}
@@ -374,10 +394,12 @@ func clientClothMotion(c *ClothMotion) map[string]any {
 		if s.Clear != nil {
 			k := s.Clear
 			curtains := l["curtains"]
-			curtains[len(curtains)-1].(map[string]any)["clear"] = map[string]any{"tint": k.Tint[:], "body": k.Body, "edge": k.Edge,
-				"roughness": k.Roughness, "specular": k.Specular, "distortion_m": k.DistortionM,
+			curtains[len(curtains)-1].(map[string]any)["clear"] = map[string]any{"tint": k.Tint[:],
+				"edge":      map[string]any{"tint": k.Edge.Tint[:], "width_mm": k.Edge.WidthMM, "scatter": k.Edge.Scatter},
+				"overlap_m": k.OverlapM, "roughness": k.Roughness, "specular": k.Specular,
 				"ripple": map[string]any{"tilt_deg": k.Ripple.TiltDeg, "waves_per_m": k.Ripple.WavesPerM},
-				"frost":  map[string]any{"from_m": k.Frost.FromM, "to_m": k.Frost.ToM, "amount": k.Frost.Amount, "scuffs_per_m": k.Frost.ScuffsPerM}}
+				"frost": map[string]any{"from_m": k.Frost.FromM, "to_m": k.Frost.ToM, "amount": k.Frost.Amount, "scuffs_per_m": k.Frost.ScuffsPerM,
+					"scratches": k.Frost.Scratches, "loss": k.Frost.Loss, "scatter": k.Frost.Scatter}}
 		}
 	}
 	for _, d := range c.Drapes {

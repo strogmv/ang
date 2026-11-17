@@ -15,8 +15,8 @@ func trainCabinFixture() *TrainCabin {
 	hours[7] = 5
 	return &TrainCabin{
 		FloorM: -.04, SeatM: .475,
-		Seats:                  []TrainCabinSpot{{0, .93}, {.6, .93}, {0, -.93}},
-		Standing:               []TrainCabinSpot{{3.1, 0}, {-3.1, 0}},
+		Seats:                  []TrainCabinSpot{{XM: 0, YM: .93}, {XM: .6, YM: .93, Face: "ahead"}, {XM: 0, YM: -.93}},
+		Standing:               []TrainCabinSpot{{XM: 3.1}, {XM: -3.1}},
 		BackgroundPerCarByHour: hours, SpreadPermille: 250,
 		Look: TrainCabinLook{
 			GlassMaterials: []string{"MAT_glass"}, StripMaterials: []string{"MAT_lamp"}, InteriorMaterials: []string{"MAT_liner"},
@@ -39,7 +39,8 @@ func TestTrainCabinRejectsCarsThatCannotHoldTheirPeople(t *testing.T) {
 		"no seats":                func(k *TrainCabin) { k.Seats = nil },
 		"seat outside the body":   func(k *TrainCabin) { k.Seats[0].YM = 1.35 },
 		"seat beyond the end":     func(k *TrainCabin) { k.Seats[0].XM = 6.7 },
-		"overlapping places":      func(k *TrainCabin) { k.Standing[0] = TrainCabinSpot{.1, .9} },
+		"overlapping places":      func(k *TrainCabin) { k.Standing[0] = TrainCabinSpot{XM: .1, YM: .9} },
+		"seat faces nowhere":      func(k *TrainCabin) { k.Seats[0].Face = "up" },
 		"non-finite place":        func(k *TrainCabin) { k.Seats[1].XM = math.NaN() },
 		"short day":               func(k *TrainCabin) { k.BackgroundPerCarByHour = k.BackgroundPerCarByHour[:23] },
 		"more than the car":       func(k *TrainCabin) { k.BackgroundPerCarByHour[3] = 6 },
@@ -107,7 +108,7 @@ func trainCabinCozyFixture() *TrainCabin {
 	k.Riders = &TrainCabinRiders{
 		Looks: []TrainCabinRiderLook{{"bronze", 6, "m", "#A3A591"}, {"bronze_home", 5, "f", "#C9B79B"}},
 		Child: TrainCabinChild{Look: "child", AfterLook: "bronze_home", Permille: 200, Pose: "child_window", Tint: "#9C6B4E"},
-		Poses: []TrainCabinPose{{ID: "sit", At: "seat", Share: 3}, {ID: "doze", At: "seat", Share: 1, HeadDeg: [3]float64{26, 0, 18}},
+		Poses: []TrainCabinPose{{ID: "sit", At: "seat", Share: 3}, {ID: "doze", At: "seat", Share: 1, HeadDeg: [3]float64{26, 0, 18}, Toward: "window"},
 			{ID: "stand", At: "standing", Share: 1}, {ID: "child_window", At: "seat"}},
 		Home: TrainCabinHome{Levels: []string{"level.poc_housing"}},
 	}
@@ -119,6 +120,10 @@ func trainCabinCozyFixture() *TrainCabin {
 	g := &d.Glass
 	g.Tint, g.Alpha, g.Fog, g.FogHeightM, g.FogTint, g.Drops, g.Sheen, g.Rim = "#6E7E80", .16, .4, .5, "#E9D6BC", .3, .2, .3
 	d.Haze.Color, d.Haze.Alpha, d.Haze.WidthM, d.Haze.HeightM, d.Haze.RiseMPS = "#FFD3A6", .2, 1, 1.5, .1
+	d.HideMaterials = []string{"MAT_train_seat_fabric"}
+	d.Lamps = &TrainCabinLamps{At: [][3]float64{{1.15, -1.03, 1.03}}}
+	d.Lamps.Bulb.Material, d.Lamps.Bulb.Emission, d.Lamps.Bulb.Energy = "cozy.MAT_lamp_bulb", "#FFD7A0", 4
+	d.Lamps.Light.Color, d.Lamps.Light.Energy, d.Lamps.Light.RangeM, d.Lamps.Light.Attenuation = "#FFB36B", .8, 1.3, 1.4
 	k.Dressing = d
 	p := &TrainCabinPeople{RealWithinM: 16, RealBelowMPS: 2.5, AnimateEvery: 3}
 	p.Pool = append(p.Pool, struct {
@@ -171,11 +176,21 @@ func TestTrainCabinCozyRejectsBrokenRidersDressingAndCards(t *testing.T) {
 		"pose twice":                 func(k *TrainCabin) { k.Riders.Poses[1].ID = "sit" },
 		"head turned around":         func(k *TrainCabin) { k.Riders.Poses[1].HeadDeg[1] = 90 },
 		"unknown prop":               func(k *TrainCabin) { k.Riders.Poses[1].Prop = "bottle" },
+		"leans at nothing":           func(k *TrainCabin) { k.Riders.Poses[1].Toward = "door" },
+		"arms of nothing":            func(k *TrainCabin) { k.Riders.Poses[1].Arms = "wave" },
+		"card of no pose":            func(k *TrainCabin) { k.Riders.Poses[1].CardAs = "dance" },
 		"kit not a resource":         func(k *TrainCabin) { k.Dressing.Kit = "/tmp/kit.glb" },
 		"no curtain colour":          func(k *TrainCabin) { k.Dressing.Curtains.Palette = nil },
 		"window light straight up":   func(k *TrainCabin) { k.Dressing.WindowLight.DownDeg = 95 },
 		"opaque fog beyond glass":    func(k *TrainCabin) { k.Dressing.Glass.FogHeightM = 2 },
 		"named haze colour":          func(k *TrainCabin) { k.Dressing.Haze.Color = "warm" },
+		"hidden material unnamed":    func(k *TrainCabin) { k.Dressing.HideMaterials = []string{" "} },
+		"lamp outside the car":       func(k *TrainCabin) { k.Dressing.Lamps.At[0][1] = 3 },
+		"lamp without a bulb":        func(k *TrainCabin) { k.Dressing.Lamps.Bulb.Material = "" },
+		"lamp floodlight":            func(k *TrainCabin) { k.Dressing.Lamps.Light.RangeM = 9 },
+		"brighter by day":            func(k *TrainCabin) { k.Dressing.DayKeep = 1.5 },
+		"paint glows at night":       func(k *TrainCabin) { k.Paint.NightFloor = 0.9 },
+		"kit blazes":                 func(k *TrainCabin) { g := 5.0; k.Dressing.KitGlow = &g },
 		"pool of no rider":           func(k *TrainCabin) { k.People.Pool[0].Look = "copper" },
 		"pool too big":               func(k *TrainCabin) { k.People.Pool[0].Count = 25 },
 		"card outside the grid":      func(k *TrainCabin) { k.People.Cards.Cells[0].Cell = [2]int{4, 0} },

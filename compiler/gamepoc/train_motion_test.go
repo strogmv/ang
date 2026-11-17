@@ -97,6 +97,90 @@ func TestTrainMotionFleetValidation(t *testing.T) {
 	}
 }
 
+// Market polish v1: the freight's own day period is at least one passenger period and at most the day, its offset inside it,
+// and the gap on the shared track is a few seconds, not a stop of the line.
+func TestTrainMotionFreightPath(t *testing.T) {
+	life := json.RawMessage(`{"locations":{"a":{},"b":{},"c":{}}}`)
+	ok := func() TrainMotionCatalog {
+		c := trainMotionFixture()
+		tt := *c.Timetable
+		tt.FreightPeriodSeconds, tt.FreightOffsetSeconds, tt.FreightGapSeconds = 3600, 750, 10
+		c.Timetable = &tt
+		return c
+	}
+	valid := ok()
+	if err := valid.validate(life); err != nil {
+		t.Fatal(err)
+	}
+	cases := map[string]func(*TrainTimetable){
+		"shorter than a passenger period": func(tt *TrainTimetable) { tt.FreightPeriodSeconds = 200 },
+		"longer than the day":             func(tt *TrainTimetable) { tt.FreightPeriodSeconds = 86400 },
+		"offset outside its period":       func(tt *TrainTimetable) { tt.FreightOffsetSeconds = 3600 },
+		"offset past the passenger period": func(tt *TrainTimetable) {
+			tt.FreightPeriodSeconds = 0
+		},
+		"gap negative": func(tt *TrainTimetable) { tt.FreightGapSeconds = -1 },
+		"gap a stop":   func(tt *TrainTimetable) { tt.FreightGapSeconds = 600 },
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			c := ok()
+			tt := *c.Timetable
+			mutate(&tt)
+			c.Timetable = &tt
+			if err := c.validate(life); err == nil {
+				t.Fatal("invalid freight path accepted")
+			}
+		})
+	}
+}
+
+// Market polish v1 (B2): a slow section lies on the stretch its level shows and the run is at line speed between the berth's
+// pull-away and its braking, and after its pull-away the route goes on.
+func TestTrainMotionSlowSections(t *testing.T) {
+	life := json.RawMessage(`{"locations":{"a":{},"b":{},"c":{}}}`)
+	ok := func() TrainMotionCatalog {
+		c := trainMotionFixture()
+		c.SpeedMPS, c.AccelerationMPS2, c.BrakingMPS2 = 8, 2, 2
+		c.SlowSections = []TrainSlowSection{{ID: "slow.b", LevelID: "b", StartM: 520, EndM: 600, SpeedMPS: 5, Why: "people stand at the track"}}
+		return c
+	}
+	valid := ok()
+	if err := valid.validate(life); err != nil {
+		t.Fatal(err)
+	}
+	cases := map[string]func(*TrainMotionCatalog){
+		"no reason":             func(c *TrainMotionCatalog) { c.SlowSections[0].Why = " " },
+		"not slower":            func(c *TrainMotionCatalog) { c.SlowSections[0].SpeedMPS = 8 },
+		"standing still":        func(c *TrainMotionCatalog) { c.SlowSections[0].SpeedMPS = 0 },
+		"off its level":         func(c *TrainMotionCatalog) { c.SlowSections[0].LevelID = "c" },
+		"past its level's view": func(c *TrainMotionCatalog) { c.SlowSections[0].EndM = 700 },
+		"backwards":             func(c *TrainMotionCatalog) { c.SlowSections[0].EndM = 510 },
+		"brakes before speed": func(c *TrainMotionCatalog) {
+			c.SlowSections[0].LevelID = "a"
+			c.SlowSections[0].StartM = 170
+			c.SlowSections[0].EndM = 210
+		},
+		"same id twice": func(c *TrainMotionCatalog) {
+			c.SlowSections = append(c.SlowSections, c.SlowSections[0])
+			c.SlowSections[1].LevelID, c.SlowSections[1].StartM, c.SlowSections[1].EndM = "c", 910, 960
+		},
+		"overlapping pull-away": func(c *TrainMotionCatalog) {
+			c.SlowSections = append(c.SlowSections, TrainSlowSection{ID: "slow.b2", LevelID: "b", StartM: 610, EndM: 615, SpeedMPS: 5, Why: "x"})
+		},
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			c := ok()
+			c.SlowSections = append([]TrainSlowSection{}, c.SlowSections...)
+			mutate(&c)
+			if err := c.validate(life); err == nil {
+				t.Fatal("invalid slow section accepted")
+			}
+		})
+	}
+}
+
 func TestTrainMotionPrefabResourcesPath(t *testing.T) {
 	life := json.RawMessage(`{"locations":{"a":{},"b":{},"c":{}}}`)
 	for _, path := range []string{"", "/TrainMotion/Model", "../Model", "TrainMotion/../Model", "TrainMotion/Model.prefab", "TrainMotion\\Model", strings.Repeat("x", 257)} {
@@ -280,6 +364,18 @@ func TestTrainMotionRuntimeTrajectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	files["dispatch.go"] = string(dispatch)
+	// the server's own freight-path check (templates/train_motion_test.go.tmpl), run here on the fixture
+	serverTests, err := os.ReadFile("templates/train_motion_test.go.tmpl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverText := string(serverTests)
+	from := strings.Index(serverText, "func trainFreightDay(")
+	to := strings.Index(serverText, "func TestTrainMotionFastTravelUsesTheSameSavedPhysicalFrames")
+	if from < 0 || to < from {
+		t.Fatal("trainFreightDay not found in the server test template")
+	}
+	files["freight_day_test.go"] = "package poc\nimport(\"math\";\"testing\")\n" + serverText[from:to]
 	lifeSource, err := os.ReadFile("../behavior/templates/life.go.tmpl")
 	if err != nil {
 		t.Fatal(err)
@@ -307,6 +403,32 @@ func TestTrainMotionRuntimeTrajectory(t *testing.T) {
 
 const trainMotionRuntimeTests = `package poc
 import("encoding/json";"math";"reflect";"testing")
+// Market polish v1: with a day freight path of its own (hourly, 10 s gap) the freight runs on every path of a day at the
+// ordinary pace, keeps its gap to the passenger runs and is forecast 10 s ahead (the server's check, trainFreightDay). The
+// fixture's train at 16 m/s: at 8 m/s a passenger run (227 s) and a freight (200 s) do not fit in one hour's 360 s at all.
+func TestFreightPathAtTheOrdinaryPace(t *testing.T){
+ c:=fixture(t);c.SpeedMPS=16;c.Timetable.FreightPeriodSeconds=3600;c.Timetable.FreightOffsetSeconds=750;c.Timetable.FreightNightOffsetSeconds=1800;c.Timetable.FreightGapSeconds=10
+ r:=&Runtime{};r.world.TrainMotion=c;r.state.Life.Enabled=true
+ trainFreightDay(t,r,c,nil)
+}
+// Without a freight path of its own (FreightPeriodSeconds 0) the freight keeps the old rule: by night it runs, and never
+// into the next passenger slot.
+func TestFreightWithoutPathYields(t *testing.T){
+ c:=fixture(t);c.Timetable.FreightNightOffsetSeconds=1800;c.SpeedMPS=16
+ r:=&Runtime{};r.world.TrainMotion=c;r.state.Life.Enabled=true;r.state.Life.Seconds=79200
+ last:=int64(0);freights:=0
+ for tick:=int64(1);tick<=7200;tick++{
+  prior:=r.state.Life.Seconds;r.state.Tick=tick;r.state.Life.Seconds++;r.advanceTrainMotion(prior)
+  s:=r.state.TrainDispatch
+  if s.Active==2&&s.Run!=last{
+   last=s.Run;freights++
+   now:=float64(r.simNS())/1e9
+   nextStart:=now+(float64(c.Timetable.next(s.Departure+1,false))-c.leadSeconds(false,10)-float64(r.state.Life.Seconds))/10
+   if float64(s.StartNS)/1e9+trainProfileSeconds(c.freightProfile())>nextStart+1e-6{t.Fatalf("a freight ran into the next passenger slot")}
+  }
+ }
+ if freights==0{t.Fatal("no freight by night")}
+}
 func fixture(t *testing.T)*trainMotionCatalog{t.Helper();var c trainMotionCatalog;if err:=json.Unmarshal([]byte(` + "`FIXTURE`" + `),&c);err!=nil{t.Fatal(err)};c.SpeedMPS=8;c.AccelerationMPS2=2;c.BrakingMPS2=2;c.BerthDistanceM=160;c.DoorCloseSeconds=2.8;c.BerthLevelID="a";c.Timetable=&trainTimetable{PeriodSeconds:300,NightPeriodSeconds:3600,DayStartSecond:21600,DayEndSecond:79200,BoardingWindowSeconds:20,FreightOffsetSeconds:150};c.AdditionalFleet=[]trainMotionStock{{TrainID:"freight",StockID:"freight.stock",PrefabResource:"Freight"}};return &c}
 func TestSharedTimetableBoundaries(t *testing.T){c:=fixture(t);for _,pair:=range [][2]int64{{0,0},{1,3600},{21599,21600},{21601,21900},{79199,79200},{79201,82800},{86399,86400}}{if got:=c.Timetable.next(pair[0],false);got!=pair[1]{t.Fatalf("departure %d=%d expected%d",pair[0],got,pair[1])}}}
 func TestAllRatesDayNightNoOverlapSavedContinuity(t *testing.T){
@@ -400,6 +522,86 @@ func TestSlowerClockKeepsSkippedFutureStartsConsumed(t *testing.T){
 }
 func TestGeometryHasOnlyDeclaredVisibleSlices(t *testing.T){c:=fixture(t);for d:=0.0;d<c.length();d+=.25{state:=c.render(d,8,"moving",1,false,true);for _,m:=range state.Modules{for i,b:=range m.Bindings{if b.PassageID!=c.Bindings[i].PassageID{t.Fatal("binding identity lost")};if b.Visible{p:=c.sample(m.DistanceM,c.length());if p.YawDegrees!=0&&p.YawDegrees!=90&&p.YawDegrees!=180&&p.YawDegrees!=-90{t.Fatal("offtrack yaw")}}}}};idle:=c.render(0,0,"idle",1,false,false);for _,m:=range idle.Modules{for _,b:=range m.Bindings{if b.Visible{t.Fatal("idle train drawn")}}}}
 func TestPhysicalBerthCoversWholeLifeWindow(t *testing.T){c:=fixture(t);s:=trainDispatchState{Active:1,StartNS:0,DepartNS:int64((c.approachSeconds()+20)*1e9)};for at:=c.approachSeconds();at<c.approachSeconds()+20;at+=.01{d,v,phase,doors:=c.dispatchPose(s,int64(at*1e9));if math.Abs(d-c.BerthDistanceM)>1e-8||v!=0||phase!="berthed"||!doors{t.Fatalf("boarding window lacks stopped train at%g",at)}}}
+// Market polish v1 (B2): a speed limit on the stretch level b shows. The whole train is at the limit while any car is on it,
+// line speed before and after; the stand at the berth, the pull-away and the run before the section keep their times; the
+// run and the freight run are longer by exactly the profile's extra seconds; distance and time agree both ways.
+// Market polish v1: the forecast is what the dispatcher does. For every passenger and freight run of a day and of a night
+// (calendar rates 1 and 10, a slow section on), the hub arrival is forecast at least 10 s ahead and every forecast of the
+// last 10 s before it names the real arrival within 0.1 s; no forecast names a run that never comes.
+func TestForecastIsTheDispatcher(t *testing.T){
+ for _,rate:=range []int64{1,10}{for _,start:=range []int64{21600,79200}{
+  c:=fixture(t);c.SlowSections=[]trainSlowSection{{ID:"slow.b",LevelID:"b",StartM:520,EndM:600,SpeedMPS:5}}
+  r:=&Runtime{};r.world.TrainMotion=c;r.state.Life.Enabled=true;r.state.Life.Seconds=start
+  target:=c.Bindings[0].StartM-c.Modules[0].LengthM/2
+  type seen struct{at,predicted float64}
+  forecasts:=[2][]seen{}
+  arrivals:=[2][]float64{}
+  lastRun:=int64(0)
+  for tick:=int64(1);tick<=12000;tick++{
+   prior:=r.state.Life.Seconds;r.state.Tick=tick;r.state.Life.Seconds+=rate;r.advanceTrainMotion(prior)
+   s:=r.state.TrainDispatch;ns:=r.simNS();now:=float64(ns)/1e9
+   distance,_,_,_:=c.dispatchPose(s,ns)
+   if s.Active!=0&&s.Run!=lastRun{
+    lastRun=s.Run;m:=s.Active-1
+    arrive:=float64(s.StartNS)/1e9
+    if m==0{arrive+=c.secondsToDistance(target,c.BerthDwellSeconds,false)}else{arrive+=trainProfileTime(c.freightProfile(),target)}
+    arrivals[m]=append(arrivals[m],arrive)
+   }
+   if tick%3==0{for m:=0;m<2;m++{
+    eta:=c.arrivalETA(s,m,ns,r.state.Life.Seconds,distance,target)
+    if eta>0{forecasts[m]=append(forecasts[m],seen{now,now+eta})}
+   }}
+  }
+  end:=float64(r.simNS())/1e9
+  for m:=0;m<2;m++{
+   if len(arrivals[m])==0&&m==0{t.Fatalf("rate %d from %d: no passenger run",rate,start)}
+   for _,arrive:=range arrivals[m]{
+    if arrive<30||arrive>end{continue}
+    early:=false
+    for _,f:=range forecasts[m]{
+     if f.at>=arrive||f.at<arrive-10.5{continue}
+     if math.Abs(f.predicted-arrive)>0.1{t.Fatalf("rate %d from %d member %d: at %.2f s the forecast named %.2f, the run arrived at %.2f",rate,start,m,f.at,f.predicted,arrive)}
+     if f.at<=arrive-10{early=true}
+    }
+    if !early{t.Fatalf("rate %d from %d member %d: the arrival at %.2f had no forecast 10 s ahead",rate,start,m,arrive)}
+   }
+   // a forecast never names an arrival that does not come: each one within 10 s of its time has a real arrival there
+   for _,f:=range forecasts[m]{
+    if f.predicted-f.at>10||f.predicted>end-1{continue}
+    ok:=false
+    for _,a:=range arrivals[m]{if math.Abs(a-f.predicted)<=0.1{ok=true}}
+    if !ok{t.Fatalf("rate %d from %d member %d: at %.2f the forecast named %.2f, no run arrived then",rate,start,m,f.at,f.predicted)}
+   }
+  }
+ }}
+}
+func TestSlowSectionHoldsTheWholeTrainAndKeepsTheBerth(t *testing.T){
+ c:=fixture(t);plain:=fixture(t);c.SlowSections=[]trainSlowSection{{ID:"slow.b",LevelID:"b",StartM:520,EndM:600,SpeedMPS:5}}
+ front,tail:=c.trainFrontM(),c.trainTailM()
+ s:=trainDispatchState{Active:1,StartNS:0,DepartNS:int64((c.approachSeconds()+20)*1e9)}
+ if c.approachSeconds()!=plain.approachSeconds()||c.leadSeconds(false,1)!=plain.leadSeconds(false,1){t.Fatal("the approach and the stand at the berth moved")}
+ extra:=0.0;slowSeen:=false
+ for at:=0.0;at<float64(c.finishNS(s))/1e9;at+=.01{
+  ns:=int64(at*1e9);d,v,phase,_:=c.dispatchPose(s,ns);d0,_,_,_:=plain.dispatchPose(s,ns)
+  if d+front>=520&&d-tail<=600&&(phase=="leaving"||phase=="accelerating"){slowSeen=true;if v>5+1e-9{t.Fatalf("over the limit on the section at %gs: %g m/s at %g m",at,v,d)}}
+  if d<503.45-front&&phase=="leaving"&&math.Abs(d-d0)>1e-6{t.Fatalf("the run before the section changed at %gs: %g against %g",at,d,d0)}
+  if v>c.SpeedMPS+1e-9||v<0{t.Fatalf("speed %g out of the profile",v)}
+ }
+ if !slowSeen{t.Fatal("the section was never passed")}
+ for _,p:=range c.outProfile(){extra+=p.seconds()}
+ for _,p:=range plain.outProfile(){extra-=p.seconds()}
+ if extra<=0||math.Abs(float64(c.finishNS(s)-plain.finishNS(s))/1e9-extra)>1e-6{t.Fatalf("the run is not longer by the profile's extra %g s",extra)}
+ freight:=trainDispatchState{Active:2,StartNS:0}
+ if float64(c.finishNS(freight)-plain.finishNS(freight))/1e9<=0{t.Fatal("the freight run kept its old length through the section")}
+ for d:=170.0;d<c.length();d+=7.3{
+  at:=c.secondsToDistance(d,20,false);x,_,_,_:=c.dispatchPose(s,int64(math.Round(at*1e9)))
+  if math.Abs(x-d)>1e-3{t.Fatalf("time to %g m gives %g m",d,x)}
+  ft:=c.secondsToDistance(d,0,true);fx,_,_,_:=c.dispatchPose(freight,int64(math.Round(ft*1e9)))
+  if math.Abs(fx-d)>1e-3{t.Fatalf("freight time to %g m gives %g m",d,fx)}
+ }
+ prev:=-1.0
+ for _,p:=range c.outProfile(){if prev>=0&&math.Abs(p.SpeedMPS-prev)>1e-9{t.Fatalf("the profile jumps in speed at %g m: %g to %g",p.FromM,prev,p.SpeedMPS)};prev=p.endSpeed()}
+}
 `
 
 func TestTrainPaintedBindingIdentityAndBerthProtection(t *testing.T) {

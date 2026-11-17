@@ -37,6 +37,20 @@ type TrainMotionCatalog struct {
 	Bindings          []TrainBinding     `json:"bindings"`
 	// Train v3: who rides inside each passenger car and how it is lit (optional; legacy catalogues omit it).
 	Cabin *TrainCabin `json:"cabin,omitempty"`
+	// Market polish v1 (design/market-polish/v1/BRIEF.md B2): speed limits on stretches of the route.
+	SlowSections []TrainSlowSection `json:"slow_sections,omitempty"`
+}
+
+// TrainSlowSection: a speed limit on route metres [StartM, EndM] seen from one level (its binding): the whole train runs at
+// SpeedMPS while any car is on it — the head enters at the limit, braking before it at the catalog's braking, the tail
+// leaves it before the pull-away at the catalog's acceleration (the server's lineProfile, the client's train_link.gd).
+type TrainSlowSection struct {
+	ID       string  `json:"id"`
+	LevelID  string  `json:"level_id"`
+	StartM   float64 `json:"start_m"`
+	EndM     float64 `json:"end_m"`
+	SpeedMPS float64 `json:"speed_mps"`
+	Why      string  `json:"why"`
 }
 
 // Timetable data is copied from transit.c7_loop by CUE, never assigned here.
@@ -49,6 +63,11 @@ type TrainTimetable struct {
 	BoardingWindowSeconds     int64 `json:"boarding_window_seconds"`
 	FreightOffsetSeconds      int64 `json:"freight_offset_seconds"`
 	FreightNightOffsetSeconds int64 `json:"freight_night_offset_seconds"`
+	// Market polish v1: the freight's own day period (0: the passenger's; then its day offset stays inside the passenger
+	// period) and the clear time on the shared track between a passenger run and a freight path the passenger yields to
+	// (physical seconds; the dispatcher's rule is in templates/train_dispatch.go.tmpl).
+	FreightPeriodSeconds int64   `json:"freight_period_seconds,omitempty"`
+	FreightGapSeconds    float64 `json:"freight_gap_seconds,omitempty"`
 }
 
 // Additional stock shares the route, module geometry and physical speed; only
@@ -156,8 +175,14 @@ func (c TrainMotionCatalog) validate(life json.RawMessage) error {
 	}
 	if c.Timetable != nil {
 		t := c.Timetable
-		if t.PeriodSeconds <= 0 || t.NightPeriodSeconds <= 0 || t.DayStartSecond < 0 || t.DayEndSecond <= t.DayStartSecond || t.DayEndSecond >= 86400 || t.OffsetSeconds < 0 || t.OffsetSeconds >= t.PeriodSeconds || t.OffsetSeconds >= t.NightPeriodSeconds || t.BoardingWindowSeconds <= 0 || t.FreightOffsetSeconds < 0 || t.FreightOffsetSeconds >= t.PeriodSeconds || t.FreightOffsetSeconds >= t.NightPeriodSeconds {
+		if t.PeriodSeconds <= 0 || t.NightPeriodSeconds <= 0 || t.DayStartSecond < 0 || t.DayEndSecond <= t.DayStartSecond || t.DayEndSecond >= 86400 || t.OffsetSeconds < 0 || t.OffsetSeconds >= t.PeriodSeconds || t.OffsetSeconds >= t.NightPeriodSeconds || t.BoardingWindowSeconds <= 0 || t.FreightOffsetSeconds < 0 || t.FreightOffsetSeconds >= t.PeriodSeconds && t.FreightPeriodSeconds == 0 || t.FreightOffsetSeconds >= t.NightPeriodSeconds {
 			return fmt.Errorf("invalid operational train timetable")
+		}
+		if t.FreightPeriodSeconds != 0 && (t.FreightPeriodSeconds < t.PeriodSeconds || t.FreightPeriodSeconds > t.DayEndSecond-t.DayStartSecond || t.FreightOffsetSeconds >= t.FreightPeriodSeconds) {
+			return fmt.Errorf("freight_period_seconds %d: one passenger period or more, at most the day, longer than the freight offset %d", t.FreightPeriodSeconds, t.FreightOffsetSeconds)
+		}
+		if math.IsNaN(t.FreightGapSeconds) || t.FreightGapSeconds < 0 || t.FreightGapSeconds > 120 {
+			return fmt.Errorf("freight_gap_seconds %v is 0..120", t.FreightGapSeconds)
 		}
 		if (math.IsNaN(c.DoorTravelM) || math.IsInf(c.DoorTravelM, 0)) || c.DoorTravelM <= 0 || c.DoorTravelM > 3 || c.AccelerationMPS2 <= 0 || c.AccelerationMPS2 > 10 || math.IsNaN(c.AccelerationMPS2) || c.BrakingMPS2 <= 0 || c.BrakingMPS2 > 10 || math.IsNaN(c.BrakingMPS2) || c.BerthDistanceM <= c.SpeedMPS*c.SpeedMPS/(2*c.BrakingMPS2) || c.DoorCloseSeconds <= 0 || c.DoorCloseSeconds > 10 {
 			return fmt.Errorf("invalid berth or acceleration/braking/door timing")
@@ -290,7 +315,49 @@ func (c TrainMotionCatalog) validate(life json.RawMessage) error {
 	if len(levels) < 3 {
 		return fmt.Errorf("at least three distinct level bindings required")
 	}
+	if err := c.validateSlowSections(length, tail); err != nil {
+		return err
+	}
 	return c.validateCabin()
+}
+
+// validateSlowSections: each limit is a real slowdown on a stretch its level shows, in route order, and the run reaches line
+// speed between them: the first braking begins after the passenger train has pulled away from the berth to line speed (the
+// approach to the berth and the freight's first metres stay at line speed), each next one after the previous pull-away, the
+// last pull-away inside the route. The whole train is slow from its head entering to its tail leaving (front, tail metres).
+func (c TrainMotionCatalog) validateSlowSections(length, tail float64) error {
+	finite := func(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) }
+	after := c.BerthDistanceM + c.SpeedMPS*c.SpeedMPS/(2*c.AccelerationMPS2)
+	ids := map[string]bool{}
+	front := c.Modules[0].LengthM / 2
+	for _, s := range c.SlowSections {
+		if s.ID == "" || ids[s.ID] || strings.TrimSpace(s.Why) == "" {
+			return fmt.Errorf("slow section: id (unique) and why required")
+		}
+		ids[s.ID] = true
+		if !finite(s.StartM) || !finite(s.EndM) || !finite(s.SpeedMPS) || s.SpeedMPS <= 0 || s.SpeedMPS >= c.SpeedMPS || s.EndM <= s.StartM {
+			return fmt.Errorf("slow section %s: a limit below the line speed %v m/s on a stretch [start, end)", s.ID, c.SpeedMPS)
+		}
+		seen := false
+		for _, b := range c.Bindings {
+			if b.LevelID == s.LevelID && s.StartM >= b.StartM && s.EndM <= b.EndM {
+				seen = true
+			}
+		}
+		if !seen {
+			return fmt.Errorf("slow section %s: must lie on the route stretch its level %s shows", s.ID, s.LevelID)
+		}
+		drop := c.SpeedMPS*c.SpeedMPS - s.SpeedMPS*s.SpeedMPS
+		brake := s.StartM - front - drop/(2*c.BrakingMPS2)
+		if brake < after-1e-9 {
+			return fmt.Errorf("slow section %s: braking for it begins at %.1f m, before the run is at line speed (%.1f m)", s.ID, brake, after)
+		}
+		after = s.EndM + tail + drop/(2*c.AccelerationMPS2)
+		if after > length {
+			return fmt.Errorf("slow section %s: the pull-away after it ends past the route (%.1f of %.1f m)", s.ID, after, length)
+		}
+	}
+	return nil
 }
 
 func trainHintKeys(c TrainMotionCatalog) []string {

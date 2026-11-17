@@ -16,6 +16,10 @@ type trainTimetable struct {
  BoardingWindowSeconds int64 `json:"boarding_window_seconds"`
  FreightOffsetSeconds int64 `json:"freight_offset_seconds"`
  FreightNightOffsetSeconds int64 `json:"freight_night_offset_seconds"`
+ // Market polish v1: the freight's own day period (0: the passenger's) and the clear time kept on the shared track between
+ // a passenger run and a freight path the passenger yields to (physical seconds).
+ FreightPeriodSeconds int64 `json:"freight_period_seconds,omitempty"`
+ FreightGapSeconds float64 `json:"freight_gap_seconds,omitempty"`
 }
 
 // No wall clock or observer belongs to this state. Departures crossed during
@@ -39,22 +43,134 @@ func(t trainTimetable)next(now int64,freight bool)int64{
  offset:=t.OffsetSeconds
  if freight{offset+=t.FreightOffsetSeconds}
  e:=behavior.LifeEdge{Mode:"rail",PeriodSeconds:t.PeriodSeconds,NightPeriodSeconds:t.NightPeriodSeconds,DayStartSecond:t.DayStartSecond,DayEndSecond:t.DayEndSecond,OffsetSeconds:offset}
- if freight{value:=t.FreightNightOffsetSeconds;e.NightOffsetSeconds=&value}
+ if freight{value:=t.FreightNightOffsetSeconds;e.NightOffsetSeconds=&value;if t.FreightPeriodSeconds>0{e.PeriodSeconds=t.FreightPeriodSeconds}}
  return e.NextDeparture(now)
+}
+// trainPiece: a stretch of a run at one acceleration: route metres [FromM, ToM], the speed at FromM, the acceleration.
+type trainPiece struct{FromM,ToM,SpeedMPS,AccelMPS2 float64}
+func(p trainPiece)endSpeed()float64{return math.Sqrt(math.Max(0,p.SpeedMPS*p.SpeedMPS+2*p.AccelMPS2*(p.ToM-p.FromM)))}
+func(p trainPiece)seconds()float64{
+ if p.AccelMPS2==0{return (p.ToM-p.FromM)/p.SpeedMPS}
+ return (p.endSpeed()-p.SpeedMPS)/p.AccelMPS2
+}
+// trainFrontM, trainTailM: the head car's front ahead of the run distance (its centre) and the last car's rear behind it.
+func(c *trainMotionCatalog)trainFrontM()float64{return c.Modules[0].LengthM/2}
+func(c *trainMotionCatalog)trainTailM()float64{m:=c.Modules[len(c.Modules)-1];return -m.OffsetM+m.LengthM/2}
+// lineProfile: a run at line speed from route metre `from` to the route's end through the slow sections: before each, braking
+// so the head enters at the limit; the limit held until the tail is out; then the pull-away to line speed. The run distance
+// is the head car's centre, as the server's pose.
+func(c *trainMotionCatalog)lineProfile(from float64)[]trainPiece{
+ out:=[]trainPiece{}
+ at:=from
+ add:=func(to,speed,accel float64){if to>at+1e-9{out=append(out,trainPiece{FromM:at,ToM:to,SpeedMPS:speed,AccelMPS2:accel});at=to}}
+ for _,s:=range c.SlowSections{
+  v,u:=c.SpeedMPS,s.SpeedMPS
+  slowFrom:=s.StartM-c.trainFrontM()
+  slowTo:=s.EndM+c.trainTailM()
+  add(math.Min(c.length(),slowFrom-(v*v-u*u)/(2*c.BrakingMPS2)),v,0)
+  add(math.Min(c.length(),slowFrom),v,-c.BrakingMPS2)
+  add(math.Min(c.length(),slowTo),u,0)
+  add(math.Min(c.length(),slowTo+(v*v-u*u)/(2*c.AccelerationMPS2)),u,c.AccelerationMPS2)
+ }
+ add(c.length(),c.SpeedMPS,0)
+ return out
+}
+// outProfile: the passenger run from the berth (standing) to the route's end; freightProfile: the freight run from route
+// metre 0 at line speed (no stop).
+func(c *trainMotionCatalog)outProfile()[]trainPiece{
+ accelerationDistance:=c.SpeedMPS*c.SpeedMPS/(2*c.AccelerationMPS2)
+ return append([]trainPiece{{FromM:c.BerthDistanceM,ToM:c.BerthDistanceM+accelerationDistance,SpeedMPS:0,AccelMPS2:c.AccelerationMPS2}},c.lineProfile(c.BerthDistanceM+accelerationDistance)...)
+}
+func(c *trainMotionCatalog)freightProfile()[]trainPiece{return c.lineProfile(0)}
+func trainProfileSeconds(p []trainPiece)float64{total:=0.0;for _,x:=range p{total+=x.seconds()};return total}
+// trainProfileTime: seconds from the profile's start to route metre x (clamped to the profile).
+func trainProfileTime(p []trainPiece,x float64)float64{
+ total:=0.0
+ for _,q:=range p{
+  if x>=q.ToM{total+=q.seconds();continue}
+  if x<=q.FromM{break}
+  part:=trainPiece{FromM:q.FromM,ToM:x,SpeedMPS:q.SpeedMPS,AccelMPS2:q.AccelMPS2}
+  return total+part.seconds()
+ }
+ return total
+}
+// trainProfileAt: route metre, speed and piece index t seconds after the profile's start (held at its end after it).
+func trainProfileAt(p []trainPiece,t float64)(x,v float64,piece int){
+ for i,q:=range p{
+  d:=q.seconds()
+  if t<d{return q.FromM+q.SpeedMPS*t+.5*q.AccelMPS2*t*t,q.SpeedMPS+q.AccelMPS2*t,i}
+  t-=d
+ }
+ last:=p[len(p)-1]
+ return last.ToM,last.endSpeed(),len(p)-1
 }
 func(c *trainMotionCatalog)approachSeconds()float64{
  return c.BerthDistanceM/c.SpeedMPS+c.SpeedMPS/(2*c.BrakingMPS2)
 }
 func(c *trainMotionCatalog)leadSeconds(freight bool,rate float64)float64{
- if freight{ for _,binding:=range c.Bindings {if binding.LevelID==c.BerthLevelID{return binding.StartM/c.SpeedMPS*rate}};return 0}
+ if freight{ for _,binding:=range c.Bindings {if binding.LevelID==c.BerthLevelID{return trainProfileTime(c.freightProfile(),binding.StartM)*rate}};return 0}
  return (c.approachSeconds()+c.BerthDwellSeconds+c.DoorCloseSeconds)*rate
+}
+// passengerRunSeconds: a passenger run from its start to the route's end (approach, dwell, door close, the run out).
+func(c *trainMotionCatalog)passengerRunSeconds()float64{
+ return c.approachSeconds()+c.BerthDwellSeconds+c.DoorCloseSeconds+trainProfileSeconds(c.outProfile())
+}
+// freightPath: the start (physical ns, on the clock from (fromNS, fromGame) at `rate`) of the freight slot `due`, and
+// whether it is a path the passenger yields to: with a freight fleet and a day freight period of its own, at a pace where the
+// next freight slot leaves room for the freight, a passenger run and the gaps between them (at the ordinary pace; at
+// fast-forward the slots crowd and the passenger keeps precedence, as before).
+func(c *trainMotionCatalog)freightPath(due int64,fromNS int64,fromGame,rate float64)(startNS int64,priority bool){
+ startNS=fromNS+int64((float64(due)-c.leadSeconds(true,rate)-fromGame)/rate*1e9)
+ if len(c.AdditionalFleet)==0||c.Timetable.FreightPeriodSeconds<=0{return startNS,false}
+ following:=c.Timetable.next(due+1,true)
+ room:=(float64(following-due))/rate
+ return startNS,room>=trainProfileSeconds(c.freightProfile())+c.passengerRunSeconds()+2*c.Timetable.FreightGapSeconds
 }
 func(c *trainMotionCatalog)finishNS(s trainDispatchState)int64{
  if s.Active==0{return s.LastNS}
- if s.Active==2{return s.StartNS+int64(c.length()/c.SpeedMPS*1e9)}
- accelerationTime:=c.SpeedMPS/c.AccelerationMPS2
- accelerationDistance:=c.SpeedMPS*c.SpeedMPS/(2*c.AccelerationMPS2)
- return s.DepartNS+int64((c.DoorCloseSeconds+accelerationTime+(c.length()-c.BerthDistanceM-accelerationDistance)/c.SpeedMPS)*1e9)
+ if s.Active==2{return s.StartNS+int64(trainProfileSeconds(c.freightProfile())*1e9)}
+ return s.DepartNS+int64((c.DoorCloseSeconds+trainProfileSeconds(c.outProfile()))*1e9)
+}
+// dispatchEvents applies the dispatch rule to s over the game clock from (fromNS, fromGame) at `rate` game seconds a
+// physical second, up to game second untilGame: every slot whose start falls in it is accepted or skipped, in time order (a
+// slot during an occupied run, a freight that would still be out when the next passenger run starts). started (may be nil)
+// sees each accepted run at once; true stops the walk. The live dispatcher (advanceTrainMotion) and the forecast
+// (nextStartSeconds) run these same steps, so a forecast is what the dispatcher will do at the same rate.
+func(c *trainMotionCatalog)dispatchEvents(s *trainDispatchState,fromNS int64,fromGame,untilGame,rate float64,started func(member int)bool){
+ for events:=0;events<4096;events++{
+  member:=-1;eventNS:=int64(math.MaxInt64)
+  for i,due:=range s.Next{
+   gameStart:=float64(due)-c.leadSeconds(i==1,rate)
+   if gameStart>untilGame{continue}
+   at:=fromNS+int64((gameStart-fromGame)/rate*1e9)
+   at=max(fromNS,at)
+   if at<eventNS{member=i;eventNS=at}
+  }
+  if member<0{return}
+  if s.Active!=0&&c.finishNS(*s)<=eventNS{s.Active=0;s.Completed++;s.Riders=nil}
+  departure:=s.Next[member]
+  s.Next[member]=c.Timetable.next(departure+1,member==1)
+  if float64(departure)-c.leadSeconds(member==1,rate)<fromGame-.000001{s.Skipped++;continue}
+  if s.Active!=0{s.Skipped++;continue}
+  if member==1&&len(c.AdditionalFleet)==0{continue}
+  gap:=int64(c.Timetable.FreightGapSeconds*1e9)
+  if member==0{
+   // a passenger yields to the freight's path when its run would still be out within the gap before the path starts, and
+   // keeps the gap behind a freight that has just left (the last run was a freight: a passenger run always has a departure)
+   if freightStart,priority:=c.freightPath(s.Next[1],fromNS,fromGame,rate);priority&&eventNS<freightStart&&eventNS+int64(c.passengerRunSeconds()*1e9)+gap>freightStart{s.Skipped++;continue}
+   if s.Run>0&&s.DepartNS==0&&s.StartNS+int64(trainProfileSeconds(c.freightProfile())*1e9)+gap>eventNS{s.Skipped++;continue}
+  }
+  if member==1 {
+   // the safety rule: a freight that would still be out when the next passenger run starts yields to it (a freight path
+   // the passengers yield to has no such passenger: they yielded or wait behind it, skipped while it is out)
+   if _,priority:=c.freightPath(departure,fromNS,fromGame,rate);!priority{
+    passengerStart:=fromNS+int64((float64(s.Next[0])-c.leadSeconds(false,rate)-fromGame)/rate*1e9)
+    if eventNS+int64(trainProfileSeconds(c.freightProfile())*1e9)>passengerStart{s.Skipped++;continue}
+   }
+  }
+  s.Active=member+1;s.Riders=nil;s.StartNS=eventNS;s.DepartNS=0;if member==0{s.DepartNS=eventNS+int64((c.approachSeconds()+c.BerthDwellSeconds)*1e9)};s.Departure=departure;s.Run++
+  if started!=nil&&started(member){return}
+ }
 }
 func(r *Runtime)advanceTrainMotion(previousGame int64){
  c:=r.world.TrainMotion
@@ -76,28 +192,7 @@ func(r *Runtime)advanceTrainMotion(previousGame int64){
  }
  // Once accepted, every physical segment (including dwell) is fixed in the save.
  // Changing game rate cannot shorten a visible stop or move a train in view.
- for events:=0;events<4096;events++{
-  member:=-1;eventNS:=int64(math.MaxInt64)
-  for i,due:=range s.Next{
-   gameStart:=float64(due)-c.leadSeconds(i==1,rate)
-   if gameStart>float64(r.state.Life.Seconds){continue}
-   at:=previousNS+int64((gameStart-float64(previousGame))/rate*1e9)
-   at=max(previousNS,at)
-   if at<eventNS{member=i;eventNS=at}
-  }
-  if member<0{break}
-  if s.Active!=0&&c.finishNS(*s)<=eventNS{s.Active=0;s.Completed++;s.Riders=nil}
-  departure:=s.Next[member]
-  s.Next[member]=c.Timetable.next(departure+1,member==1)
-  if float64(departure)-c.leadSeconds(member==1,rate)<float64(previousGame)-.000001{s.Skipped++;continue}
-  if s.Active!=0{s.Skipped++;continue}
-  if member==1&&len(c.AdditionalFleet)==0{continue}
-  if member==1 {
-   passengerStart:=previousNS+int64((float64(s.Next[0])-c.leadSeconds(false,rate)-float64(previousGame))/rate*1e9)
-   if eventNS+int64(c.length()/c.SpeedMPS*1e9)>passengerStart{s.Skipped++;continue}
-  }
-  s.Active=member+1;s.Riders=nil;s.StartNS=eventNS;s.DepartNS=0;if member==0{s.DepartNS=eventNS+int64((c.approachSeconds()+c.BerthDwellSeconds)*1e9)};s.Departure=departure;s.Run++
- }
+ c.dispatchEvents(s,previousNS,float64(previousGame),float64(r.state.Life.Seconds),rate,nil)
  if s.Active!=0&&c.finishNS(*s)<=now{s.Active=0;s.Completed++;s.Riders=nil}
  s.LastNS=now
 }
@@ -107,7 +202,7 @@ func(r *Runtime)advanceTrainMotion(previousGame int64){
 func(c *trainMotionCatalog)dispatchPose(s trainDispatchState,ns int64)(distance,speed float64,phase string,doors bool){
  if s.Active==0{return 0,0,"idle",false}
  t:=math.Max(0,float64(ns-s.StartNS)/1e9)
- if s.Active==2{return math.Min(c.length(),t*c.SpeedMPS),c.SpeedMPS,"passing",false}
+ if s.Active==2{x,v,_:=trainProfileAt(c.freightProfile(),t);return x,v,"passing",false}
  brakingDistance:=c.SpeedMPS*c.SpeedMPS/(2*c.BrakingMPS2)
  cruiseTime:=(c.BerthDistanceM-brakingDistance)/c.SpeedMPS
  arrival:=c.approachSeconds()
@@ -120,31 +215,24 @@ func(c *trainMotionCatalog)dispatchPose(s trainDispatchState,ns int64)(distance,
  u:=float64(ns-s.DepartNS)/1e9
  if u<c.DoorCloseSeconds{return c.BerthDistanceM,0,"closing",false}
  u-=c.DoorCloseSeconds
- accelerationTime:=c.SpeedMPS/c.AccelerationMPS2
- if u<accelerationTime{return c.BerthDistanceM+.5*c.AccelerationMPS2*u*u,c.AccelerationMPS2*u,"accelerating",false}
- return math.Min(c.length(),c.BerthDistanceM+c.SpeedMPS*c.SpeedMPS/(2*c.AccelerationMPS2)+(u-accelerationTime)*c.SpeedMPS),c.SpeedMPS,"leaving",false
+ x,v,piece:=trainProfileAt(c.outProfile(),u)
+ if piece==0{return x,v,"accelerating",false}
+ return x,v,"leaving",false
 }
 
-// Forecast the next accepted slot, including skipped departures. It is a
-// read-only projection of the same dispatch rules at the current calendar rate.
+// Forecast the next accepted run of member: the dispatcher's own steps (dispatchEvents) on a copy of the saved state, from
+// now, at the current calendar rate, over the next two game days. Market polish v1: the old forecast re-derived the skip
+// rules and missed the case where a passenger run starting before a freight slot is still out when it comes (the
+// dispatcher skips that freight): the freight's forecast then named a slot that never ran and appeared only when its run
+// began, about 6 s before the hub (the beacons flashed 5 s instead of 10). Read-only: the saved state is not touched.
 func(c *trainMotionCatalog)nextStartSeconds(s trainDispatchState,member int,ns,game int64)float64{
+ if !s.Initialized{return -1}
  rate:=s.Rate;if rate<=0{rate=1}
- predicted:=s
- available:=ns
- if predicted.Active!=0{available=max(ns,c.finishNS(predicted))}
- due:=s.Next[member]
- for attempts:=0;attempts<1024;attempts++{
-  start:=float64(due-game)/rate-c.leadSeconds(member==1,rate)/rate
-  if ns+int64(start*1e9)<available{due=c.Timetable.next(due+1,member==1);continue}
-  if member==1{
-   gameStart:=float64(due)-c.leadSeconds(true,rate)
-   nextPassenger:=c.Timetable.next(int64(math.Ceil(gameStart+c.leadSeconds(false,rate))),false)
-   nextPassengerStart:=(float64(nextPassenger)-c.leadSeconds(false,rate)-float64(game))/rate
-   if start+c.length()/c.SpeedMPS>nextPassengerStart{due=c.Timetable.next(due+1,true);continue}
-  }
-  return math.Max(0,start)
- }
- return -1
+ sim:=s;sim.Riders=nil
+ startNS:=int64(-1)
+ c.dispatchEvents(&sim,ns,float64(game),float64(game)+2*86400,rate,func(m int)bool{if m==member{startNS=sim.StartNS;return true};return false})
+ if startNS<0{return -1}
+ return math.Max(0,float64(startNS-ns)/1e9)
 }
 
 func(r *Runtime)validateTrainDispatch(saved state)error{
@@ -165,18 +253,21 @@ func(r *Runtime)validateTrainDispatch(saved state)error{
 }
 
 func(c *trainMotionCatalog)secondsToDistance(distance,wait float64,freight bool)float64{
- if freight{return distance/c.SpeedMPS}
+ if freight{return trainProfileTime(c.freightProfile(),distance)}
  brakeDistance:=c.SpeedMPS*c.SpeedMPS/(2*c.BrakingMPS2)
  cruiseDistance:=c.BerthDistanceM-brakeDistance
  if distance<=cruiseDistance{return distance/c.SpeedMPS}
  if distance<c.BerthDistanceM{return cruiseDistance/c.SpeedMPS+(c.SpeedMPS-math.Sqrt(math.Max(0,c.SpeedMPS*c.SpeedMPS-2*c.BrakingMPS2*(distance-cruiseDistance))))/c.BrakingMPS2}
- rest:=distance-c.BerthDistanceM
- accelerationDistance:=c.SpeedMPS*c.SpeedMPS/(2*c.AccelerationMPS2)
- travel:=math.Sqrt(2*rest/c.AccelerationMPS2)
- if rest>accelerationDistance{travel=c.SpeedMPS/c.AccelerationMPS2+(rest-accelerationDistance)/c.SpeedMPS}
- return c.approachSeconds()+math.Max(0,wait)+c.DoorCloseSeconds+travel
+ return c.approachSeconds()+math.Max(0,wait)+c.DoorCloseSeconds+trainProfileTime(c.outProfile(),distance)
 }
 func(c *trainMotionCatalog)arrivalETA(s trainDispatchState,member int,ns,game int64,distance,target float64)float64{
+ start:=math.NaN()
+ return c.arrivalETAOnce(s,member,ns,game,distance,target,&start)
+}
+// arrivalETAOnce: arrivalETA with the member's next start kept in *start (NaN: not yet known), so the bindings of one
+// snapshot ask the dispatcher once (the forecast runs the dispatch rule forward: tens of microseconds at the ordinary pace,
+// up to a few hundred at fast-forward).
+func(c *trainMotionCatalog)arrivalETAOnce(s trainDispatchState,member int,ns,game int64,distance,target float64,start *float64)float64{
  wait:=c.BerthDwellSeconds
  if s.Active==member+1&&distance<target{
   if member==0&&target>c.BerthDistanceM{
@@ -185,6 +276,7 @@ func(c *trainMotionCatalog)arrivalETA(s trainDispatchState,member int,ns,game in
   }
   return math.Max(0,float64(s.StartNS-ns)/1e9+c.secondsToDistance(target,wait,member==1))
  }
- start:=c.nextStartSeconds(s,member,ns,game);if start<0{return -1}
- return start+c.secondsToDistance(target,wait,member==1)
+ if math.IsNaN(*start){*start=c.nextStartSeconds(s,member,ns,game)}
+ if *start<0{return -1}
+ return *start+c.secondsToDistance(target,wait,member==1)
 }

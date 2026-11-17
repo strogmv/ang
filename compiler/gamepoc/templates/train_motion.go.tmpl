@@ -31,6 +31,18 @@ type trainMotionCatalog struct {
 	Modules          []trainModuleDefinition  `json:"modules"`
 	Bindings         []trainBindingDefinition `json:"bindings"`
 	Cabin            *trainCabin              `json:"cabin,omitempty"`
+	// Market polish v1 (design/market-polish/v1/BRIEF.md B2): speed limits on stretches of the route (the market canyon).
+	SlowSections []trainSlowSection `json:"slow_sections,omitempty"`
+}
+// trainSlowSection: a speed limit on route metres [StartM, EndM]: the whole train runs at SpeedMPS while any car is on it
+// (the head enters at the limit, braking before it at the catalog's braking; the tail leaves it before the pull-away).
+type trainSlowSection struct {
+	ID       string  `json:"id"`
+	LevelID  string  `json:"level_id"`
+	StartM   float64 `json:"start_m"`
+	EndM     float64 `json:"end_m"`
+	SpeedMPS float64 `json:"speed_mps"`
+	Why      string  `json:"why"`
 }
 // Train v3: the inside of each passenger car. Places only bound the counts; the client seats the crowd.
 type trainCabin struct {
@@ -263,10 +275,11 @@ func (r *Runtime) trainMotionSnapshot() trainMotionSnapshot {
   }
   if localDoors{state.DoorProgress=1}else if active&&localPhase=="closing"{state.DoorProgress=math.Max(0,1-float64(ns-dispatch.DepartNS)/1e9/c.DoorCloseSeconds)}
   best:=math.Inf(1)
+  nextStart:=math.NaN()
   for _,binding:=range c.Bindings{
    visible:=false
    for _,module:=range state.Modules{for _,b:=range module.Bindings{if b.LevelID==binding.LevelID&&b.Visible{visible=true}}}
-   eta:=c.arrivalETA(dispatch,min(i,1),ns,snapshot.GameSeconds,distance,binding.StartM-c.Modules[0].LengthM/2)
+   eta:=c.arrivalETAOnce(dispatch,min(i,1),ns,snapshot.GameSeconds,distance,binding.StartM-c.Modules[0].LengthM/2,&nextStart)
    if visible{eta=0}
 
    arrivalClock:=0.0;if eta>=0{arrivalClock=snapshot.ClockSeconds+eta}

@@ -17,9 +17,10 @@ func clothMotionFixture() (ClothMotion, func(string) bool) {
 			ClampM: 0.12, Swing: ClothSwing{PeriodS: 1.7, DampingRatio: 0.14, MaxDeg: 75},
 			Bend:           ClothBend{PeriodS: 0.74, DampingRatio: 0.3, Share: 0.6, MaxDeg: 25},
 			NeighbourShare: 0.06, ContactMarginM: 0.015, Why: "the yatai's noren",
-			Clear: &ClearSheet{Tint: [3]float64{0.96, 0.88, 0.7}, Body: 0.5, Edge: 0.6, Roughness: 0.2, Specular: 0.5, DistortionM: 0.015,
-				Ripple: SheetRipple{TiltDeg: 2, WavesPerM: 2.5}, Frost: SheetFrost{FromM: 0, ToM: 0.55, Amount: 0.5, ScuffsPerM: 11},
-				Why: "clear like a cold-store door: the cook sees who comes"}}},
+			Clear: &ClearSheet{Tint: [3]float64{0.94, 0.97, 0.95}, Edge: SheetEdge{Tint: [3]float64{0.62, 0.8, 0.76}, WidthMM: 3, Scatter: 0.35}, OverlapM: 0.1,
+				Roughness: 0.2, Specular: 0.3, Ripple: SheetRipple{TiltDeg: 2, WavesPerM: 2.5},
+				Frost: SheetFrost{FromM: 0, ToM: 0.36, Amount: 0.5, ScuffsPerM: 11, Scratches: 3, Loss: 0.35, Scatter: 0.3},
+				Why:   "clear like a cold-store door: the cook sees who comes"}}},
 		Drapes: []ClothDrape{{ID: "drape.banners", LevelID: "level.market", Node: "DomeBanners", LengthM: 2.2, ClampM: 0.1,
 			Draft: "draft.hall_convection", Why: "banners under the dome"}},
 	}
@@ -36,7 +37,8 @@ func TestClothMotionAcceptedAndProjected(t *testing.T) {
 	for _, want := range []string{`"level.market":{`, `"instance":"yatai.F5"`, `"nodes":["yatai.strip.S00","yatai.strip.S01"]`,
 		`"period_s":1.7`, `"damping_ratio":0.14`, `"share":0.6`, `"length_m":1.08`, `"clamp_m":0.12`,
 		`"node":"DomeBanners"`, `"drift_deg":0.6`, `"drift_period_s":12`,
-		`"clear":{`, `"tint":[0.96,0.88,0.7]`, `"body":0.5`, `"distortion_m":0.015`, `"tilt_deg":2`, `"to_m":0.55`, `"scuffs_per_m":11`} {
+		`"clear":{`, `"tint":[0.94,0.97,0.95]`, `"edge":{"scatter":0.35,"tint":[0.62,0.8,0.76],"width_mm":3}`, `"overlap_m":0.1`, `"tilt_deg":2`,
+		`"to_m":0.36`, `"scuffs_per_m":11`, `"scratches":3`, `"loss":0.35`, `"scatter":0.3`} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("client cloth lacks %s: %s", want, s)
 		}
@@ -108,16 +110,21 @@ func TestClothMotionRejected(t *testing.T) {
 		"bad_id":           func(c *ClothMotion) { c.Curtains[0].ID = "Yatai" },
 		"nan_period":       func(c *ClothMotion) { c.Curtains[0].Swing.PeriodS = math.NaN() },
 		"negative_density": func(c *ClothMotion) { c.Curtains[0].Strip.DensityKgM3 = -1 },
-		"clear_opaque":     func(c *ClothMotion) { c.Curtains[0].Clear.Body = 1 },
+		"clear_opaque":     func(c *ClothMotion) { c.Curtains[0].Clear.Frost.Loss = 0.95 },
+		"edge_black":       func(c *ClothMotion) { c.Curtains[0].Clear.Edge.Tint = [3]float64{0.05, 0.05, 0.05} },
+		"edge_rim":         func(c *ClothMotion) { c.Curtains[0].Clear.Edge.WidthMM = 30 },
+		"edge_glows":       func(c *ClothMotion) { c.Curtains[0].Clear.Edge.Scatter = 3 },
+		"overlap_too_much": func(c *ClothMotion) { c.Curtains[0].Clear.OverlapM = 0.2 },
+		"scratches_many":   func(c *ClothMotion) { c.Curtains[0].Clear.Frost.Scratches = 9 },
+		"frost_glows":      func(c *ClothMotion) { c.Curtains[0].Clear.Frost.Scatter = 2 },
 		"clear_dark_tint":  func(c *ClothMotion) { c.Curtains[0].Clear.Tint = [3]float64{0.2, 0.2, 0.2} },
 		"clear_mirror":     func(c *ClothMotion) { c.Curtains[0].Clear.Specular = 3 },
-		"clear_warp":       func(c *ClothMotion) { c.Curtains[0].Clear.DistortionM = 0.3 },
 		"clear_ripple":     func(c *ClothMotion) { c.Curtains[0].Clear.Ripple.TiltDeg = 30 },
 		"frost_off_strip":  func(c *ClothMotion) { c.Curtains[0].Clear.Frost.ToM = 2 },
 		"frost_upside":     func(c *ClothMotion) { c.Curtains[0].Clear.Frost.FromM = 0.6 },
 		"frost_opaque":     func(c *ClothMotion) { c.Curtains[0].Clear.Frost.Amount = 1 },
 		"clear_no_why":     func(c *ClothMotion) { c.Curtains[0].Clear.Why = "" },
-		"clear_nan":        func(c *ClothMotion) { c.Curtains[0].Clear.Edge = math.NaN() },
+		"clear_nan":        func(c *ClothMotion) { c.Curtains[0].Clear.Edge.WidthMM = math.NaN() },
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {

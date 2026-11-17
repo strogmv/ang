@@ -36,6 +36,9 @@ type TrainCabin struct {
 type TrainCabinSpot struct {
 	XM float64 `json:"x_m"`
 	YM float64 `json:"y_m"`
+	// Market polish v1 (cozy v2): the way a bay seat's rider faces along the car ("ahead": +X, "back": -X); empty: across,
+	// toward the aisle (the v1 benches) or, for a standing place, along the aisle.
+	Face string `json:"face,omitempty"`
 }
 
 type TrainCabinLook struct {
@@ -99,6 +102,13 @@ type TrainCabinPose struct {
 	Share   int        `json:"share"`
 	HeadDeg [3]float64 `json:"head_deg"`
 	Prop    string     `json:"prop"`
+	// Market polish v1 (cozy v2): the head's tilt and turn lean toward the window at the rider's side ("window"), and the
+	// arms over the seated clip: "point" (the window-side arm out at the window), "eat" (both forearms to the table),
+	// "hold" (a slate held up in both hands).
+	Toward string `json:"toward,omitempty"`
+	Arms   string `json:"arms,omitempty"`
+	// the painted card of another pose drawn for this one (far and fast cars: the silhouettes are alike at that size)
+	CardAs string `json:"card_as,omitempty"`
 }
 
 // TrainCabinHome is the hook for real people going home by this train: residents of Levels boarding by Edges.
@@ -147,6 +157,29 @@ type TrainCabinDressing struct {
 		HeightM float64 `json:"height_m"`
 		RiseMPS float64 `json:"rise_mps"`
 	} `json:"haze"`
+	// Market polish v1 (cozy v2): the stock's own materials the dressing replaces (hidden in the cabin: the v1 benches), and
+	// the table lamps of the bays — the bulb's glow and one small light each, car metres (x along, y across, z up).
+	HideMaterials []string         `json:"hide_materials,omitempty"`
+	Lamps         *TrainCabinLamps `json:"lamps,omitempty"`
+	// the share of the cabin's own glow (shades, bulbs, curtains, lit liner, its lights) kept in full daylight: by day the
+	// hall's light outshines it and the windows read calm (0 or absent: the same glow day and night, as v1)
+	DayKeep float64 `json:"day_keep,omitempty"`
+	// the glow of the riders' things (seats, tables, what is on them) lit by the cabin's light; absent: the liner's
+	KitGlow *float64 `json:"kit_glow,omitempty"`
+}
+type TrainCabinLamps struct {
+	Bulb struct {
+		Material string  `json:"material"`
+		Emission string  `json:"emission"`
+		Energy   float64 `json:"energy"`
+	} `json:"bulb"`
+	Light struct {
+		Color       string  `json:"color"`
+		Energy      float64 `json:"energy"`
+		RangeM      float64 `json:"range_m"`
+		Attenuation float64 `json:"attenuation"`
+	} `json:"light"`
+	At [][3]float64 `json:"at"`
 }
 type TrainCabinPeople struct {
 	Pool []struct {
@@ -191,6 +224,8 @@ type TrainCabinPaint struct {
 	Materials   []string `json:"materials"`
 	Strength    float64  `json:"strength"`
 	Tint        string   `json:"tint"`
+	// market polish v1: the share of its painted colour the car keeps at the least in the painting's light (night)
+	NightFloor float64 `json:"night_floor,omitempty"`
 }
 
 var trainCabinColor = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
@@ -220,6 +255,9 @@ func (c TrainMotionCatalog) validateCabin() error {
 	}
 	places := append(append([]TrainCabinSpot{}, k.Seats...), k.Standing...)
 	for i, p := range places {
+		if p.Face != "" && p.Face != "ahead" && p.Face != "back" {
+			return fmt.Errorf("cabin place %d faces %q: ahead, back or across (empty)", i, p.Face)
+		}
 		if !finite(p.XM) || !finite(p.YM) || math.Abs(p.XM) > halfLength-.2 || math.Abs(p.YM) > halfWidth-.2 {
 			return fmt.Errorf("cabin place %d lies outside the car body", i)
 		}
@@ -298,11 +336,11 @@ func (c TrainMotionCatalog) validateCabin() error {
 			return fmt.Errorf("cabin recolour colour %q is not #RRGGBB", r.Albedo)
 		}
 	}
-	return k.validateCozy()
+	return k.validateCozy(halfLength, halfWidth)
 }
 
 // validateCozy checks the cozy v1 blocks: the riders' lists the server indexes, the dressing, the people and the paint.
-func (k *TrainCabin) validateCozy() error {
+func (k *TrainCabin) validateCozy(halfLength, halfWidth float64) error {
 	finite := func(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) }
 	within := func(v, lo, hi float64, name string) error {
 		if !finite(v) || v < lo || v > hi {
@@ -346,6 +384,9 @@ func (k *TrainCabin) validateCozy() error {
 			}
 			if p.Prop != "" && p.Prop != "reader" {
 				return fmt.Errorf("cabin pose %q has an unknown prop %q", p.ID, p.Prop)
+			}
+			if (p.Toward != "" && p.Toward != "window") || (p.Arms != "" && p.Arms != "point" && p.Arms != "eat" && p.Arms != "hold") {
+				return fmt.Errorf("cabin pose %q leans %q with arms %q: toward window or none; arms point, eat, hold or none", p.ID, p.Toward, p.Arms)
 			}
 			for _, d := range p.HeadDeg {
 				if !finite(d) || math.Abs(d) > 45 {
@@ -403,6 +444,38 @@ func (k *TrainCabin) validateCozy() error {
 				return e
 			}
 		}
+		if err := within(d.DayKeep, 0, 1, "cabin glow kept by day"); err != nil {
+			return err
+		}
+		if d.KitGlow != nil {
+			if err := within(*d.KitGlow, 0, 2, "cabin kit glow"); err != nil {
+				return err
+			}
+		}
+		for _, m := range d.HideMaterials {
+			if strings.TrimSpace(m) == "" {
+				return fmt.Errorf("cabin dressing hides a material without a name")
+			}
+		}
+		if l := d.Lamps; l != nil {
+			if strings.TrimSpace(l.Bulb.Material) == "" || len(l.At) == 0 || len(l.At) > 32 {
+				return fmt.Errorf("cabin lamps need the bulb material and 1..32 places")
+			}
+			if err := colors(l.Bulb.Emission, l.Light.Color); err != nil {
+				return err
+			}
+			for _, e := range []error{within(l.Bulb.Energy, 0, 16, "lamp bulb energy"), within(l.Light.Energy, 0, 8, "lamp light energy"),
+				within(l.Light.RangeM, .1, 4, "lamp light range"), within(l.Light.Attenuation, .1, 8, "lamp light attenuation")} {
+				if e != nil {
+					return e
+				}
+			}
+			for i, a := range l.At {
+				if !finite(a[0]) || !finite(a[1]) || !finite(a[2]) || math.Abs(a[0]) > halfLength || math.Abs(a[1]) > halfWidth || a[2] < k.FloorM || a[2] > k.FloorM+2.5 {
+					return fmt.Errorf("cabin lamp %d lies outside the car body", i)
+				}
+			}
+		}
 	}
 	if p := k.People; p != nil {
 		if k.Riders == nil {
@@ -456,9 +529,16 @@ func (k *TrainCabin) validateCozy() error {
 			if pose.Share == 0 && pose.ID != k.Riders.Child.Pose {
 				continue
 			}
+			card := pose.ID
+			if pose.CardAs != "" {
+				if _, ok := poses[pose.CardAs]; !ok || pose.CardAs == pose.ID {
+					return fmt.Errorf("cabin pose %s draws the card of %q, not another rider pose", pose.ID, pose.CardAs)
+				}
+				card = pose.CardAs
+			}
 			for _, b := range bodies {
 				for _, v := range []string{"front", "back"} {
-					if !covered[pose.ID+"/"+b+"/"+v] {
+					if !covered[card+"/"+b+"/"+v] {
 						return fmt.Errorf("cabin card missing for pose %s, body %s, %s view", pose.ID, b, v)
 					}
 				}
@@ -479,7 +559,8 @@ func (k *TrainCabin) validateCozy() error {
 			return fmt.Errorf("cabin paint tint %q is not #RRGGBB", p.Tint)
 		}
 		for _, e := range []error{within(p.HalfLengthM, .5, 20, "paint length"), within(p.HalfWidthM, .2, 5, "paint width"),
-			within(p.Z0M, -3, 0, "paint bottom"), within(p.Z1M, .5, 5, "paint top"), within(p.Strength, 0, 1, "paint strength")} {
+			within(p.Z0M, -3, 0, "paint bottom"), within(p.Z1M, .5, 5, "paint top"), within(p.Strength, 0, 1, "paint strength"),
+			within(p.NightFloor, 0, .5, "paint night floor")} {
 			if e != nil {
 				return e
 			}
