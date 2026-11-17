@@ -188,3 +188,48 @@ func TestCraftCountersOnHalfIslandModules(t *testing.T) {
 		t.Fatalf("a counter deeper than the passport must be refused, got %v", err)
 	}
 }
+
+// Market goods stage 2: a shuttered island place has no shop; its dress may only hold bolted-on props (the shutter of a
+// section): no stock, no lamp, nothing shown by opening hours, and only where the counter really has no shop.
+func TestCraftShutteredPlaceDress(t *testing.T) {
+	c := craftFixture()
+	g := c.Craft
+	g.Models = map[string]CraftModel{"market.stall.shutter.unit": {Kind: "fixture", Scene: "res://kit/market-goods/market.stall.shutter.unit.tscn", SizeMM: [3]int{1500, 250, 1000}, Triangles: 900}}
+	g.Counters = []CraftCounter{
+		{Place: "C1-s0-1", Island: "island.C1", Shop: "shop", Side: "south", Units: []int{0, 1}},
+		{Place: "C1-n0-2", Island: "island.C1", Shop: "", Side: "north", Units: []int{0, 1, 2}},
+	}
+	shut := func() CraftDress {
+		return CraftDress{Place: "C1-n0-2", Shop: "", Frame: "counter", Replaces: []string{"C1-n0_front"}, Props: []CraftProp{
+			{ID: "shutter.0", Model: "market.stall.shutter.unit", XMM: 750, DMM: 160, ZMM: 950, Show: "always"},
+			{ID: "shutter.1", Model: "market.stall.shutter.unit", XMM: 2250, DMM: 160, ZMM: 950, Show: "always"},
+			{ID: "shutter.2", Model: "market.stall.shutter.unit", XMM: 3750, DMM: 160, ZMM: 950, Show: "always"},
+		}}
+	}
+	g.Dress = []CraftDress{shut()}
+	if err := validateCraft(c); err != nil {
+		t.Fatalf("a shuttered place rejected: %v", err)
+	}
+	cases := []struct {
+		name, want string
+		edit       func(d *CraftDress)
+	}{
+		{"shown only while open", "bolted-on", func(d *CraftDress) { d.Props[0].Show = "open" }},
+		{"a lamp", "bolted-on", func(d *CraftDress) { d.Props[1].Lit = true }},
+		{"a stock", "bolted-on", func(d *CraftDress) {
+			d.Props[2].Stock = &CraftPropStock{Full: 1, Half: "market.stall.shutter.unit", Few: "market.stall.shutter.unit"}
+		}},
+		{"a counter with a shop", "shuttered island counter", func(d *CraftDress) { d.Place = "C1-s0-1" }},
+		{"a bay", "shuttered island counter", func(d *CraftDress) { d.Frame = "bay"; d.AtMM = []int{1, 1, 1} }},
+		{"beyond its units", "outside the counter's own units", func(d *CraftDress) { d.Props[2].XMM = 5000 }},
+		{"an unknown model", "is not a fixture", func(d *CraftDress) { d.Props[0].Model = "market.stall.nothing" }},
+	}
+	for _, tc := range cases {
+		d := shut()
+		tc.edit(&d)
+		g.Dress = []CraftDress{d}
+		if err := validateCraft(c); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("%s: want an error with %q, got %v", tc.name, tc.want, err)
+		}
+	}
+}

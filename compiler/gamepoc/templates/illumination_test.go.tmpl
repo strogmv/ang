@@ -124,7 +124,10 @@ func TestIlluminationActualCatalogKeepsEngineeringAndCommerceIdentities(t *testi
 			}
 		}
 	}
-	if guides != 31 || vendingFaces != 6 || vendingScreens != 6 || backup != 3 || closed != 7 {
+	// dead (vacant) lamps, each change by name: 7 at market polish v1.1 (src.lum.pl.F1-n3, F2-n3, F3-n3, F4-n3, G8, L2-n0-2,
+	// L2-n3); +1 market goods stage 2 (17.11): src.lum.pl.R1-s0-1, the shuttered place R1-s0-1 (its lamps taken; L2-n0-2,
+	// shuttered too, was already a vacant unit) = 8
+	if guides != 31 || vendingFaces != 6 || vendingScreens != 6 || backup != 3 || closed != 8 {
 		t.Fatalf("actual-source groups changed: guides%d vending%d/%d UPS%d vacant%d", guides, vendingFaces, vendingScreens, backup, closed)
 	}
 	g := illuminationFind(t, c, "src.lgc.r0.c0")

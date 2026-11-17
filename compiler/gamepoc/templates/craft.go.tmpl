@@ -470,10 +470,30 @@ func (r *Runtime) appendGoodsDress(view *pb.PocLifeView, hero *behavior.LifeActo
 				front = &r.world.Inventory.Shopfronts[i]
 			}
 		}
-		if front == nil || !viewSees(perception, int32(front.Service.At.X), int32(front.Service.At.Y)) {
+		// market goods stage 2: a shuttered island place has no shop — never open, seen through the cells of its counter
+		if d.Shop == "" {
+			seen := false
+			for _, k := range g.Counters {
+				if k.Place != d.Place || len(k.Units) == 0 {
+					continue
+				}
+				y := int32(k.At.Y)
+				if k.Side == "south" {
+					y += int32(g.Passport.SizeMM.D/500) - 1
+				}
+				for _, u := range k.Units {
+					for dx := int32(0); dx < 3 && !seen; dx++ {
+						seen = viewSees(perception, int32(k.At.X)+int32(u)*3+dx, y)
+					}
+				}
+			}
+			if !seen {
+				continue
+			}
+		} else if front == nil || !viewSees(perception, int32(front.Service.At.X), int32(front.Service.At.Y)) {
 			continue
 		}
-		open := r.storefrontOpen(d.Shop)
+		open := d.Shop != "" && r.storefrontOpen(d.Shop)
 		out := &pb.PocGoodsDress{Place: d.Place, Open: open}
 		// the frame of the place: its origin in plan metres, the direction of its x axis and of the way inwards
 		var x0, y0, z0, yaw float64

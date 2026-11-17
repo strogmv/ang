@@ -570,6 +570,35 @@ func validateCraftDress(c Compiled) error {
 			return fail("repeated place or no props")
 		}
 		seen[d.Place] = true
+		// market goods stage 2: a shuttered place of an island has no shop — only bolted-on props stand there (its
+		// shutter), never a stock, a lamp or a thing that comes and goes with opening hours it does not keep
+		if d.Shop == "" {
+			k, ok := counters[d.Place]
+			if d.Frame != "counter" || !ok || k.Shop != "" {
+				return fail("a dress without a shop is a shuttered island counter (no shop at this place)")
+			}
+			ids := map[string]bool{}
+			for _, q := range d.Props {
+				if q.ID == "" || ids[q.ID] {
+					return fail("prop id %q repeats", q.ID)
+				}
+				ids[q.ID] = true
+				if m, ok := g.Models[q.Model]; !ok || (m.Kind != "fixture" && m.Kind != "goods" && m.Kind != "prop") {
+					return fail("prop %s: %q is not a fixture, goods or prop model of the kit", q.ID, q.Model)
+				}
+				if q.Show != "always" || q.Stock != nil || q.Lit {
+					return fail("prop %s: a shuttered place shows only bolted-on props (show always, no stock, no lamp)", q.ID)
+				}
+				length, depth := len(k.Units)*1500, g.Passport.SizeMM.D/2
+				if k.DepthMM > 0 {
+					depth = k.DepthMM
+				}
+				if q.XMM < 0 || q.XMM > length || q.DMM < 0 || q.DMM > depth || q.ZMM > 2600 {
+					return fail("prop %s stands outside the counter's own units (x %d of %d, d %d of %d, z %d)", q.ID, q.XMM, length, q.DMM, depth, q.ZMM)
+				}
+			}
+			continue
+		}
 		if fronts[d.Shop] == 0 {
 			return fail("%s is not a shopfront", d.Shop)
 		}
