@@ -233,3 +233,51 @@ func TestCraftShutteredPlaceDress(t *testing.T) {
 		}
 	}
 }
+
+// market goods stage 2: a protected display (the shop does not pack away) keeps its stock rows behind the night cage; a shop
+// that packs away, a row without a stock and a thing do not.
+func TestCraftBehindCageDress(t *testing.T) {
+	c := heapFixture()
+	g := c.Craft
+	g.Stalls = nil
+	g.Models = map[string]CraftModel{
+		"market.stall.t.row.full": {Kind: "goods", Scene: "res://a.tscn", SizeMM: [3]int{300, 100, 100}, Triangles: 100},
+		"market.stall.t.row.half": {Kind: "goods", Scene: "res://b.tscn", SizeMM: [3]int{300, 100, 100}, Triangles: 60},
+		"market.stall.t.row.few":  {Kind: "goods", Scene: "res://c.tscn", SizeMM: [3]int{300, 100, 100}, Triangles: 30},
+	}
+	g.Counters[0].PackAway = false
+	c.Inventory.Shopfronts[0].PackAway = false
+	c.Inventory.Sources = []inv.Source{{ID: "a", Definition: "item.fruit", Quantity: 4, Owner: "char.t", ForSale: true, Location: inv.Location{Kind: "store", Store: "shop/display"}}}
+	dress := func() CraftDress {
+		return CraftDress{Place: "C1-s0-1", Shop: "shop", Frame: "counter", Props: []CraftProp{
+			{ID: "row", Model: "market.stall.t.row.full", XMM: 750, DMM: 160, ZMM: 950, Show: "open", BehindCage: true,
+				Stock: &CraftPropStock{Items: []string{"item.fruit"}, Full: 4, Half: "market.stall.t.row.half", Few: "market.stall.t.row.few"}},
+		}}
+	}
+	g.Dress = []CraftDress{dress()}
+	if err := validateCraftDress(c); err != nil {
+		t.Fatalf("a protected display rejected: %v", err)
+	}
+	cases := []struct {
+		name, want string
+		edit       func(c *Compiled, d *CraftDress)
+	}{
+		{"no stock", "only a stock row", func(c *Compiled, d *CraftDress) { d.Props[0].Stock = nil }},
+		{"shown always", "only a stock row", func(c *Compiled, d *CraftDress) { d.Props[0].Show = "always" }},
+		{"a shop that packs away", "packs away", func(c *Compiled, d *CraftDress) { c.Inventory.Shopfronts[0].PackAway = true }},
+	}
+	for _, tc := range cases {
+		c2 := heapFixture()
+		c2.Craft.Stalls = nil
+		c2.Craft.Models = g.Models
+		c2.Craft.Counters[0].PackAway = false
+		c2.Inventory.Shopfronts[0].PackAway = false
+		c2.Inventory.Sources = c.Inventory.Sources
+		d := dress()
+		tc.edit(&c2, &d)
+		c2.Craft.Dress = []CraftDress{d}
+		if err := validateCraftDress(c2); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("%s: want an error with %q, got %v", tc.name, tc.want, err)
+		}
+	}
+}

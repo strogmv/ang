@@ -248,6 +248,9 @@ type CraftProp struct {
 	Show  string          `json:"show"`
 	Lit   bool            `json:"lit"`
 	Stock *CraftPropStock `json:"stock,omitempty"`
+	// market goods stage 2: a stock row of a protected display (the shop does not pack away) stays on the counter behind the
+	// night cage — shown at the closed place too, at its real level
+	BehindCage bool `json:"behind_cage,omitempty"`
 }
 type CraftDress struct {
 	Place    string      `json:"place"`
@@ -659,6 +662,12 @@ func validateCraftDress(c Compiled) error {
 			}
 			if d.Frame == "counter" && (q.XMM < 0 || q.XMM > length || q.DMM < 0 || q.DMM > depth || q.ZMM > 2600) {
 				return fail("prop %s stands outside the counter's own units (x %d of %d, d %d of %d, z %d)", q.ID, q.XMM, length, q.DMM, depth, q.ZMM)
+			}
+			if q.BehindCage && (q.Stock == nil || q.Show != "open") {
+				return fail("prop %s: only a stock row of the open place stays behind the night cage", q.ID)
+			}
+			if q.BehindCage && (d.Shop == "" || front.PackAway) {
+				return fail("prop %s: a shop that packs away at night keeps nothing behind a cage", q.ID)
 			}
 			if st := q.Stock; st != nil {
 				if q.Show != "open" {

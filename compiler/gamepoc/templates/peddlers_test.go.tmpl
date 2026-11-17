@@ -325,6 +325,22 @@ func TestPeddlersJunkReachesMaster(t *testing.T) {
 	acc, _ := r.peddlerAccount(ms.Actor)
 	acc.Balance = 5000
 	r.state.Inventory.Accounts[acc.ID] = acc
+	// the hall's other sellers of round connectors (the cable stall L1-n0-1, market goods stage 2) are sold out for this
+	// check: their counter's connectors go to their own reserve, so only Akim's cart can bring the class to Matvey
+	for _, s := range r.world.Inventory.Shopfronts {
+		if s.Owner == ms.Actor || s.Mobile() {
+			continue
+		}
+		for _, id := range sortedCraftingItems(r.state.Inventory) {
+			i := r.state.Inventory.Items[id]
+			if i.Definition == "item.part.round_connector" && i.Location.Kind == "store" && i.Location.Store == s.DisplayStore {
+				mv := inv.Relocate{Item: id, Quantity: i.Quantity, To: inv.Location{Kind: "store", Store: s.ReserveStore}, Owner: i.Owner}
+				if _, err := r.state.Inventory.Transform(r.inventoryModelFor(true), inv.Transform{Relocate: []inv.Relocate{mv}}); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+	}
 	money, goods := peddlerMoney(r), commerceTotal(r.state.Inventory)
 	box0, akim0 := r.craftingBox(ms, "round_connector"), peddlerBalance(r, akim.Actor)
 	far := (stop + 3) % len(akim.Stops)

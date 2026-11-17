@@ -75,7 +75,9 @@ type craftPropDef struct {
 	Yaw   int64  `json:"yaw"`
 	Show  string `json:"show"`
 	Lit   bool   `json:"lit"`
-	Stock *struct {
+	// a stock row of a protected display: shown behind the night cage at the closed place too (market goods stage 2)
+	BehindCage bool `json:"behind_cage"`
+	Stock      *struct {
 		Items []string `json:"items"`
 		Full  int64    `json:"full"`
 		Half  string   `json:"half"`
@@ -526,7 +528,7 @@ func (r *Runtime) appendGoodsDress(view *pb.PocLifeView, hero *behavior.LifeActo
 			} else {
 				row.X, row.Y = x0+along*float64(q.XMM)/1000, y0+inwards*float64(q.DMM)/1000
 			}
-			shown := q.Show == "always" || (q.Show == "open") == open
+			shown := q.Show == "always" || (q.Show == "open") == open || (q.BehindCage && d.Shop != "" && front != nil && !front.PackAway)
 			if shown {
 				row.Fill, row.HeapResource = "full", g.Models[q.Model].Scene
 				if st := q.Stock; st != nil {
