@@ -398,6 +398,41 @@ func TestScreenSaveSlotTellsWorldDayClockAndPlace(t *testing.T) {
 		t.Fatal("a slot without a level got a place")
 	}
 }
+func TestScreenSaveSlotsComeAgainInTheNewLanguage(t *testing.T) {
+	r := lifeRuntimeFixture(t)
+	slots := r.world.Config.SaveSlots
+	if len(slots) < 1 {
+		t.Fatal("fixture needs a save slot")
+	}
+	if err := r.writeSave(slots[0], r.snapshotState()); err != nil {
+		t.Fatal(err)
+	}
+	for len(r.jobs) > 0 {
+		<-r.jobs
+	}
+	c := &connection{locale: "ru", out: make(chan *pb.ServerMessage, 64), stop: make(chan struct{})}
+	r.command(input{client: c, msg: &pb.ClientMessage{Msg: &pb.ClientMessage_Locale{Locale: &pb.PocLocaleRequest{Locale: "en"}}}})
+	if len(r.jobs) != 1 {
+		t.Fatalf("a new language queued %d slot lists, want 1", len(r.jobs))
+	}
+	j := <-r.jobs
+	if j.action != "list" || j.client != c {
+		t.Fatalf("a new language queued %+v, want the slot list for that client", j)
+	}
+	r.diskComplete(diskResult{job: j, slots: r.storageRuntime().readSlots()})
+	want := &pb.PocSaveSlot{LevelId: r.state.Life.Actor(playerActorID).Level}
+	r.screenSlotPlace("en", want)
+	for len(c.out) > 0 {
+		m := <-c.out
+		if list := m.GetSaveSlots(); list != nil {
+			if len(list.Slots) == 0 || list.Slots[0].Place != want.Place || want.Place == "" {
+				t.Fatalf("slots after the new language name the place %q, want %q", list.Slots[0].Place, want.Place)
+			}
+			return
+		}
+	}
+	t.Fatal("no slot list was sent in the new language")
+}
 func TestScreenApproachAcrossTwoDataLayoutsIsReadOnly(t *testing.T) {
 	for _, layout := range []struct {
 		id                  string

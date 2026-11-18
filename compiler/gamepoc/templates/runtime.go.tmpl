@@ -700,6 +700,10 @@ func (r *Runtime) command(in input) {
 	if request := m.GetLocale(); request != nil {
 		c.locale = r.validLocale(request.Locale)
 		r.sendState(c)
+<<ANG if .GodotScreens ANG>>
+		// the save slots carry words in the player's language (the place, a problem): send them again in the new one
+		r.queueDisk(diskJob{client: c, action: "list"})
+<<ANG end ANG>>
 		return
 	}
 	if p := m.GetPing(); p != nil {
