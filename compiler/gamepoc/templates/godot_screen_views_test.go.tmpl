@@ -353,6 +353,51 @@ func TestScreenSaveLocalTimeUsesOffsetAtSavedInstant(t *testing.T) {
 		}
 	}
 }
+func TestScreenSaveSlotTellsWorldDayClockAndPlace(t *testing.T) {
+	r := lifeRuntimeFixture(t)
+	hero := r.state.Life.Actor(playerActorID)
+	if hero == nil {
+		t.Fatal("fixture needs the hero")
+	}
+	slots := r.world.Config.SaveSlots
+	if len(slots) < 2 {
+		t.Fatal("fixture needs two save slots")
+	}
+	r.state.Life.Seconds = 2*86400 + 14*3600 + 20*60
+	if err := r.writeSave(slots[0], r.snapshotState()); err != nil {
+		t.Fatal(err)
+	}
+	listed := r.storageRuntime().readSlots()
+	saved, empty := listed[0], listed[1]
+	if !saved.Valid || saved.GameDay != 3 || saved.GameClockSeconds != 14*3600+20*60 || saved.LevelId != hero.Level {
+		t.Fatalf("saved slot day %d clock %d level %q, want 3, 51600, %q", saved.GameDay, saved.GameClockSeconds,
+			saved.LevelId, hero.Level)
+	}
+	if empty.Exists || empty.GameDay != 0 || empty.LevelId != "" {
+		t.Fatalf("an empty slot claims a world: %+v", empty)
+	}
+	for _, locale := range []string{
+		"ru",
+		"en",
+	} {
+		slot := &pb.PocSaveSlot{LevelId: saved.LevelId}
+		r.screenSlotPlace(locale, slot)
+		want := r.regionLevelName(locale, saved.LevelId)
+		if node := r.regionNodeForLevel(saved.LevelId); node != nil {
+			if label := r.localText(locale, "region.node."+node.ID+".label", ""); label != "region.node."+node.ID+".label" {
+				want = label
+			}
+		}
+		if slot.Place == "" || slot.Place != want {
+			t.Fatalf("%s place %q, want the world's own short name %q", locale, slot.Place, want)
+		}
+	}
+	nowhere := &pb.PocSaveSlot{}
+	r.screenSlotPlace("ru", nowhere)
+	if nowhere.Place != "" {
+		t.Fatal("a slot without a level got a place")
+	}
+}
 func TestScreenApproachAcrossTwoDataLayoutsIsReadOnly(t *testing.T) {
 	for _, layout := range []struct {
 		id                  string

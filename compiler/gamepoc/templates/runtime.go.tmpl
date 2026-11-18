@@ -903,6 +903,9 @@ func (r *Runtime) diskComplete(result diskResult) {
 	if j.action == "list" {
         for _,slot := range result.slots {
             if slot.Problem!="" {slot.Problem=r.localText(j.client.locale,slot.Problem,slot.Problem)}
+<<ANG if .GodotScreens ANG>>
+            r.screenSlotPlace(j.client.locale, slot)
+<<ANG end ANG>>
         }
 		r.send(j.client, &pb.ServerMessage{Msg: &pb.ServerMessage_SaveSlots{SaveSlots: &pb.PocSaveSlots{Slots: result.slots}}})
 		return
@@ -1115,6 +1118,7 @@ func (r *Runtime) readSlots() []*pb.PocSaveSlot {
 			v.SavedAtUnixMs = created
 <<ANG if .GodotScreens ANG>>
             v.LocalOffsetSeconds = screenSaveOffset(created)
+			screenSlotWorld(v, s)
 <<ANG end ANG>>
 			v.Tick = s.Tick
 			v.Seed = s.Seed

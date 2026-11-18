@@ -185,3 +185,33 @@ func screenSaveOffset(unixMS int64) int32 {
 	_, offset := time.UnixMilli(unixMS).In(time.Local).Zone()
 	return int32(offset)
 }
+
+// screenSlotWorld tells a save slot where and when in the world the save was made: the day (from 1) and the time of day
+// of the living world, and the hero's level. A save without a living world leaves them empty, and the menu falls back
+// to the date of the file.
+func screenSlotWorld(slot *pb.PocSaveSlot, s state) {
+	if !s.Life.Enabled {
+		return
+	}
+	slot.GameDay = int32(s.Life.Seconds/86400 + 1)
+	slot.GameClockSeconds = int32(s.Life.Seconds % 86400)
+	if hero := s.Life.Actor(playerActorID); hero != nil {
+		slot.LevelId = hero.Level
+	}
+}
+
+// screenSlotPlace names the slot's level in the client's language: the place's short map label where the world has one
+// (it fits the menu's medallion), else its full name, as the world names it elsewhere.
+func (r *Runtime) screenSlotPlace(locale string, slot *pb.PocSaveSlot) {
+	if slot.LevelId == "" {
+		return
+	}
+	if node := r.regionNodeForLevel(slot.LevelId); node != nil {
+		key := "region.node." + node.ID + ".label"
+		if label := r.localText(locale, key, ""); label != key {
+			slot.Place = label
+			return
+		}
+	}
+	slot.Place = r.regionLevelName(locale, slot.LevelId)
+}
