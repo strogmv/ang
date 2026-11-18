@@ -166,6 +166,7 @@ type ScreenControl struct {
 	FontPX        int                    `json:"font_px"`
 	WidthPX       int                    `json:"width_px"`
 	Lines         int                    `json:"lines"`
+	LinePX        []int                  `json:"line_px,omitempty"`
 	Bind          map[string]ScreenValue `json:"bind,omitempty"`
 	Action        *ScreenAction          `json:"action,omitempty"`
 	Children      []ScreenControl        `json:"children,omitempty"`
@@ -500,7 +501,7 @@ func (g *screenCompiler) controls(nodes []ScreenControl, row string, ids, intera
 				textLines = 1
 			}
 		}
-		if err := screenText(c, n.Key, n.FontPX, textWidth, textLines, root); err != nil {
+		if err := screenTextSized(c, n.Key, n.FontPX, n.LinePX, textWidth, textLines, root); err != nil {
 			return fmt.Errorf("screen %s field %s.text_key: %w", g.id, field, err)
 		}
 		if err := screenText(c, n.FormatKey, n.FontPX, n.WidthPX, 2, root); err != nil {

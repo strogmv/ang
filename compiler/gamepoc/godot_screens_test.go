@@ -278,3 +278,23 @@ func TestGodotScreenGridVisibleRows(t *testing.T) {
 		t.Fatalf("non-grid accepted: %v", err)
 	}
 }
+
+// A title crest draws the name large and the subtitle under it smaller (line_px): the check measures each line at the
+// size it is drawn, so a subtitle that only fits at its own size passes, and the same text at one size does not.
+func TestScreenTextMeasuresEachLineAtItsOwnSize(t *testing.T) {
+	root, c, _ := screenFixture(t)
+	c.Localization.Messages = append(c.Localization.Messages, LocalizationMessage{Key: "ui.test.logo",
+		Texts: map[string]string{"ru": "Futurocide\nSecond Creation", "en": "Futurocide\nSecond Creation"}})
+	if err := screenTextSized(c, "ui.test.logo", 69, nil, 696, 2, root); err == nil || !strings.Contains(err.Error(), "3 > 2 lines") {
+		t.Fatalf("one size for both lines must wrap the subtitle: %v", err)
+	}
+	if err := screenTextSized(c, "ui.test.logo", 69, []int{69, 38}, 696, 2, root); err != nil {
+		t.Fatalf("each line at its own size must fit: %v", err)
+	}
+	if err := screenTextSized(c, "ui.test.logo", 69, []int{69, 60}, 696, 2, root); err == nil {
+		t.Fatal("a subtitle too large for the room must still fail")
+	}
+	if err := screenTextSized(c, "ui.test.logo", 69, []int{69, 11}, 696, 2, root); err == nil || !strings.Contains(err.Error(), "below 12 px") {
+		t.Fatalf("a line below 12 px must fail: %v", err)
+	}
+}

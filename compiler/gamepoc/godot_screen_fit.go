@@ -129,13 +129,35 @@ func (f screenFont) advance(r rune) (float64, error) {
 	return float64(u16(f.tables["hmtx"][glyph*4:glyph*4+2])) / float64(f.units), nil
 }
 func screenText(c Compiled, key string, px, width, lines int, root string) error {
-	return screenLocalizedText(c, key, px, width, lines, root, true)
+	return screenLocalizedTextSized(c, key, px, nil, width, lines, root, true)
+}
+
+// screenTextSized checks a text whose widget draws its lines at their own sizes (a title crest: the name, a smaller
+// subtitle under it): linePX holds the effective px of each line of the text's own line breaks, a line past the list
+// keeps the last size, and a wrapped piece keeps the size of its line. Empty linePX measures every line at px.
+func screenTextSized(c Compiled, key string, px int, linePX []int, width, lines int, root string) error {
+	return screenLocalizedTextSized(c, key, px, linePX, width, lines, root, true)
 }
 
 // Item names arrive translated by the server and are never exported to public PO.
 func screenLocalizedText(c Compiled, key string, px, width, lines int, root string, uiOnly bool) error {
+	return screenLocalizedTextSized(c, key, px, nil, width, lines, root, uiOnly)
+}
+
+func screenLocalizedTextSized(c Compiled, key string, px int, linePX []int, width, lines int, root string, uiOnly bool) error {
 	if px < 12 {
 		return fmt.Errorf("effective text %d px below 12 px", px)
+	}
+	for _, p := range linePX {
+		if p < 12 {
+			return fmt.Errorf("effective line text %d px below 12 px", p)
+		}
+	}
+	sizeAt := func(line int) int {
+		if len(linePX) == 0 {
+			return px
+		}
+		return linePX[min(line, len(linePX)-1)]
 	}
 	if width < 48 || width > 1280 || lines < 1 {
 		return fmt.Errorf("invalid text box at 1280x800: width %d, lines %d", width, lines)
@@ -167,13 +189,15 @@ func screenLocalizedText(c Compiled, key string, px, width, lines int, root stri
 			return fmt.Errorf("missing text %s locale %s", key, locale)
 		}
 		for _, f := range fonts {
-			count, used := 1, 0.0
+			count, used, forced := 1, 0.0, 0
 			for _, word := range strings.Fields(strings.ReplaceAll(copy, "\n", " \x00 ")) {
 				if word == "\x00" {
 					count++
+					forced++
 					used = 0
 					continue
 				}
+				size := sizeAt(forced)
 				w := 0.0
 				for _, r := range word {
 					adv, err := f.advance(r)
@@ -185,7 +209,7 @@ func screenLocalizedText(c Compiled, key string, px, width, lines int, root stri
 					if err != nil {
 						return fmt.Errorf("%s %s: %w", key, locale, err)
 					}
-					w += adv * float64(px) * 1.25 * 1.15
+					w += adv * float64(size) * 1.25 * 1.15
 				}
 				if math.Ceil(w) > float64(width) {
 					return fmt.Errorf("text %s locale %s cannot fit word at 1280x800/125%% (%g > %d px)", key, locale, w, width)
@@ -194,7 +218,7 @@ func screenLocalizedText(c Compiled, key string, px, width, lines int, root stri
 					count++
 					used = 0
 				}
-				used += w + float64(px)*.45
+				used += w + float64(size)*.45
 			}
 			if count > lines {
 				return fmt.Errorf("text %s locale %s cannot fit at 1280x800/125%% (%d > %d lines)", key, locale, count, lines)
