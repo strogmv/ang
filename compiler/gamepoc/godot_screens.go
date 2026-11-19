@@ -169,7 +169,10 @@ type ScreenControl struct {
 	LinePX        []int                  `json:"line_px,omitempty"`
 	Bind          map[string]ScreenValue `json:"bind,omitempty"`
 	Action        *ScreenAction          `json:"action,omitempty"`
-	Children      []ScreenControl        `json:"children,omitempty"`
+	// A custom widget's further actions by name (a save card's held delete beside its load): each declared and checked
+	// like action, on the same row; the widget runs one through the context's act(name, row).
+	Actions  map[string]*ScreenAction `json:"actions,omitempty"`
+	Children []ScreenControl          `json:"children,omitempty"`
 }
 type ScreenValue struct {
 	Path  string `json:"path,omitempty"`
@@ -289,8 +292,9 @@ static func _read_%s(
 	return p, nil
 }
 
-// Host commands are presentation/lifecycle operations, deliberately closed.
-var screenHostCommands = map[string]bool{"host.close": true, "host.open": true, "host.back": true, "host.main": true, "host.quit": true, "host.setting": true, "host.toggle": true}
+// Host commands are presentation/lifecycle operations, deliberately closed. host.delete_save deletes the save the
+// action's row names (its slot id): the host sends it to the server, which answers with the new list.
+var screenHostCommands = map[string]bool{"host.close": true, "host.open": true, "host.back": true, "host.main": true, "host.quit": true, "host.setting": true, "host.toggle": true, "host.delete_save": true}
 
 func (g *screenCompiler) action(a *ScreenAction, row, field string) error {
 	if a.Command == "" {
@@ -307,6 +311,8 @@ func (g *screenCompiler) action(a *ScreenAction, row, field string) error {
 			allowed["id"] = "setting"
 		case "host.toggle":
 			allowed["control"] = "control"
+		case "host.delete_save":
+			allowed["slot"] = "row string"
 		}
 		for _, key := range sortedScreenKeys(a.Params) {
 			if _, ok := allowed[key]; !ok {
@@ -324,6 +330,21 @@ func (g *screenCompiler) action(a *ScreenAction, row, field string) error {
 				return fmt.Errorf("screen %s field %s.params.%s: unknown host parameter", g.id, field, key)
 			}
 			v := a.Params[key]
+			if kind == "row string" {
+				// read from the row the action is on (a save card's slot id), never a literal
+				if v.Path == "" {
+					return fmt.Errorf("screen %s field %s.params.%s: expected a binding to a row's string", g.id, field, key)
+				}
+				p, err := g.bind(&v, row, field+".params."+key)
+				if err != nil {
+					return err
+				}
+				if p.typ != "string" || p.repeated {
+					return fmt.Errorf("screen %s field %s.params.%s: %s cannot bind a string", g.id, field, key, p.typ)
+				}
+				a.Params[key] = v
+				continue
+			}
 			id, literal := v.Value.(string)
 			if v.Path != "" || !literal {
 				return fmt.Errorf("screen %s field %s.params.%s: expected declared %s", g.id, field, key, kind)
@@ -585,6 +606,27 @@ func (g *screenCompiler) controls(nodes []ScreenControl, row string, ids, intera
 			}
 			if err := g.action(n.Action, actionRow, field+".action"); err != nil {
 				return err
+			}
+		}
+		if len(n.Actions) > 0 {
+			if n.Kind != "custom" {
+				return fmt.Errorf("screen %s field %s.actions: only a custom widget takes named actions", g.id, field)
+			}
+			actionRow := row
+			if n.ActionSource != "" {
+				p, err := g.path(n.Bind[n.ActionSource].Path, row)
+				if err != nil || !p.repeated {
+					return fmt.Errorf("screen %s field %s.action_source: expected a contract collection", g.id, field)
+				}
+				actionRow = p.typ
+			}
+			for _, name := range sortedScreenKeys(n.Actions) {
+				if !godotResourceID.MatchString(name) || n.Actions[name] == nil {
+					return fmt.Errorf("screen %s field %s.actions.%s: invalid action name or empty action", g.id, field, name)
+				}
+				if err := g.action(n.Actions[name], actionRow, field+".actions."+name); err != nil {
+					return err
+				}
 			}
 		}
 		childRow := row

@@ -397,10 +397,14 @@ func _node(n: Dictionary, parent: Node, row: C.ProtoMessage) -> void:
 			var values := {}
 			for key in bindings:
 				values[key] = ui.value(bindings[key], row)
+			# a named action of the widget's (CUE actions, checked by the generator) on a row: act.call(name, row)
+			var act := func(name: String, item):
+				if n.has("actions") and n.actions.has(name):
+					ui._act(n.actions[name], item)
 			var context := {"host":ui.host, "theme":ui.theme, "reduced_motion":ui._motion(),
 				"text_scale":
 					1.25 if ui._large(
-				) else 1.0, "portrait_fallback":Catalog.specification().get("portrait_fallback", "")}
+				) else 1.0, "portrait_fallback":Catalog.specification().get("portrait_fallback", ""), "act":act}
 			var selected_row := func(item):
 				if n.get("action_source", "") == "source":
 					ui._select(n.id, item)

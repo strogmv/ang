@@ -12,7 +12,9 @@ func TestSaveKindsPolicy(t *testing.T) {
 	for _, name := range []string{"new_game", "load_game", "save_game", "options", "continue_game", "main_menu", "quit"} {
 		valid.Labels[name] = name
 	}
-	auto := func() *AutoSavePolicy { return &AutoSavePolicy{Slots: []string{"auto1", "auto2", "auto3"}, EveryPlayMinutes: 60} }
+	auto := func() *AutoSavePolicy {
+		return &AutoSavePolicy{Slots: []string{"auto1", "auto2", "auto3"}, EveryPlayMinutes: 60}
+	}
 	quick := func() *QuickSavePolicy {
 		return &QuickSavePolicy{Slots: []string{"quick1", "quick2", "quick3"}, SaveKey: "F5", LoadKey: "F9", NoteSeconds: 1.5}
 	}
