@@ -116,6 +116,10 @@ func clientResource(c Compiled) ([]byte, error) {
 			"capture_support_distance_cells": c.Inventory.Preparation.SupportDistance,
 		},
 	}
+	// Quick save (owner 19.11): the client's keys and how long its note shows; the slots and the rotation stay server-owned.
+	if q := cfg.QuickSave; q != nil {
+		view["config"].(map[string]any)["quick_save"] = map[string]any{"save_key": q.SaveKey, "load_key": q.LoadKey, "note_seconds": q.NoteSeconds}
+	}
 	// Immutable model calibration only; routes and hidden station poses stay server-owned.
 	if c.TrainMotion != nil {
 		view["train_modules"] = c.TrainMotion.Modules

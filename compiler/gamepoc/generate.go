@@ -77,6 +77,75 @@ type Config struct {
 	SaveCompatibleHashes  []string          `json:"save_compatible_hashes,omitempty"`
 	MaxSaveBytes          int64             `json:"max_save_bytes"`
 	Labels                map[string]string `json:"labels"`
+	// Saves of the other kinds (owner 19.11): the timed autosave and the quick save, each in its own slots rotating
+	// (templates/saves.go.tmpl). Without them a game has only the manual save_slots.
+	AutoSave  *AutoSavePolicy  `json:"auto_save,omitempty"`
+	QuickSave *QuickSavePolicy `json:"quick_save,omitempty"`
+}
+
+// AutoSavePolicy: the server saves on its own into Slots (the oldest is overwritten) after EveryPlayMinutes of play — the
+// world running, not paused — since the last save of any kind, the start of a new game or a load; never while the hero
+// is in combat or under an alarm (it waits for them to end).
+type AutoSavePolicy struct {
+	Slots            []string `json:"slots"`
+	EveryPlayMinutes int      `json:"every_play_minutes"`
+}
+
+// QuickSavePolicy: SaveKey saves at once into Slots (the oldest is overwritten), LoadKey loads the newest of them; the
+// client shows a short note for NoteSeconds. Godot key names (OS.find_keycode_from_string).
+type QuickSavePolicy struct {
+	Slots       []string `json:"slots"`
+	SaveKey     string   `json:"save_key"`
+	LoadKey     string   `json:"load_key"`
+	NoteSeconds float64  `json:"note_seconds"`
+}
+
+// validSaveSlotID: a save slot names its file in the data folder.
+func validSaveSlotID(slot string) bool {
+	return slot != "" && slot != "." && !strings.ContainsAny(slot, "/\\.")
+}
+
+// validateSaveKinds: every slot of every kind is a distinct file name; the numbers are sane.
+func (c Config) validateSaveKinds() error {
+	seen := map[string]bool{}
+	for _, slot := range c.SaveSlots {
+		if !validSaveSlotID(slot) || seen[slot] {
+			return fmt.Errorf("invalid or duplicate save slot %q", slot)
+		}
+		seen[slot] = true
+	}
+	kinds := map[string][]string{}
+	if a := c.AutoSave; a != nil {
+		if a.EveryPlayMinutes < 1 || a.EveryPlayMinutes > 24*60 {
+			return fmt.Errorf("auto_save: every_play_minutes must be 1..1440")
+		}
+		kinds["auto_save"] = a.Slots
+	}
+	if q := c.QuickSave; q != nil {
+		if q.SaveKey == "" || q.LoadKey == "" || q.SaveKey == q.LoadKey {
+			return fmt.Errorf("quick_save: save_key and load_key must be two different keys")
+		}
+		if q.NoteSeconds < 0.5 || q.NoteSeconds > 10 {
+			return fmt.Errorf("quick_save: note_seconds must be 0.5..10")
+		}
+		kinds["quick_save"] = q.Slots
+	}
+	for _, kind := range []string{"auto_save", "quick_save"} {
+		slots, ok := kinds[kind]
+		if !ok {
+			continue
+		}
+		if len(slots) == 0 || len(slots) > 32 {
+			return fmt.Errorf("%s: 1..32 slots", kind)
+		}
+		for _, slot := range slots {
+			if !validSaveSlotID(slot) || seen[slot] {
+				return fmt.Errorf("%s: invalid or duplicate save slot %q", kind, slot)
+			}
+			seen[slot] = true
+		}
+	}
+	return nil
 }
 
 type Point struct {
@@ -354,12 +423,8 @@ func (c Config) validate() error {
 	if c.LevelID == "" || c.WorldDir == "" || c.UnityDir == "" || c.Title == "" || len(c.SaveSlots) == 0 {
 		return fmt.Errorf("GamePOC requires world_dir, unity_dir, level_id, title and save_slots")
 	}
-	seen := map[string]bool{}
-	for _, slot := range c.SaveSlots {
-		if slot == "" || slot == "." || strings.ContainsAny(slot, "/\\.") || seen[slot] {
-			return fmt.Errorf("invalid or duplicate save slot %q", slot)
-		}
-		seen[slot] = true
+	if err := c.validateSaveKinds(); err != nil {
+		return err
 	}
 	for _, key := range []string{"new_game", "load_game", "save_game", "options", "continue_game", "main_menu", "quit"} {
 		if c.Labels[key] == "" {
@@ -1049,7 +1114,7 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	if def == nil || def.Package != "game.v1" || def.CSharpNamespace != "AngelsDemons.Game.V1" {
 		return out, nil, fmt.Errorf("POC currently requires game.v1 / AngelsDemons.Game.V1")
 	}
-	for _, name := range []string{"PocGameState", "PocSaveRequest", "PocLoadRequest", "PocNewGameRequest", "PocSaveSlots"} {
+	for _, name := range []string{"PocGameState", "PocSaveRequest", "PocLoadRequest", "PocDeleteSaveRequest", "PocNewGameRequest", "PocSaveSlots"} {
 		found := false
 		for _, m := range def.Messages {
 			if m.Name == name {
@@ -1388,6 +1453,8 @@ func generatePOC(project string, legacyUnity bool) error {
 		"train_fleet_fixture_test.go.tmpl":      filepath.Join(project, "internal/poc/train_fleet_fixture_generated_test.go"),
 		"view_delivery_test.go.tmpl":            filepath.Join(project, "internal/poc/view_delivery_generated_test.go"),
 		"runtime.go.tmpl":                       filepath.Join(project, "internal/poc/runtime.gen.go"),
+		"saves.go.tmpl":                         filepath.Join(project, "internal/poc/saves.gen.go"),
+		"saves_test.go.tmpl":                    filepath.Join(project, "internal/poc/saves_generated_test.go"),
 		"location_sdk.go.tmpl":                  filepath.Join(project, "internal/poc/location_sdk.gen.go"),
 		"gates.go.tmpl":                         filepath.Join(project, "internal/poc/gates.gen.go"),
 		"vending.go.tmpl":                       filepath.Join(project, "internal/poc/vending.gen.go"),
