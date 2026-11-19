@@ -17,6 +17,10 @@ var content: Control
 var status: Label
 var last_signature := ""
 var last_focus_uid := ""
+## Where the focus stood on each screen another screen replaced (screen id -> focus uid): a way back (present with
+## resume) gives the focus back to that control, not to the screen's first one.
+var focus_memory := {}
+var resume_focus := ""
 var pending_focus_visibility := false
 var open_us := 0
 var latency := {}
@@ -67,7 +71,7 @@ func value(binding: Dictionary, row: C.ProtoMessage = null) -> Variant:
 		return Catalog.read(binding.ref, state, row, selected)
 	return binding.get("value")
 
-func present(id: String, snapshot: C.PocGameState, context = null, requested_us := 0) -> void:
+func present(id: String, snapshot: C.PocGameState, context = null, requested_us := 0, resume := false) -> void:
 	host = context
 	state = snapshot
 	if host != null and "settings" in host:
@@ -76,6 +80,10 @@ func present(id: String, snapshot: C.PocGameState, context = null, requested_us 
 		selected["__saves"] = host.save_view
 	if screen_id != id:
 		last_refusal = ""
+		var leaving := get_viewport().gui_get_focus_owner()
+		if not screen_id.is_empty() and is_instance_valid(leaving) and is_ancestor_of(leaving):
+			focus_memory[screen_id] = str(leaving.get_meta("focus_uid", ""))
+	resume_focus = str(focus_memory.get(id, "")) if resume else ""
 	screen_id = id
 	spec = {}
 	for entry in Catalog.specification().screens:
@@ -205,14 +213,20 @@ func _refresh() -> void:
 		status.visible = not last_refusal.is_empty()
 	_order_focus()
 	_layout()
+	# a way back: the control that had the focus when this screen was left, once
+	var wanted := focused
+	var resumed := not resume_focus.is_empty()
+	if resumed:
+		wanted = resume_focus
+		resume_focus = ""
 	var fallback_focus := false
 	if not rail.is_empty():
 		var index := -1
 		for i in range(rail.size()):
-			if rail[i].get_meta("focus_uid", "") == focused:
+			if rail[i].get_meta("focus_uid", "") == wanted:
 				index = i
 				break
-		fallback_focus = index < 0
+		fallback_focus = index < 0 or resumed
 		if index < 0 and not spec.get("initial_focus", "").is_empty():
 			for i in range(rail.size()):
 				if focus_ids[i] != spec.initial_focus:

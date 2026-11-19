@@ -22,7 +22,10 @@ func _input(event: InputEvent) -> void:
 			ui.get_viewport().set_input_as_handled()
 			return
 	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
-		ui._close()
+		# a held Esc goes back once: its repeats are taken and dropped (the main menu's Esc opens the exit
+		# confirmation, whose Esc goes back: a repeat would toggle between them)
+		if not event.echo:
+			ui._close()
 		ui.get_viewport().set_input_as_handled()
 	elif event is InputEventKey and event.pressed and event.keycode in [KEY_PAGEDOWN, KEY_PAGEUP]:
 		_scroll_by(320 if event.keycode == KEY_PAGEDOWN else -320)

@@ -298,3 +298,34 @@ func TestScreenTextMeasuresEachLineAtItsOwnSize(t *testing.T) {
 		t.Fatalf("a line below 12 px must fail: %v", err)
 	}
 }
+
+// Menus from the keyboard (owner 19.11): a held Esc goes back once (the main menu's Esc opens the exit confirmation,
+// whose Esc goes back, so a repeat would toggle between them), and a way back gives the focus to the control the screen
+// was left from (the main menu's card), not to the screen's first one. The game walks it with its menu tool
+// (frames.py --keys); this guards the shared runtime's half.
+func TestScreenEscGoesBackOnceAndBackKeepsTheFocus(t *testing.T) {
+	navigation, err := sources.ReadFile("templates/godot_screen_navigation.gd.tmpl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	escape := strings.Index(string(navigation), "event.keycode == KEY_ESCAPE:")
+	closing := strings.Index(string(navigation), "ui._close()")
+	if escape < 0 || closing < escape || !strings.Contains(string(navigation)[escape:closing], "if not event.echo:") {
+		t.Fatal("Esc must close the screen on the first press only, not on its repeats")
+	}
+	runtime, err := sources.ReadFile("templates/godot_screen_runtime.gd.tmpl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, piece := range []string{
+		"func present(id: String, snapshot: C.PocGameState, context = null, requested_us := 0, resume := false)",
+		"focus_memory[screen_id] = str(leaving.get_meta(\"focus_uid\", \"\"))",
+		"resume_focus = str(focus_memory.get(id, \"\")) if resume else \"\"",
+		"if rail[i].get_meta(\"focus_uid\", \"\") == wanted:",
+		"fallback_focus = index < 0 or resumed",
+	} {
+		if !strings.Contains(string(runtime), piece) {
+			t.Fatalf("a way back must give the focus back: missing %q", piece)
+		}
+	}
+}
