@@ -81,6 +81,9 @@ type Config struct {
 	// (templates/saves.go.tmpl). Without them a game has only the manual save_slots.
 	AutoSave  *AutoSavePolicy  `json:"auto_save,omitempty"`
 	QuickSave *QuickSavePolicy `json:"quick_save,omitempty"`
+	// The save key's classification of the server's runtime package (save_key.go, owner 20.11): read into
+	// Compiled.SaveKeyPolicy and never written to world.json, which carries the computed key instead.
+	SaveKey *SaveKeyPolicy `json:"save_key,omitempty"`
 }
 
 // AutoSavePolicy: the server saves on its own into Slots (the oldest is overwritten) after EveryPlayMinutes of play — the
@@ -393,6 +396,10 @@ type Compiled struct {
 
 	// People placement v1: the own floors of fixtures' insides by level (fixtures.go), only for the Godot location catalog.
 	FixtureFloors map[string][]FixtureFloor `json:"-"`
+
+	// What a save depends on (save_key.go, owner 20.11): the policy from GamePOC.save_key; the computed key goes into
+	// world.json as its last section when the server package is written.
+	SaveKeyPolicy *SaveKeyPolicy `json:"-"`
 }
 
 func (c Config) validate() error {
@@ -460,6 +467,10 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	}
 	out.GodotTargets = out.Config.GodotTargets
 	out.Config.GodotTargets = nil
+	out.SaveKeyPolicy, out.Config.SaveKey = out.Config.SaveKey, nil
+	if err := out.SaveKeyPolicy.validate(); err != nil {
+		return out, nil, err
+	}
 	out.Config.Rendering = out.Config.Rendering.normalized()
 	if out.Config.CaptureDemo.TargetActor == "" {
 		out.Config.CaptureDemo.TargetActor = "char.hero"
@@ -1299,6 +1310,24 @@ func generatePOC(project string, legacyUnity bool) error {
 		}
 		files[filepath.Join(project, "..", "design/wounds/timelines.md")] = compiled.woundsReport
 	}
+	// The save key from the server's runtime package as written: world.json (without the key itself) and the barks and
+	// wounds catalogs the server embeds besides it.
+	keySections := map[string]json.RawMessage{}
+	if err := json.Unmarshal(worldJSON, &keySections); err != nil {
+		return err
+	}
+	keySections["barks_catalog"] = barksFiles["catalog.json"]
+	if catalog, ok := files[filepath.Join(project, "internal/wounds", "catalog.json")]; ok {
+		keySections["wounds_catalog"] = catalog
+	}
+	saveKey, err := computeSaveKey(compiled.SaveKeyPolicy, keySections)
+	if err != nil {
+		return err
+	}
+	if files[filepath.Join(project, "internal/poc/world.json")], err = withSaveKey(worldJSON, saveKey); err != nil {
+		return err
+	}
+	phases.mark("emit: save key")
 	inventoryFiles, err := inventory.Render()
 	if err != nil {
 		return err
@@ -1455,6 +1484,7 @@ func generatePOC(project string, legacyUnity bool) error {
 		"runtime.go.tmpl":                       filepath.Join(project, "internal/poc/runtime.gen.go"),
 		"saves.go.tmpl":                         filepath.Join(project, "internal/poc/saves.gen.go"),
 		"saves_test.go.tmpl":                    filepath.Join(project, "internal/poc/saves_generated_test.go"),
+		"save_compat_test.go.tmpl":              filepath.Join(project, "internal/poc/save_compat_generated_test.go"),
 		"location_sdk.go.tmpl":                  filepath.Join(project, "internal/poc/location_sdk.gen.go"),
 		"gates.go.tmpl":                         filepath.Join(project, "internal/poc/gates.gen.go"),
 		"vending.go.tmpl":                       filepath.Join(project, "internal/poc/vending.gen.go"),

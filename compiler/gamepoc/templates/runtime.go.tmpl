@@ -127,6 +127,8 @@ type worldData struct {
 	Scene                   sceneData                       `json:"scene"`
 	Config                  configuration                   `json:"config"`
 	ContentHash             string                          `json:"content_hash"`
+	// What a save depends on (ANG save_key.go): the hash of the server's runtime package without what only shows things.
+	SaveKey                 saveKeyCatalog                  `json:"save_key"`
 	Terrain                 []string                        `json:"terrain"`
 	Walkable                map[string]bool                 `json:"walkable"`
 	MoveCost                map[string]int                  `json:"move_cost"`
@@ -193,7 +195,56 @@ type saveFile struct {
 	Checksum      string
 	CreatedUnixMS int64
 	State         json.RawMessage
+	// The save key of the build that wrote it (owner 20.11); a save of an earlier build has none and is read through
+	// the content-hash lists with the legacy key.
+	SaveKey *saveKeyRecord `json:",omitempty"`
 }
+
+// saveKeyRecord: the key of a runtime package and the hash of each of its keyed sections and strict parts.
+type saveKeyRecord struct {
+	Hash  string            `json:"hash"`
+	Parts map[string]string `json:"parts"`
+}
+
+// saveKeyCatalog (world.json save_key): this build's key, what of it a save must match, what the server never decodes
+// (proved by a test) and the key a save without one is read with.
+type saveKeyCatalog struct {
+	Hash   string            `json:"hash"`
+	Parts  map[string]string `json:"parts"`
+	Strict []string          `json:"strict"`
+	Unread []string          `json:"unread"`
+	Legacy *saveKeyRecord    `json:"legacy"`
+}
+
+// compatible: a save of another runtime package loads only if every strict part (what the saved state refers into by
+// position or copies) is unchanged; the full validation of the load does the rest.
+func (c saveKeyCatalog) compatible(saved saveKeyRecord) error {
+	if saved.Hash == c.Hash {
+		return nil
+	}
+	for _, part := range c.Strict {
+		if saved.Parts[part] != c.Parts[part] {
+			return fmt.Errorf("the game's %s changed since this save; the save refers into it by position", part)
+		}
+	}
+	return nil
+}
+
+// saveProblem: why a save does not load. Damaged: the file is unreadable, too large or its checksum fails. Otherwise the
+// file is whole but of another version of the game: its format, its key or the validation against this content.
+type saveProblem struct {
+	damaged bool
+	reason  string
+}
+
+func (p saveProblem) Error() string { return p.reason }
+func (p saveProblem) textKey() string {
+	if p.damaged {
+		return "ui.screen.save.damaged"
+	}
+	return "ui.screen.save.old_version"
+}
+func damagedSave(reason string) error { return saveProblem{damaged: true, reason: reason} }
 type connection struct {
 <<ANG if .ViewDelivery ANG>>
  delivery *pb.ViewProjector
@@ -248,6 +299,8 @@ type Runtime struct {
 	wayfinding                               wayfindingSession
 	// the play clock of the timed autosave (memory only, saves.go)
 	saves saveClock
+	// the last reason logged for each slot that does not load (save-problems.log in the data folder; memory only)
+	saveNotes map[string]string
 	openStore                                string
 	pb.UnimplementedGameServiceServer
 	world                  worldData
@@ -977,7 +1030,7 @@ func (r *Runtime) writeSave(slot string, s state) error {
 		return err
 	}
 	sum := sha256.Sum256(b)
-	data, err := json.Marshal(saveFile{Version: r.world.Config.SaveVersion, ContentHash: r.world.ContentHash, Checksum: hex.EncodeToString(sum[:]), CreatedUnixMS: time.Now().UnixMilli(), State: b})
+	data, err := json.Marshal(saveFile{Version: r.world.Config.SaveVersion, ContentHash: r.world.ContentHash, Checksum: hex.EncodeToString(sum[:]), CreatedUnixMS: time.Now().UnixMilli(), State: b, SaveKey: &saveKeyRecord{Hash: r.world.SaveKey.Hash, Parts: r.world.SaveKey.Parts}})
 	if err != nil {
 		return err
 	}
@@ -1016,40 +1069,61 @@ func (r *Runtime) writeSave(slot string, s state) error {
 func strictWoundJSON(data []byte, out any)error{
  d:=json.NewDecoder(bytes.NewReader(data));d.DisallowUnknownFields();if err:=d.Decode(out);err!=nil{return err};var tail any;if err:=d.Decode(&tail);err!=io.EOF{return errors.New("trailing save data")};return nil
 }
+// readSave reads a slot: a missing file is os.ErrNotExist, any other refusal a saveProblem (damaged, or from an older
+// version of the game with the reason).
 func (r *Runtime) readSave(slot string) (state, int64, error) {
-	var s state
 	if !r.validSlot(slot) {
-		return s, 0, errors.New("unknown save slot")
+		return state{}, 0, errors.New("unknown save slot")
 	}
+	s, created, err := r.readSaveFile(slot)
+	if err == nil || errors.Is(err, os.ErrNotExist) {
+		return s, created, err
+	}
+	var problem saveProblem
+	if !errors.As(err, &problem) {
+		// the file is whole (its checksum held): what refuses it now is the game it meets
+		err = saveProblem{reason: err.Error()}
+	}
+	return s, created, err
+}
+func (r *Runtime) readSaveFile(slot string) (state, int64, error) {
+	var s state
 	f, err := os.Open(filepath.Join(r.data, slot+".json"))
 	if err != nil {
-		return s, 0, err
+		if errors.Is(err, os.ErrNotExist) {
+			return s, 0, err
+		}
+		return s, 0, damagedSave("unreadable save file: " + err.Error())
 	}
 	defer f.Close()
 	b, err := io.ReadAll(io.LimitReader(f, r.world.Config.MaxSaveBytes+1))
 	if err != nil {
-		return s, 0, err
+		return s, 0, damagedSave("unreadable save file: " + err.Error())
 	}
 	if int64(len(b)) > r.world.Config.MaxSaveBytes {
-		return s, 0, errors.New("save too large")
+		return s, 0, damagedSave("save too large")
 	}
 	var envelope saveFile
 	if err = strictWoundJSON(b, &envelope); err != nil {
-		return s, 0, errors.New("damaged save file")
-	}
-	if envelope.Version != r.world.Config.SaveVersion {
-		return s, 0, errors.New("incompatible save version or content")
+		return s, 0, damagedSave("damaged save file")
 	}
 	sum := sha256.Sum256(envelope.State)
 	if envelope.Checksum != hex.EncodeToString(sum[:]) {
-		return s, 0, errors.New("save checksum mismatch")
+		return s, 0, damagedSave("save checksum mismatch")
+	}
+	if envelope.Version != r.world.Config.SaveVersion {
+		return s, 0, fmt.Errorf("save format version %d, this game reads %d", envelope.Version, r.world.Config.SaveVersion)
 	}
 	if err = strictWoundJSON(envelope.State, &s); err != nil {
-		return s, 0, err
+		return s, 0, fmt.Errorf("save state format: %w", err)
 	}
 	var fields map[string]json.RawMessage
  if err:=json.Unmarshal(envelope.State,&fields);err!=nil{return s,0,err}
  _,hasWounds:=fields["wounds"]
+ key:=envelope.SaveKey
+ if key==nil{
+ // A save of a build before the save key: the content-hash rules of before, then the legacy key (the runtime package
+ // of the build that introduced the key; every hash in the lists loaded against it).
  if envelope.ContentHash!=r.world.ContentHash && !r.configCompatibleSave(envelope.ContentHash,hasWounds) {
   // Exact V1 e770494a: additive image catalogue/observation binding, preserving heard reports verbatim.
   // Exact pre-rumour baseline 341a2b53: additive testimony starts empty; physical rules are unchanged.
@@ -1057,8 +1131,12 @@ func (r *Runtime) readSave(slot string) (state, int64, error) {
   // demo-hub v26-alive: 53958a1b = v25: the same rules; v26 adds the sound, the exchanges and the residents' leaving, new save fields default to empty.
   // demo-hub v27-all: 93b5847f = main before it: the same rules and save format; only the client's default of the hall noise and its label were added; real saves of that main load.
   // noise waves: 097a6357 = main before them: the same rules and save format; only presentation data and one more stand were added; real saves of that main load.
-  if !(hasWounds&&(envelope.ContentHash=="e770494a5766f25a0ad6acdbfcf00ac5b52c06dba364de4e6d1997280119a9d5"||envelope.ContentHash=="341a2b53080374a82abf3b9e1e76d9cba012eb554e795241923d5e5e31b26056"||envelope.ContentHash=="b11c4fcb2ef24de44475cf451d21e17f748adc93bbcaa4c9880b3529bb03df5e"||envelope.ContentHash=="93b5847f622586e5d38b23982d6021bbc7f972d97ecdfcfad81b4819715e93fd"||envelope.ContentHash=="097a635701dd7d52f5b7bc90912398b55719071adec1534d3b362fbb14a6df8b"||envelope.ContentHash=="53958a1b60f54e53861eb2003091bc5fbc5ca8500575f0de41450974b8abdbbe"||envelope.ContentHash=="edeb79f202b6aeeb2e07a8cd7c1b374e411928d6e19ab65954c163688b7c77f5"||envelope.ContentHash=="575d390d238c05b0fe428dca6b8e2583946b23520819bd4ad211fef7d7118925"||envelope.ContentHash=="2d12a1457596c0b3a5f7ceda8b34e8e7234d064261211318046007c8d5195af3"||envelope.ContentHash=="809a4ec486ba4df60a2c414e6d2cfac8ce44f71e0f4188fd536c9ae3fff7a942"||envelope.ContentHash=="11d9b8638cbfa64226393a65e4feefddbfab2bd7d5441028328dc210d80ab3ff"||envelope.ContentHash=="359eeb2067857ac485c48401f9c4af1b9206afd412e92b13d986cd3a97fba00b"||envelope.ContentHash=="3f457d05e013f3e196233a47be8546307682ede18bbe148da66f78db747e2f0c"||envelope.ContentHash=="5ff95de48b618da87a11fd7f5fc03cfa8584b71e6e0d59ce992d1e669c21432b"||envelope.ContentHash=="f25599b013a899104246ea6a0a9a31c60b4f943b85d256b4933bd71b73fea1c2"))&& (hasWounds||envelope.ContentHash!="85b40d73b7cba8b04305b6c4d1dc12672c38165cf6b3b949fcfd2d98a9e97f4c"){return s,0,errors.New("incompatible save content")}
+  if !(hasWounds&&(envelope.ContentHash=="e770494a5766f25a0ad6acdbfcf00ac5b52c06dba364de4e6d1997280119a9d5"||envelope.ContentHash=="341a2b53080374a82abf3b9e1e76d9cba012eb554e795241923d5e5e31b26056"||envelope.ContentHash=="b11c4fcb2ef24de44475cf451d21e17f748adc93bbcaa4c9880b3529bb03df5e"||envelope.ContentHash=="93b5847f622586e5d38b23982d6021bbc7f972d97ecdfcfad81b4819715e93fd"||envelope.ContentHash=="097a635701dd7d52f5b7bc90912398b55719071adec1534d3b362fbb14a6df8b"||envelope.ContentHash=="53958a1b60f54e53861eb2003091bc5fbc5ca8500575f0de41450974b8abdbbe"||envelope.ContentHash=="edeb79f202b6aeeb2e07a8cd7c1b374e411928d6e19ab65954c163688b7c77f5"||envelope.ContentHash=="575d390d238c05b0fe428dca6b8e2583946b23520819bd4ad211fef7d7118925"||envelope.ContentHash=="2d12a1457596c0b3a5f7ceda8b34e8e7234d064261211318046007c8d5195af3"||envelope.ContentHash=="809a4ec486ba4df60a2c414e6d2cfac8ce44f71e0f4188fd536c9ae3fff7a942"||envelope.ContentHash=="11d9b8638cbfa64226393a65e4feefddbfab2bd7d5441028328dc210d80ab3ff"||envelope.ContentHash=="359eeb2067857ac485c48401f9c4af1b9206afd412e92b13d986cd3a97fba00b"||envelope.ContentHash=="3f457d05e013f3e196233a47be8546307682ede18bbe148da66f78db747e2f0c"||envelope.ContentHash=="5ff95de48b618da87a11fd7f5fc03cfa8584b71e6e0d59ce992d1e669c21432b"||envelope.ContentHash=="f25599b013a899104246ea6a0a9a31c60b4f943b85d256b4933bd71b73fea1c2"))&& (hasWounds||envelope.ContentHash!="85b40d73b7cba8b04305b6c4d1dc12672c38165cf6b3b949fcfd2d98a9e97f4c"){return s,0,fmt.Errorf("content %.12s is not an earlier build this game reads",envelope.ContentHash)}
  }
+ if r.world.SaveKey.Legacy==nil{return s,0,errors.New("this game has no key for saves of earlier builds")}
+ key=r.world.SaveKey.Legacy
+ }
+ if err:=r.world.SaveKey.compatible(*key);err!=nil{return s,0,err}
  if !hasWounds{if err:=r.migrateWoundState(&s);err!=nil{return s,0,err}}
  if hasWounds&&envelope.ContentHash=="edeb79f202b6aeeb2e07a8cd7c1b374e411928d6e19ab65954c163688b7c77f5"{
   for id,c:=range s.CombatRoster{c.BodyEffects=append([]string(nil),combatWounds.Status(combatBody(c)).Effects...);s.CombatRoster[id]=c};for i:=range s.Combat.Actors{c:=&s.Combat.Actors[i];c.BodyEffects=append([]string(nil),combatWounds.Status(combatBody(*c)).Effects...)}
@@ -1086,6 +1164,8 @@ func (r *Runtime) readSave(slot string) (state, int64, error) {
 	r = validator
 	if s.Life.Enabled {
 		if err := validator.validateEncounterSave(s); err != nil {return state{},0,err}
+		if err := validator.validateSavedResidents(s); err != nil {return state{},0,err}
+		if err := validator.validateSavedPlaces(s); err != nil {return state{},0,err}
  if err := validator.validateLifeSave(s); err != nil {
 			return s, 0, err
 		}
@@ -1179,6 +1259,69 @@ func (r *Runtime) String() string {
 func migrateSavedOrigins(s *state) {
 	s.Inventory.MigrateProvenance()
 	s.Crafting.MigrateOrigins()
+}
+
+// validateSavedResidents names the residents a save and the game do not share (owner 20.11): Life keeps its named
+// residents aligned with the content, so one more or one less refuses the load (until a growth migration adds the new
+// ones); the reason says who, where Life.Validate would only say the state is invalid.
+func (r *Runtime) validateSavedResidents(s state) error {
+	saved, model := map[string]bool{}, map[string]bool{}
+	for _, a := range s.Life.Actors {
+		saved[a.ID] = true
+	}
+	var added, gone []string
+	for _, p := range r.world.Life.Actors {
+		model[p.ID] = true
+		if !saved[p.ID] {
+			added = append(added, p.ID)
+		}
+	}
+	for _, a := range s.Life.Actors {
+		if !model[a.ID] {
+			gone = append(gone, a.ID)
+		}
+	}
+	if len(added) > 0 {
+		return fmt.Errorf("the game has residents this save has not: %v", added)
+	}
+	if len(gone) > 0 {
+		return fmt.Errorf("this save has residents the game no longer has: %v", gone)
+	}
+	return nil
+}
+
+// validateSavedPlaces (owner 20.11, saves survive updates): a resident who chose a place keeps a copy of it until he is
+// done there — a plan made under the content it was saved with, as a crafting job keeps its plan. The place must still
+// be one of the game's, of the same kind; a place gone refuses the load with its name.
+func (r *Runtime) validateSavedPlaces(s state) error {
+	places := map[string]behavior.LifeAffordance{}
+	for _, p := range r.world.Life.Brain.Places {
+		places[p.ID] = p
+	}
+	check := func(actor string, p behavior.LifeAffordance) error {
+		if p.ID == "" || p.ID == "home."+actor {
+			return nil
+		}
+		m, ok := places[p.ID]
+		if !ok {
+			return fmt.Errorf("%s is on the way to %s, which the game no longer has", actor, p.ID)
+		}
+		if m.Kind != p.Kind {
+			return fmt.Errorf("%s is on the way to %s, which is another place now", actor, p.ID)
+		}
+		return nil
+	}
+	for _, a := range s.Life.Actors {
+		if err := check(a.ID, a.Brain.Place); err != nil {
+			return err
+		}
+	}
+	for _, a := range s.Life.Population.Actors {
+		if err := check(a.ID, a.Brain.Place); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Only explicitly audited additive catalogs may enter; all structural save,

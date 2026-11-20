@@ -1370,6 +1370,26 @@ func (r *Runtime) validateVisitorSave(s state) error {
 		return errors.New("invalid visitors clock or crowd")
 	}
 	slots := map[int]bool{}
+	// what a walker's references by name may name (owner 20.11: every saved reference to content is checked on load)
+	categories, meals := map[string]bool{v.PeddlerCategory: true}, map[string]bool{}
+	for _, k := range v.Kinds {
+		for _, w := range k.Wants {
+			categories[w.Category] = true
+		}
+	}
+	for _, t := range v.Targets {
+		categories[t.Category] = true
+	}
+	if v.Tables != nil {
+		for _, m := range v.Tables.Meals {
+			meals[m] = true
+		}
+	}
+	// a walker may head for a peddler on his round ("peddler:<shop>")
+	peddlerShops := map[string]bool{}
+	for _, p := range r.world.Peddlers.Peddlers {
+		peddlerShops[p.Shop] = true
+	}
 	for _, b := range s.Visitors.Bodies {
 		eatMax, spots := int64(0), 0
 		if v.Tables != nil {
@@ -1390,6 +1410,17 @@ func (r *Runtime) validateVisitorSave(s state) error {
 				return errors.New("invalid visitor path")
 			}
 			at = next
+		}
+		if b.Target != "" && r.visitorTargetOf(b.Target) == nil && !(len(b.Target) > 8 && b.Target[:8] == "peddler:" && peddlerShops[b.Target[8:]]) {
+			return fmt.Errorf("a visitor heads for %s, which the game no longer has", b.Target)
+		}
+		if b.Meal != "" && !meals[b.Meal] {
+			return fmt.Errorf("a visitor eats %s, which the tables no longer serve", b.Meal)
+		}
+		for _, stop := range b.Stops {
+			if !categories[stop.Category] {
+				return fmt.Errorf("a visitor wants %s, which the game no longer sells", stop.Category)
+			}
 		}
 	}
 	l := s.Visitors.Ledger

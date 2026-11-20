@@ -3,6 +3,7 @@ package poc
 
 import (
  "context"
+ "errors"
  "encoding/json"
  "reflect"
  "os"
@@ -45,12 +46,19 @@ func TestTicksWithoutClient(t *testing.T){
  if r.state.Tick<2{t.Fatalf("world without client did not tick: %d",r.state.Tick)}
 }
 
+// The save key decides, not the content hash (owner 20.11): another content hash with the same key (a menu, a text, a
+// picture) loads; a changed strict part refuses as a save of an older version.
 func TestContentMismatchDoesNotLoad(t *testing.T){
  r,err:=New(t.TempDir(),"token");if err!=nil{t.Fatal(err)}
  slot:=r.world.Config.SaveSlots[0];s:=state{Wounds:cloneWoundSave(r.state.Wounds),Inventory:r.state.Inventory.Clone(),Active:true,Epoch:newEpoch(),Player:r.world.Spawn,Speed:1}
  if err:=r.writeSave(slot,s);err!=nil{t.Fatal(err)}
  r.world.ContentHash="another-build"
- if _,_,err:=r.readSave(slot);err==nil{t.Fatal("accepted save from different content")}
+ if _,_,err:=r.readSave(slot);err!=nil{t.Fatalf("a save of the same key refused for its content hash: %v",err)}
+ if len(r.world.SaveKey.Strict)==0{t.Fatal("the save key holds nothing strict")}
+ parts:=map[string]string{};for k,v:=range r.world.SaveKey.Parts{parts[k]=v}
+ parts[r.world.SaveKey.Strict[0]]="another-build";r.world.SaveKey.Parts=parts;r.world.SaveKey.Hash="another-build"
+ _,_,err=r.readSave(slot);var problem saveProblem
+ if err==nil||!errors.As(err,&problem)||problem.damaged{t.Fatalf("accepted save from different content: %v",err)}
 }
 
 

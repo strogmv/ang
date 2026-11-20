@@ -53,6 +53,9 @@ func(r *Runtime)localError(locale string,err error)string{
  if errors.As(err,&value){return r.localText(locale,value.Key,value.Key)}
  var pointer *textError
  if errors.As(err,&pointer)&&pointer!=nil{return r.localText(locale,pointer.Key,pointer.Key)}
+ // an error that knows its player's words by a key (a save that does not load: damaged / from an older version)
+ var keyed interface{textKey() string}
+ if errors.As(err,&keyed){key:=keyed.textKey();return r.localText(locale,key,key)}
  // Old modules still return prose errors; translating that legacy content is
  // separate work. New localized modules return stable textError keys instead.
  return err.Error()

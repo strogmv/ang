@@ -61,6 +61,6 @@ func TestRegionRumoursPhysicalArrivalSupersedesImages(t *testing.T){
 func TestRegionRumoursExactLegacyContentMigration(t *testing.T){
  r:=lifeRuntimeFixture(t);slot:=r.world.Config.SaveSlots[0];before:=r.snapshotState();if err:=r.writeSave(slot,before);err!=nil{t.Fatal(err)}
  path:=filepath.Join(r.data,slot+".json");data,err:=os.ReadFile(path);if err!=nil{t.Fatal(err)};var saved saveFile;if json.Unmarshal(data,&saved)!=nil{t.Fatal("envelope")}
- saved.ContentHash="341a2b53080374a82abf3b9e1e76d9cba012eb554e795241923d5e5e31b26056";data,_=json.Marshal(saved);if os.WriteFile(path,data,0600)!=nil{t.Fatal("write legacy fixture")};old,_,err:=r.readSave(slot);if err!=nil||len(old.Region.Reports)!=0||len(old.Region.ActiveReports)!=0{t.Fatal("exact legacy save did not migrate to empty testimony",err)}
+ saved.ContentHash="341a2b53080374a82abf3b9e1e76d9cba012eb554e795241923d5e5e31b26056";saved.SaveKey=nil;data,_=json.Marshal(saved);if os.WriteFile(path,data,0600)!=nil{t.Fatal("write legacy fixture")};old,_,err:=r.readSave(slot);if err!=nil||len(old.Region.Reports)!=0||len(old.Region.ActiveReports)!=0{t.Fatal("exact legacy save did not migrate to empty testimony",err)}
  saved.ContentHash="arbitrary-not-whitelisted";data,_=json.Marshal(saved);os.WriteFile(path,data,0600);if _,_,err:=r.readSave(slot);err==nil{t.Fatal("arbitrary content hash bypass")}
 }

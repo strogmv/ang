@@ -8,6 +8,7 @@ package poc
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -106,6 +107,7 @@ func (r *Runtime) diskWork(j diskJob) diskResult {
 			}
 		}
 		result.loaded, _, result.err = r.readSave(result.job.slot)
+		r.noteSaveProblem(result.job.slot, result.err)
 	case "delete":
 		result.err = r.deleteSave(j.slot)
 	case "list":
@@ -115,6 +117,43 @@ func (r *Runtime) diskWork(j diskJob) diskResult {
 }
 
 func (r *Runtime) slotFile(slot string) string { return filepath.Join(r.data, slot+".json") }
+
+// saveProblemLog: the file in the data folder where the reason a save does not load is written (the card only says
+// «damaged» or «from an older version»); it starts over past saveProblemLogMax.
+const (
+	saveProblemLog    = "save-problems.log"
+	saveProblemLogMax = 256 << 10
+)
+
+// noteSaveProblem writes why a slot does not load, once per slot and reason (the list is read again and again).
+func (r *Runtime) noteSaveProblem(slot string, err error) {
+	var problem saveProblem
+	if !errors.As(err, &problem) {
+		return
+	}
+	if r.saveNotes == nil {
+		r.saveNotes = map[string]string{}
+	}
+	if r.saveNotes[slot] == problem.reason {
+		return
+	}
+	r.saveNotes[slot] = problem.reason
+	kind := "from an older version of the game"
+	if problem.damaged {
+		kind = "damaged"
+	}
+	path := filepath.Join(r.data, saveProblemLog)
+	flags := os.O_CREATE | os.O_WRONLY | os.O_APPEND
+	if info, statErr := os.Stat(path); statErr == nil && info.Size() > saveProblemLogMax {
+		flags = os.O_CREATE | os.O_WRONLY | os.O_TRUNC
+	}
+	f, openErr := os.OpenFile(path, flags, 0600)
+	if openErr != nil {
+		return
+	}
+	defer f.Close()
+	_, _ = fmt.Fprintf(f, "%s %s: %s: %s\n", time.Now().UTC().Format(time.RFC3339), slot, kind, problem.reason)
+}
 
 // rotatingSlot: the kind's slot to save into — an empty one first, else the one written longest ago.
 func (r *Runtime) rotatingSlot(kind string) string {
@@ -193,7 +232,12 @@ func (r *Runtime) readSlots() []*pb.PocSaveSlot {
 				at = created
 			} else if !errors.Is(err, os.ErrNotExist) {
 				v.Exists = true
-				v.Problem = "ui.screen.save.invalid"
+				v.Problem = saveProblem{reason: err.Error()}.textKey()
+				var problem saveProblem
+				if errors.As(err, &problem) {
+					v.Problem = problem.textKey()
+				}
+				r.noteSaveProblem(id, err)
 				if info, statErr := os.Stat(r.slotFile(id)); statErr == nil {
 					at = info.ModTime().UnixMilli()
 				}
