@@ -376,6 +376,9 @@ type Compiled struct {
 	ItemDisplay *ItemDisplayCatalog `json:"-"`
 	// The tactical view (owner 04.11, world.tactical_mode): its label and switch, common to all it will show.
 	TacticalMode *TacticalMode `json:"tactical_mode,omitempty"`
+	// Combat pace (combat_pace.go, owner 20.11): how the client plays one turn-based fight, turn-based or fast
+	// turn-based; presentation only, never in the server's world, so no pace can change an outcome.
+	CombatPace *CombatPace `json:"-"`
 	// Crafting stage 1 (doc 93, world.crafting): the engine catalog completed from the compiled world; nil without it.
 	Crafting *craftingRuntime.Model `json:"crafting,omitempty"`
 	// Barks (doc 94, world.barks): the compiled catalog of the lines over the head (internal/barks/catalog.json); a world
@@ -647,6 +650,9 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 		return out, nil, err
 	}
 	if out.TacticalMode, err = readTacticalMode(world); err != nil {
+		return out, nil, err
+	}
+	if out.CombatPace, err = readCombatPace(world); err != nil {
 		return out, nil, err
 	}
 	if out.Craft, err = readCraft(world); err != nil {
@@ -1200,6 +1206,9 @@ func generatePOC(project string, legacyUnity bool) error {
 		return err
 	}
 	if err := validateTacticalMode(compiled); err != nil {
+		return err
+	}
+	if err := validateCombatPace(compiled); err != nil {
 		return err
 	}
 	if compiled.BarksView == nil {

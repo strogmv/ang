@@ -189,6 +189,10 @@ func clientResource(c Compiled) ([]byte, error) {
 	if c.TacticalMode != nil {
 		view["tactical_mode"] = c.TacticalMode
 	}
+	// Combat pace (owner 20.11): the client's playback of a fight; the server never reads it.
+	if c.CombatPace != nil {
+		view["combat_pace"] = c.CombatPace
+	}
 	// The sound of the hall (demo-hub v26-alive) only in worlds that have it.
 	if c.Soundscape != nil {
 		// JsonUtility reads no maps: the clip table goes as a list of key + files
