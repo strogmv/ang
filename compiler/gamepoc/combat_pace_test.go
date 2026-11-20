@@ -2,6 +2,9 @@ package gamepoc
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -16,7 +19,7 @@ func paceOK() CombatPace {
 		Setting: "combat_pace", Key: "Q",
 		Beats: map[string]float64{"attack": .7, "wound": 0}, BeatDefaultS: .45,
 		Shifts:    map[string]float64{"roll": .5},
-		HandoverS: .12, CameraLagS: .18, CameraSettle: 1.2,
+		HandoverS: .12, CameraLagS: .18, CameraSettle: 1.2, AfterFight: "fast_turn_based",
 	}
 }
 
@@ -49,6 +52,9 @@ func TestCombatPaceModesAndDefault(t *testing.T) {
 		"shift":      func(p *CombatPace) { p.Shifts["attack"] = .2 },
 		"handover":   func(p *CombatPace) { p.HandoverS = 0 },
 		"settle":     func(p *CombatPace) { p.CameraSettle = 5 },
+		"after":      func(p *CombatPace) { p.AfterFight = "real_time" },
+		"beat type":  func(p *CombatPace) { p.Beats["atack"] = .7 },
+		"shift type": func(p *CombatPace) { p.Shifts["rol"] = .5 },
 		"key":        func(p *CombatPace) { p.Key = "" },
 	} {
 		p := paceOK()
@@ -119,5 +125,42 @@ func TestCombatPaceStaysOutOfTheServerWorld(t *testing.T) {
 	}
 	if client.CombatPace.Default != "turn_based" || len(client.CombatPace.Modes) != 2 || client.CombatPace.Modes[1].SlideS != .15 {
 		t.Fatalf("the client's presentation lacks the pace: %+v", client.CombatPace)
+	}
+}
+
+// Every event type a server source publishes is known to the pace's check: scan the fight's sources for the types they
+// set and compare (a new type in a template must be added to combatEventTypes, or a beat for it would be refused).
+func TestCombatEventTypesCoverTheServer(t *testing.T) {
+	sources := []string{}
+	for _, pattern := range []string{"../behavior/templates/combat*.go.tmpl", "templates/combat*.go.tmpl", "../wounds/runtime/*.go"} {
+		found, err := filepath.Glob(pattern)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, f := range found {
+			if !strings.Contains(f, "_test") {
+				sources = append(sources, f)
+			}
+		}
+	}
+	if len(sources) < 5 {
+		t.Fatalf("the fight's sources moved: %v", sources)
+	}
+	typed := regexp.MustCompile(`Type: *"([a-z_]+)"`)
+	seen := 0
+	for _, f := range sources {
+		raw, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range typed.FindAllStringSubmatch(string(raw), -1) {
+			seen++
+			if !combatEventTypes[m[1]] {
+				t.Errorf("%s publishes event type %q unknown to combatEventTypes", f, m[1])
+			}
+		}
+	}
+	if seen < 20 {
+		t.Fatalf("only %d event types found in %d sources", seen, len(sources))
 	}
 }

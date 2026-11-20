@@ -26,6 +26,7 @@ type CombatPace struct {
 	HandoverS    float64            `json:"handover_s"`
 	CameraLagS   float64            `json:"camera_lag_s"`
 	CameraSettle float64            `json:"camera_settle_s"`
+	AfterFight   string             `json:"after_fight"`
 }
 
 // CombatPaceMode: Move "walk" (cell by cell with the walk clip at WalkMPS) or "slide" (an actor's run of steps as one
@@ -42,6 +43,21 @@ type CombatPaceMode struct {
 
 // combatPaceModes are the two modes of the owner's decision, the first is the turn-based default of today.
 var combatPaceModes = []string{"turn_based", "fast_turn_based"}
+
+// combatEventTypes: every type of event the server's fight can publish (behavior combat, the game's combat templates
+// and the wound runtime). A beat or shift of the pace names one of them; a typo would silently never apply.
+// TestCombatEventTypesCoverTheServer scans the sources, so a new event type cannot slip past this list.
+var combatEventTypes = map[string]bool{}
+
+func init() {
+	for _, t := range []string{"aid", "aid_continue", "aid_failed", "care_start", "healed", "journal", "limb_lost", "wake", "assault", "attack", "bandage", "blast_hit", "blocked", "care_done",
+		"ceasefire", "chip_alarm", "condition", "confused", "crouch", "dead", "disengage", "down", "end", "equip",
+		"explosion", "fall", "fall_shift", "fight_on", "flee", "guard", "heal", "hold", "hold_break", "invalid", "move",
+		"move_stop", "overwatch", "parry", "prone", "pursuit_end", "reaction", "reload", "report", "roll", "stand",
+		"stop_pursuit", "stopped", "story_node", "stunned", "surrender", "throw", "weak", "weapon_injury", "wound"} {
+		combatEventTypes[t] = true
+	}
+}
 
 func readCombatPace(world cue.Value) (*CombatPace, error) {
 	v := world.LookupPath(cue.ParsePath("combat_pace"))
@@ -116,8 +132,14 @@ func (p CombatPace) validate() error {
 	if p.Setting == "" || p.Key == "" {
 		return fmt.Errorf("setting and key are required")
 	}
+	if _, ok := p.mode(p.AfterFight); !ok {
+		return fmt.Errorf("after_fight: %q is not one of the modes", p.AfterFight)
+	}
 	for kind, s := range p.Beats {
-		if kind == "" || s < 0 || s > 2 {
+		if !combatEventTypes[kind] {
+			return fmt.Errorf("beat %q: no such combat event", kind)
+		}
+		if s < 0 || s > 2 {
 			return fmt.Errorf("beat %q: %.3f s outside [0, 2]", kind, s)
 		}
 	}
@@ -125,7 +147,10 @@ func (p CombatPace) validate() error {
 		if _, both := p.Beats[kind]; both {
 			return fmt.Errorf("event %q is both a beat and a shift", kind)
 		}
-		if kind == "" || s <= 0 || s > 1 {
+		if !combatEventTypes[kind] {
+			return fmt.Errorf("shift %q: no such combat event", kind)
+		}
+		if s <= 0 || s > 1 {
 			return fmt.Errorf("shift %q: %.3f s outside (0, 1]", kind, s)
 		}
 	}
