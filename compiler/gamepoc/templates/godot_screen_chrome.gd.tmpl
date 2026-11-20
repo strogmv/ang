@@ -81,6 +81,13 @@ func layout() -> void:
 	ui.content.position = Vector2(margins[0], margins[1])
 	ui.content.size = Vector2(maxf(320, ui.size.x - margins[0] - margins[2]),
 		maxf(200, ui.size.y - margins[1] - margins[3]))
+	# a full-height column at one side (CUE column): a share of the screen, never narrower than min_px
+	var column: Dictionary = profile.get("column", {})
+	if not column.is_empty():
+		var width := minf(ui.content.size.x, maxf(float(column.min_px), ui.size.x * float(column.fraction)))
+		ui.content.size.x = width
+		if column.side == "right":
+			ui.content.position.x = ui.size.x - margins[2] - width
 	if is_instance_valid(heading) and profile.get("heading_outside", false):
 		heading.position = Vector2(margins[0], profile.heading_y)
 		heading.size = Vector2(ui.size.x - margins[0] - margins[2], profile.heading_height)

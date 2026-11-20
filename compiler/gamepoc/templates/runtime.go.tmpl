@@ -110,6 +110,8 @@ type worldData struct {
 	Wayfinding              wayfindingCatalog               `json:"wayfinding"`
 	Vending                 vendingCatalog                  `json:"vending"`
 	CalendarEncounter *CalendarEncounter `json:"calendar_encounter"`
+	// conversation like Disco Elysium (owner 20.11): skill checks and inner voices (dialogue.go)
+	DialogueRules *dialogueRules `json:"dialogue_rules"`
  Peddlers                peddlerCatalog                  `json:"peddlers"`
 	Visitors                visitorCatalog                  `json:"visitors"`
 	Busker                  buskerCatalog                   `json:"busker"`
@@ -181,6 +183,8 @@ type state struct {
 	Active               bool
 	Epoch                string
 	Tick, Seed           int64
+	// conversation checks (dialogue.go): this game's own value, drawn once at a new game; a load keeps it (never rerolls)
+	CheckSeed int64 `json:",omitempty"`
 	PlayerName           string
 	Player               point
 	Path                 []point
@@ -868,6 +872,15 @@ func (r *Runtime) command(in input) {
 		if seed == 0 {
 			seed = world.Config.Seed
 		}
+		// the world's seed stays the menu's; the conversation checks get this game's own value unless one is passed
+		checkSeed := v.CheckSeed
+		if checkSeed != 0 && !world.Config.DebugPerception {
+			r.action(c, id, action, slot, errors.New("a fixed check value is for debug builds only"))
+			return
+		}
+		if checkSeed == 0 {
+			checkSeed = newCheckSeed()
+		}
 		name := v.PlayerName
 		if name == "" {
 			name = "Герой"
@@ -900,7 +913,7 @@ func (r *Runtime) command(in input) {
 		}
 		r.world = world
 		r.openStore = ""
-		r.state = state{Wounds:wounds.Save{Version:1},Playable:playableSceneState{ID:world.PlayableID},SDKLayout: layout, Inventory: items, Active: true, Epoch: newEpoch(), Seed: seed, PlayerName: name, Player: world.Spawn, Speed: 1}
+		r.state = state{Wounds:wounds.Save{Version:1},Playable:playableSceneState{ID:world.PlayableID},SDKLayout: layout, Inventory: items, Active: true, Epoch: newEpoch(), Seed: seed, CheckSeed: checkSeed, PlayerName: name, Player: world.Spawn, Speed: 1}
 		if isLife {
 			r.initLifeState(life)
             if err:=r.initPlayableScene();err!=nil{r.action(c,id,action,slot,err);return}
@@ -1144,6 +1157,8 @@ func (r *Runtime) readSaveFile(slot string) (state, int64, error) {
  if err:=r.validateWounds(s);err!=nil{return s,0,err}
  // owner 02.11: the origin "prewar" is "heirloom" now; an older save loads with the new name
 	migrateSavedOrigins(&s)
+	// conversation like Disco Elysium: a save from before the game's own check value gets one from its epoch (dialogue.go)
+	migrateCheckSeed(&s)
 	validator, err := r.savedWorldRuntimeForState(s)
 	if err != nil {
 		return s, 0, err

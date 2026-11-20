@@ -350,6 +350,9 @@ type Compiled struct {
 	// The street musician of a market level (market musician v1, world.busker): his spot, day, tunes, listeners; nil without him.
 	Busker            *BuskerCatalog     `json:"busker,omitempty"`
 	CalendarEncounter *CalendarEncounter `json:"calendar_encounter,omitempty"`
+	// Conversation like Disco Elysium (owner 20.11, world.dialogue_rules): the chance table of skill checks, the colours
+	// and names of skills and castes in the log (dialogue.go); nil without it.
+	DialogueRules *DialogueRules `json:"dialogue_rules,omitempty"`
 	// Craft places of the hub islands (demo-hub v16-goods, world.market_goods); nil in worlds without them.
 	Craft *CraftCatalog `json:"craft,omitempty"`
 	// The sound of the hall (demo-hub v26-alive, world.soundscape); nil in worlds without it.
@@ -599,6 +602,12 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 		return out, nil, err
 	}
 	if out.CalendarEncounter, err = readCalendarEncounter(world); err != nil {
+		return out, nil, err
+	}
+	if out.DialogueRules, err = readDialogueRules(world); err != nil {
+		return out, nil, err
+	}
+	if err = rejectUnrunDialogueFields(world); err != nil {
 		return out, nil, err
 	}
 	if out.Peddlers, err = readPeddlers(world); err != nil {
@@ -1075,6 +1084,9 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	if err := applyCrafting(&out, craftingIn); err != nil {
 		return out, nil, err
 	}
+	if err := out.DialogueRules.check(&out); err != nil {
+		return out, nil, err
+	}
 	if err := checkCalendarEncounter(&out); err != nil {
 		return out, nil, err
 	}
@@ -1512,6 +1524,8 @@ func generatePOC(project string, legacyUnity bool) error {
 		"cart_parking_test.go.tmpl":             filepath.Join(project, "internal/poc/cart_parking_generated_test.go"),
 		"peddlers_test.go.tmpl":                 filepath.Join(project, "internal/poc/peddlers_generated_test.go"),
 		"calendar_encounter.go.tmpl":            filepath.Join(project, "internal/poc/calendar_encounter.gen.go"),
+		"dialogue.go.tmpl":                      filepath.Join(project, "internal/poc/dialogue.gen.go"),
+		"dialogue_test.go.tmpl":                 filepath.Join(project, "internal/poc/dialogue_generated_test.go"),
 		"calendar_encounter_test.go.tmpl":       filepath.Join(project, "internal/poc/calendar_encounter_generated_test.go"),
 		"conversation.cs.tmpl":                  filepath.Join(unity, "Assets/Generated/Poc/PocConversation.cs"),
 		"peddlers.cs.tmpl":                      filepath.Join(unity, "Assets/Generated/Poc/PocPeddlers.cs"),

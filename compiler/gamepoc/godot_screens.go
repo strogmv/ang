@@ -33,6 +33,14 @@ type ScreenChrome struct {
 	TitleRole           string      `json:"title_role"`
 	TitlePX             int         `json:"title_px"`
 	Gap                 int         `json:"gap_px"`
+	// A column at one side of the screen, full height (the conversation like Disco Elysium, owner 20.11): the world stays
+	// in view beside it. Width is a share of the screen, never below min_px; frame_margins still frame it.
+	Column *ScreenColumn `json:"column,omitempty"`
+}
+type ScreenColumn struct {
+	Side     string  `json:"side"`
+	Fraction float64 `json:"fraction"`
+	MinPX    float64 `json:"min_px"`
 }
 type ScreenCombatCategory struct {
 	ID     string   `json:"id"`
@@ -1019,6 +1027,15 @@ func validateScreenChrome(p ScreenChrome) error {
 	}
 	if p.TitlePX < 12 {
 		return fmt.Errorf("title_px: effective text below 12 px")
+	}
+	if c := p.Column; c != nil {
+		if c.Side != "left" && c.Side != "right" {
+			return fmt.Errorf("column.side: left or right")
+		}
+		// a column leaves the world in view and still holds a line of text at 1280x800
+		if c.Fraction < 0.2 || c.Fraction > 0.6 || c.MinPX < 320 || c.MinPX > 1280*0.6 {
+			return fmt.Errorf("column: fraction 0.2..0.6 of the screen, min_px 320..768")
+		}
 	}
 	return nil
 }
