@@ -1551,6 +1551,7 @@ func generatePOC(project string, legacyUnity bool) error {
 		"biomonitor.go.tmpl":                    filepath.Join(project, "internal/poc/biomonitor.gen.go"),
 		"chip_hud.go.tmpl":                      filepath.Join(project, "internal/poc/chip_hud.gen.go"),
 		"chip_hud_test.go.tmpl":                 filepath.Join(project, "internal/poc/chip_hud_generated_test.go"),
+		"combat_path_test.go.tmpl":              filepath.Join(project, "internal/poc/combat_path_generated_test.go"),
 		"biomonitor_test.go.tmpl":               filepath.Join(project, "internal/poc/biomonitor_generated_test.go"),
 		"train_motion.go.tmpl":                  filepath.Join(project, "internal/poc/train_motion.gen.go"),
 		"train_motion_test.go.tmpl":             filepath.Join(project, "internal/poc/train_motion_generated_test.go"),

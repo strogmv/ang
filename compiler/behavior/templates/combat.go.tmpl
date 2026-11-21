@@ -906,6 +906,108 @@ func (s CombatState) movement(space CombatSpace, r CombatRules, a Combatant, to 
 	}
 	return combatReach{}, errors.New("combat destination blocked or exceeds AP")
 }
+
+// CombatMovePreview is what an actor is shown of a walk before it is ordered (HUD v1.1, the path on the floor): the
+// cells walked (the destination last), the points the move would charge, how many leading cells the points left pay
+// for, and why the move cannot be ordered ("" when it can): here, inactive, cannot_walk, blocked (nobody can stand
+// there), occupied (a fighter he sees stands there), crowded (too close to one), too_far (a route exists, the points do
+// not pay for it), beyond (past the search budget), no_route.
+type CombatMovePreview struct {
+	Path   []Cell
+	AP     int
+	Afford int
+	Reason string
+}
+
+// MovePreview answers by the move command's own rule: the same bounded search (reachable) on the same observed state
+// and the same step-by-step charge Execute makes, so an accepted move charges exactly AP (unless a reaction stops the
+// walk). It plans over what the actor knows (planning: a fighter he does not see neither blocks nor crowds a cell), so
+// nothing hidden is disclosed. Past the points left the same search goes on to the rule's cell budget, to say what a
+// longer walk would cost. Nothing changes.
+func (s CombatState) MovePreview(space CombatSpace, r CombatRules, actorID string, to Cell) CombatMovePreview {
+	observed := s.Clone()
+	observed.Observe(space, r)
+	a := observed.Actor(actorID)
+	if a == nil || !a.Able() || a.StunTurns > 0 {
+		return CombatMovePreview{Reason: "inactive"}
+	}
+	if len(a.Body) > 0 && !a.BodyCanWalk {
+		return CombatMovePreview{Reason: "cannot_walk"}
+	}
+	if to == a.Position {
+		return CombatMovePreview{Reason: "here"}
+	}
+	if !space.standable(to) || space.Space.Occupied != nil && space.visible(a.Position, to, r) && space.Space.Occupied(to) {
+		return CombatMovePreview{Reason: "blocked"}
+	}
+	if observed.occupied(to, a.ID, space, r, a.Position, true) {
+		return CombatMovePreview{Reason: "occupied"}
+	}
+	if observed.crowded(space, r, *a, to, true) || space.EndPositionClear != nil && !space.EndPositionClear(*a, to) {
+		return CombatMovePreview{Reason: "crowded"}
+	}
+	// Execute's charge: the travelled units rounded up step by step, the retreat cost on the first step.
+	charge := func(path []Cell) (total int) {
+		units, extra, at := int64(0), 0, a.Position
+		for i, next := range path {
+			units += int64(space.rangeMM(at, next)) * int64(combatMovementScale(*a))
+			if i == 0 {
+				extra = observed.retreatCost(space, r, *a, next)
+			}
+			total = combatMoveUnitsAP(units, r) + extra
+			at = next
+		}
+		return total
+	}
+	options, truncated := observed.reachable(space, r, *a, a.AP, true)
+	for _, p := range options {
+		if p.At == to {
+			return CombatMovePreview{Path: p.Path, AP: charge(p.Path), Afford: len(p.Path)}
+		}
+	}
+	if truncated {
+		return CombatMovePreview{Reason: "beyond"}
+	}
+	wide, cut := observed.reachable(space, r, *a, 1<<30, true)
+	for _, p := range wide {
+		// the search's own cost (the retreat cost by the destination) is what refuses the cell; a cell it prices within
+		// the points yet does not reach is cut off by cells he cannot pay to pass
+		if p.At == to && p.AP > a.AP {
+			// the part of the shown route the points pay for ends on the last of its cells the move command would accept
+			within, afford := map[Cell]bool{}, 0
+			for _, o := range options {
+				within[o.At] = true
+			}
+			for i, at := range p.Path {
+				if within[at] {
+					afford = i + 1
+				}
+			}
+			return CombatMovePreview{Path: p.Path, AP: p.AP, Afford: afford, Reason: "too_far"}
+		}
+	}
+	if cut {
+		return CombatMovePreview{Reason: "beyond"}
+	}
+	return CombatMovePreview{Reason: "no_route"}
+}
+
+// MoveReach: the cells the actor can end a walk on with the points he has left (his own cell among them), by the move
+// command's search over what he knows — the reach border the HUD draws.
+func (s CombatState) MoveReach(space CombatSpace, r CombatRules, actorID string) []Cell {
+	observed := s.Clone()
+	observed.Observe(space, r)
+	a := observed.Actor(actorID)
+	if a == nil || !a.Able() || a.StunTurns > 0 || a.AP < 1 {
+		return nil
+	}
+	options, _ := observed.reachable(space, r, *a, a.AP, true)
+	out := make([]Cell, 0, len(options))
+	for _, p := range options {
+		out = append(out, p.At)
+	}
+	return out
+}
 func combatOnSegment(p, a, b Cell) bool {
 	// A conservative capsule around the actual cell-centre shot segment.
 	x, y := float64(p.X-a.X), float64(p.Y-a.Y)

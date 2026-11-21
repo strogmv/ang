@@ -20,6 +20,8 @@ import (
 type combatPanelCache struct {
 	key     string
 	options []*pb.PocCombatOption
+	// the cells the hero can end a walk on this turn (HUD v1.1: the reach border), empty when it is not his turn
+	reachX, reachY []int32
 }
 
 func (r *Runtime) appendCombatPanel(msg *pb.PocGameState, locale string) {
@@ -94,8 +96,42 @@ func (r *Runtime) appendCombatPanel(msg *pb.PocGameState, locale string) {
 	key := fmt.Sprintf("%s|%d|%d|%d|%d|%t|%s", s.ID, s.EventSeq, s.Turn, hero.AP, hero.ReservedAP, r.state.Paused, r.validLocale(locale))
 	if r.combatPanel.key != key {
 		r.combatPanel = combatPanelCache{key: key, options: r.combatOptions(r.validLocale(locale))}
+		if current := s.Current(); current != nil && current.ID == playerActorID && !r.state.Paused {
+			for _, at := range s.MoveReach(r.combatSpace(*s), r.world.CombatRuntime.Rules, playerActorID) {
+				r.combatPanel.reachX = append(r.combatPanel.reachX, int32(at.X))
+				r.combatPanel.reachY = append(r.combatPanel.reachY, int32(at.Y))
+			}
+		}
 	}
 	view.Options = r.combatPanel.options
+	view.ReachX, view.ReachY = r.combatPanel.reachX, r.combatPanel.reachY
+}
+
+// combatPreview answers the HUD's question about a walk to one cell (HUD v1.1, the path on the floor): the route, the
+// points the move command would charge and, when it cannot be ordered, why — by the move's own rule over what the hero
+// knows (behavior MovePreview). A question, not an order: no state changes, no receipt is kept, no state is sent.
+func (r *Runtime) combatPreview(c *connection, q *pb.PocCombatPreview) {
+	s := &r.state.Combat
+	out := &pb.PocCombatPath{Epoch: r.state.Epoch, Turn: s.Turn, Seq: q.Seq, X: q.X, Y: q.Y}
+	defer func() { r.send(c, &pb.ServerMessage{Msg: &pb.ServerMessage_CombatPath{CombatPath: out}}) }()
+	if q.Epoch != r.state.Epoch || !r.heroInCombat() || s.LevelID != r.currentLevel() || q.ExpectedTurn != s.Turn || r.state.Paused {
+		out.Code = "stale"
+		return
+	}
+	locale := r.validLocale(c.locale)
+	if current := s.Current(); current == nil || current.ID != playerActorID {
+		out.Code, out.Reason = "not_turn", r.localText(locale, "error.combat.not_turn", "")
+		return
+	}
+	p := s.MovePreview(r.combatSpace(*s), r.world.CombatRuntime.Rules, playerActorID, behavior.Cell{X: int(q.X), Y: int(q.Y)})
+	out.Ok, out.Ap, out.Afford, out.Code = p.Reason == "", int32(p.AP), int32(p.Afford), p.Reason
+	for _, at := range p.Path {
+		out.Path = append(out.Path, &pb.PocPoint{X: int32(at.X), Y: int32(at.Y)})
+	}
+	// "here" and "inactive" have nothing to say: no path is shown
+	if p.Reason != "" && p.Reason != "here" && p.Reason != "inactive" {
+		out.Reason = r.localText(locale, "error.combat.move."+p.Reason, "")
+	}
 }
 
 // combatTry executes one action on a copy and returns the AP it took from the hero.

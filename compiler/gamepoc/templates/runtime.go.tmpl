@@ -866,6 +866,10 @@ func (r *Runtime) command(in input) {
 		r.heroSteer(c, steer)
 		return
 	}
+	if q := m.GetCombatPreview(); q != nil {
+		r.combatPreview(c, q)
+		return
+	}
 	var id, action, epoch, slot, kind string
 	switch {
 	case m.GetCombatCommand() != nil:
