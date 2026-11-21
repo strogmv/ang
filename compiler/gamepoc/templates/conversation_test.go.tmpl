@@ -763,7 +763,7 @@ func TestMemoryFactAnswerReplacesTheGeneralOne(t *testing.T) {
 	e := r.world.CalendarEncounter
 	var replacer, replaced string
 	for _, o := range custodyNode(t, r).Options {
-		if o.Replaces != "" {
+		if o.Replaces == "kind" {
 			replacer, replaced = o.ID, o.Replaces
 		}
 	}
@@ -1651,4 +1651,176 @@ func TestMemoryLegacyArgumentsAndOnceLedgerLoad(t *testing.T) {
 		t.Fatal("legacy arguments or one-shot outcomes lost")
 	}
 	memoryRoundTripBytes(t, r, s)
+}
+
+func TestCustodyLeadBranchesAndSaveBytes(t *testing.T) {
+	for _, decision := range []string{"kind", "known", "lie"} {
+		for _, water := range []string{"skip", "pass", "fail"} {
+			for _, finish := range []string{"walk", "held_pass", "held_fail"} {
+				t.Run(decision+"/"+water+"/"+finish, func(t *testing.T) {
+					r := dialogueCustody(t, func(r *Runtime) {
+						dialogueSetSkill(r, "medicine", 10)
+						dialogueSetSkill(r, "melee", 5)
+						if decision == "known" {
+							e := r.world.CalendarEncounter
+							r.memoryWrite(r.encounterMetFact(), map[string]string{"how": "greeted"}, talkCtx{self: e.Actor})
+						}
+					})
+					pick := func(id string) {
+						t.Helper()
+						if err := choose(r, id); err != nil {
+							t.Fatalf("%s: %v", id, err)
+						}
+					}
+					// Find one game seed for the whole path, including a believed lie where chosen.
+					for seed := int64(1); ; seed++ {
+						die := func(id string) int {
+							return dialogueDie(r.state.Seed, seed, custodyKey(r), id, 1)
+						}
+						if decision == "lie" {
+							o := dialogueCheckedOption(t, r)
+							if die(o.ID) >= r.dialogueChance(*o.Check) {
+								continue
+							}
+						}
+						if water != "skip" && (die("water") < 50) != (water == "pass") {
+							continue
+						}
+						if finish != "walk" && (die("held") < 40) != (finish == "held_pass") {
+							continue
+						}
+						r.state.CheckSeed = seed
+						break
+					}
+					r.memoryTopic("topic.prokhor_missing")
+					if v := dialogueView(t, r, "ru"); len(v.Choices) != 9 {
+						t.Fatalf("decide shows %d choices, want 9", len(v.Choices))
+					}
+					pick(decision)
+					if tk := custodyTalk(r); tk.Node != "lead" || !voicedLine(tk, "encounter.prokhor.voice.dry") {
+						t.Fatal("decision did not continue to the Medicine voice in lead")
+					}
+					resolved := r.state.CalendarEncounter
+					if resolved.Choice != decision || resolved.Outcome != "willing" || !r.talkHolds() {
+						t.Fatalf("lead did not hold a willing decision: %+v", resolved)
+					}
+					v := dialogueView(t, r, "ru")
+					if ids := shownIDs(v); len(ids) != 3 || !ids["water"] || !ids["held"] || !ids["walk"] {
+						t.Fatalf("lead shows %v", ids)
+					}
+					if w, h := dialogueOption(t, v, "water"), dialogueOption(t, v, "held"); w.Skill != "medicine" || w.Chance != 50 || !w.Once || h.Skill != "melee" || h.Chance != 40 || !h.Once {
+						t.Fatalf("unexpected lead checks: water %v, held %v", w, h)
+					}
+					r.state = memoryRoundTripBytes(t, r, r.snapshotState())
+					start := r.snapshotState()
+					for i := int64(0); i <= custodyConv(r).AnswerSeconds*int64(r.world.Config.TickHz); i++ {
+						r.step()
+					}
+					if !reflect.DeepEqual(start, r.snapshotState()) {
+						t.Fatal("the world or lead's clock ran after the decision")
+					}
+					check := func(id string, fail bool) {
+						t.Helper()
+						pick(id)
+						if rec := custodyTalk(r).Checks[id]; rec.Attempts != 1 || rec.Success == fail {
+							t.Fatalf("%s rolled %+v, want failed=%v", id, rec, fail)
+						}
+					}
+					hasLine := func(key, speaker string) bool {
+						for _, line := range custodyTalk(r).Lines {
+							if line.Text == key && line.Speaker == speaker {
+								return true
+							}
+						}
+						return false
+					}
+					guard := r.world.CalendarEncounter.Guard
+					prokhor := r.world.CalendarEncounter.Actor
+					if water != "skip" {
+						check("water", water == "fail")
+						reply := "encounter.prokhor.water_ok"
+						if water == "fail" {
+							reply = "encounter.prokhor.water_fail"
+						}
+						if !hasLine(reply, guard) || !r.talkHolds() {
+							t.Fatal("water did not leave Mark's reply and return to lead")
+						}
+						r.state = memoryRoundTripBytes(t, r, r.snapshotState())
+						if row := dialogueOption(t, dialogueView(t, r, "en"), "water"); row == nil || !row.Locked || !row.Seen || choose(r, "water") == nil {
+							t.Fatal("used water check is not dimmed and locked")
+						}
+					}
+					if f, ok := r.state.Memory.Facts["fact.prokhor.given_water"]; ok != (water == "pass") || ok && !memoryIn(f.Witnesses, guard) {
+						t.Fatalf("water fact or witness is wrong: %+v", f)
+					}
+					if finish == "walk" {
+						pick("walk")
+					} else {
+						check("held", finish == "held_fail")
+						if finish == "held_fail" && !hasLine("encounter.prokhor.held_fail", guard) || finish == "held_pass" && !hasLine("encounter.prokhor.held_ok", prokhor) {
+							t.Fatal("melee check has the wrong reply or speaker")
+						}
+					}
+					if f, ok := r.state.Memory.Facts["fact.prokhor.held_up"]; ok != (finish == "held_pass") || ok && !memoryIn(f.Witnesses, guard) {
+						t.Fatalf("held-up fact or witness is wrong: %+v", f)
+					}
+					if r.talkHolds() || !reflect.DeepEqual(resolved, r.state.CalendarEncounter) || r.guardEscortTarget(guard) != "" {
+						t.Fatal("lead changed or prolonged the willing custody")
+					}
+					r.state = memoryRoundTripBytes(t, r, r.snapshotState())
+					r.step()
+					if r.state.Life.Seconds == start.Life.Seconds {
+						t.Fatal("the world stayed frozen after lead")
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestCustodyLeadLeaveKeepsDecision(t *testing.T) {
+	r := dialogueCustody(t, nil)
+	if err := choose(r, "kind"); err != nil {
+		t.Fatal(err)
+	}
+	leave(t, r)
+	if r.state.Memory.Open != "" || r.talkHolds() || r.state.CalendarEncounter.Choice != "kind" || r.state.CalendarEncounter.Outcome != "willing" {
+		t.Fatal("leaving lead did not keep the settled decision and unfreeze the world")
+	}
+}
+
+func TestCustodyLieUsesHeroFile(t *testing.T) {
+	for _, tc := range []struct {
+		id, trait string
+		medblock bool
+		chance int32
+	}{
+		{"lie", "", false, 40},
+		{"lie", "stubborn", false, 30},
+		{"lie_medblock", "", true, 10},
+	} {
+		t.Run(fmt.Sprintf("%s/%d", tc.id, tc.chance), func(t *testing.T) {
+			r := dialogueCustody(t, func(r *Runtime) {
+				c := r.world.HeroFile.Default.clone()
+				c.Trait = tc.trait
+				if tc.medblock {
+					c.Episodes = []string{"medblock", "schedules"}
+				}
+				if err := r.heroFileNewGame(c); err != nil {
+					t.Fatal(err)
+				}
+			})
+			v := dialogueView(t, r, "ru")
+			if row := dialogueOption(t, v, tc.id); row == nil || !row.Once || row.Chance != tc.chance || len(v.Choices) > 9 {
+				t.Fatalf("file shows the wrong lie or chance: %+v", row)
+			}
+			line := false
+			for _, l := range custodyTalk(r).Lines {
+				line = line || l.Text == "encounter.prokhor.prompt_medblock"
+			}
+			if line != tc.medblock || tc.medblock && shownIDs(v)["lie"] {
+				t.Fatal("medical-block past did not add its line and replace the ordinary lie")
+			}
+		})
+	}
 }

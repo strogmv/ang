@@ -100,6 +100,7 @@ type heroFileCatalog struct {
 		Title      string `json:"title"`
 		Body       string `json:"body"`
 		Do         string `json:"do"`
+		Confirm    string `json:"confirm"`
 		Skip       string `json:"skip"`
 		Done       string `json:"done"`
 	} `json:"recheck"`
@@ -695,7 +696,12 @@ func (r *Runtime) heroFileView(locale string, req *pb.PocHeroFileRequest) *pb.Po
 	}
 	v.Ready = v.Problem == ""
 	v.Choice = c.wire()
-	v.Header, v.ChipTraining, v.Confirm, v.ResetText, v.Club = text(w.Text.Header), text(w.Text.Training), text(w.Text.Confirm), text(w.Text.Reset), text(w.Club)
+	v.Header, v.ChipTraining, v.ResetText, v.Club = text(w.Text.Header), text(w.Text.Training), text(w.Text.Reset), text(w.Club)
+	confirm := w.Text.Confirm
+	if v.Mode == "recheck" {
+		confirm = w.Recheck.Confirm
+	}
+	v.Confirm = text(confirm)
 	v.StartCap = int32(w.Strengths.StartCap)
 	v.StrengthsLeft = int32(max(0, w.Strengths.Count-len(c.Strengths)))
 	if d := r.world.DialogueRules; d != nil {

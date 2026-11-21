@@ -778,3 +778,21 @@ func TestHeroFileRetuneAtLoad(t *testing.T) {
 		t.Fatal("the loaded game's relief")
 	}
 }
+
+func TestHeroFileReviewConfirmUsesItsOwnLocalizedText(t *testing.T) {
+	r, _ := heroFileRuntime(t)
+	file := r.world.HeroFile
+	for _, locale := range []string{"ru", "en"} {
+		open := r.localText(locale, file.Recheck.Do, "")
+		review := r.localText(locale, file.Recheck.Confirm, "")
+		draft := r.localText(locale, file.Text.Confirm, "")
+		if review == "" || review == open || review == draft {
+			t.Fatalf("%s: review confirm %q, open %q, new game confirm %q", locale, review, open, draft)
+		}
+		for mode, want := range map[string]string{"new": draft, "recheck": review} {
+			if got := r.heroFileView(locale, &pb.PocHeroFileRequest{Mode: mode}).Confirm; got != want {
+				t.Fatalf("%s/%s: confirm %q, want %q", locale, mode, got, want)
+			}
+		}
+	}
+}

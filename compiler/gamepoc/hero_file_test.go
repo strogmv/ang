@@ -36,7 +36,7 @@ func validHeroFile() HeroFile {
 	h.Line.SureLevel, h.Line.SurePercent, h.Line.HopePercent, h.Line.Shown = "hard", 80, 20, 2
 	h.Usage = HeroFileUsage{ActOne: []string{"01", "18"}, FirstHour: []string{"18"}, MinAct: 2, MinFirstHour: 1,
 		Reads: map[string]map[string]int{"01": {"topic.cassette_norm": 1, "fact.file.receiving": 1, "topic.medblock_inside": 2}, "18": {"fact.file.medblock": 1, "topic.ep_schedules": 1, "fact.file.schedules": 1}}}
-	h.Recheck = HeroFileRecheck{Level: "level.dorm", NightFromH: 21, NightToH: 6, Title: "t", Body: "b", Do: "d", Skip: "s", Done: "x"}
+	h.Recheck = HeroFileRecheck{Level: "level.dorm", NightFromH: 21, NightToH: 6, Title: "t", Body: "b", Do: "d", Confirm: "c", Skip: "s", Done: "x"}
 	return h
 }
 

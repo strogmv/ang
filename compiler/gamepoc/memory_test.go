@@ -123,6 +123,38 @@ func TestMemoryChecksRejectBrokenLinks(t *testing.T) {
 	}
 }
 
+func TestMemoryChecksRequireNamesForSharedTalkTargets(t *testing.T) {
+	c := memoryWorld(t)
+	talk := &c.Memory.Talks[0]
+	talk.Others, talk.Open = true, "always"
+	if err := checkMemory(c); err == nil || !strings.Contains(err.Error(), "actor.char.guard.name") {
+		t.Fatalf("unnamed shared talk target: %v", err)
+	}
+	name := LocalizationMessage{Key: "actor.char.guard.name", Context: "Guard's role", Texts: map[string]string{"ru": "Дежурный"}}
+	c.Localization.Messages = append(c.Localization.Messages, name)
+	if err := checkMemory(c); err == nil || !strings.Contains(err.Error(), "actor.char.guard.name") {
+		t.Fatalf("shared talk target with no English name: %v", err)
+	}
+	name.Texts["en"] = "Guard"
+	if err := checkMemory(c); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMemoryChecksRequireFollowUpToReachAnExit(t *testing.T) {
+	c := memoryWorld(t)
+	d := c.Conversations["dlg.trader"]
+	d.Nodes["open"].Options[2].FollowUp = "later"
+	d.Nodes["later"] = &ConvNode{AfterDecision: true, Options: []ConvOption{{ID: "leave", Text: "t.bye", Close: "bye"}}}
+	if err := checkMemory(c); err != nil {
+		t.Fatal(err)
+	}
+	d.Nodes["later"].Options[0].Close = ""
+	if err := checkMemory(c); err == nil || !strings.Contains(err.Error(), "no way out of this node") {
+		t.Fatalf("follow-up without an exit: %v", err)
+	}
+}
+
 func TestMemoryChecksKeepNineAnswersOnScreen(t *testing.T) {
 	ten := func() []ConvOption {
 		out := []ConvOption{}

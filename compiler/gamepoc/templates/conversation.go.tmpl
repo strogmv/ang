@@ -184,6 +184,7 @@ type convEntryDef struct {
 	Lines []convLine `json:"lines"`
 }
 type convNode struct {
+	AfterDecision bool `json:"after_decision,omitempty"`
 	Lines   []convLine   `json:"lines"`
 	Voices  []convVoice  `json:"voices"`
 	Options []convOption `json:"options"`
@@ -218,6 +219,8 @@ type convOption struct {
 	Reply    []convLine     `json:"reply"`
 	Do       []memDo        `json:"do"`
 	Next     string         `json:"next,omitempty"`
+	FollowUp string `json:"follow_up,omitempty"`
+	KeepUsedCheck bool `json:"keep_used_check,omitempty"`
 	Close    string         `json:"close,omitempty"`
 	Trade    bool           `json:"trade"`
 	Check    *DialogueCheck `json:"check,omitempty"`
@@ -440,7 +443,13 @@ func (t *talkState) voiced(id string) bool {
 
 func (r *Runtime) memoryDay() int64 { return r.state.Life.Seconds/86400 + 1 }
 
-// memoryPerson: "self" is the person of the talk.
+// afterDecision identifies the follow-up to an outcome the owner has already applied.
+func (c talkCtx) afterDecision() bool {
+	n := c.conv.Nodes[c.t.Node]
+	return n != nil && n.AfterDecision
+}
+
+// person resolves "self" to the person the hero addressed.
 func (c talkCtx) person(id string) string {
 	if id == "self" {
 		return c.self
@@ -1061,6 +1070,9 @@ func (r *Runtime) talkTick() {
 	if !ok {
 		return
 	}
+	if c.afterDecision() {
+		return
+	}
 	c.t.Ticks++
 	if c.conv.AnswerSeconds > 0 && c.t.Ticks >= c.conv.AnswerSeconds*int64(r.world.Config.TickHz) {
 		if word := r.talkEvent("timeout"); word != "" {
@@ -1091,7 +1103,7 @@ func (r *Runtime) optionOwn(c talkCtx, o convOption) bool {
 		return false
 	}
 	if o.Check != nil {
-		if open, locked := r.dialogueCheckOpen(&c.t.dialogueSession, o.ID, *o.Check); !open && !locked {
+		if open, locked := r.dialogueCheckOpen(&c.t.dialogueSession, o.ID, *o.Check); !open && !locked && !o.KeepUsedCheck {
 			return false
 		}
 	}
@@ -1148,6 +1160,10 @@ func (r *Runtime) talkChoose(id string) (string, bool, error) {
 		r.talkSpeak(c, reply)
 		r.memoryDo(c, do)
 		switch {
+		case !failed && o.FollowUp != "":
+			r.talkClosed(c, word, false)
+			r.talkEnter(c, o.FollowUp)
+			return "", false, nil
 		case next != "":
 			r.talkEnter(c, next)
 		case word != "":
@@ -1327,14 +1343,8 @@ func (r *Runtime) conversationCommand(q *pb.PocLifeCommand) error {
 		return r.talkOpen(conv, q.Destination)
 	case "conversation_leave":
 		// the hero closed the column: an ordinary talk ends, a talk that waits for its owner steps aside, last words go
-		key := r.state.Memory.Open
-		t := r.state.Memory.Talks[key]
-		conv, _, _ := strings.Cut(key, "|")
-		if t == nil {
-			return nil
-		}
-		if d := r.world.Conversations[conv]; d != nil && d.Event && t.Until == 0 {
-			t.Hidden = true
+		if c, ok := r.talkOpenNow(); ok && c.conv.Event && !c.afterDecision() {
+			c.t.Hidden = true
 			return nil
 		}
 		r.talkDrop()
@@ -1365,7 +1375,7 @@ func (r *Runtime) conversationCommand(q *pb.PocLifeCommand) error {
 // talkAllowed: the open talk may go on — its owner still holds it (the encounter's phase and guard) and the hero stands
 // within the conversation's reach.
 func (r *Runtime) talkAllowed(c talkCtx) bool {
-	if owned, ok := r.encounterTalkAllowed(c.conv.ID); owned {
+	if owned, ok := r.encounterTalkAllowed(c); owned {
 		return ok
 	}
 	_, talks := r.talkOf(c.self)
@@ -1414,7 +1424,7 @@ func (r *Runtime) memoryAfterFrame() {
 		}
 	default:
 		// an ordinary talk ends when the hero walks away; an event talk (the custody) waits for its owner
-		if c, ok := r.talkOpenNow(); !ok || !c.conv.Event && !r.talkAllowed(c) {
+		if c, ok := r.talkOpenNow(); !ok || (!c.conv.Event || c.afterDecision()) && !r.talkAllowed(c) {
 			r.talkDrop()
 		}
 	}
@@ -1494,6 +1504,9 @@ func (r *Runtime) appendConversation(msg *pb.PocGameState, locale string) {
 				continue
 			}
 			choice := r.dialogueChoice(locale, t.dialogueSession, o.ID, r.lineText(c, o.Text, o.Variants), o.Check)
+			if o.KeepUsedCheck {
+				_, choice.Locked = t.Checks[o.ID]
+			}
 			choice.Action = "conversation_choice"
 			v.Choices = append(v.Choices, choice)
 		}

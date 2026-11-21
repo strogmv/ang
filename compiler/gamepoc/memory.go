@@ -227,9 +227,10 @@ type ConvEntry struct {
 	Lines []ConvLine `json:"lines"`
 }
 type ConvNode struct {
-	Lines   []ConvLine   `json:"lines"`
-	Voices  []ConvVoice  `json:"voices"`
-	Options []ConvOption `json:"options"`
+	AfterDecision bool         `json:"after_decision,omitempty"`
+	Lines         []ConvLine   `json:"lines"`
+	Voices        []ConvVoice  `json:"voices"`
+	Options       []ConvOption `json:"options"`
 }
 type ConvVariant struct {
 	When When   `json:"when"`
@@ -251,19 +252,21 @@ type ConvVoice struct {
 	Do       []Do          `json:"do"`
 }
 type ConvOption struct {
-	ID       string         `json:"id"`
-	Text     string         `json:"text"`
-	Variants []ConvVariant  `json:"variants"`
-	When     *When          `json:"when,omitempty"`
-	Once     bool           `json:"once"`
-	Replaces string         `json:"replaces,omitempty"`
-	Reply    []ConvLine     `json:"reply"`
-	Do       []Do           `json:"do"`
-	Next     string         `json:"next,omitempty"`
-	Close    string         `json:"close,omitempty"`
-	Trade    bool           `json:"trade"`
-	Check    *DialogueCheck `json:"check,omitempty"`
-	Fail     *ConvFail      `json:"fail,omitempty"`
+	ID            string         `json:"id"`
+	Text          string         `json:"text"`
+	Variants      []ConvVariant  `json:"variants"`
+	When          *When          `json:"when,omitempty"`
+	Once          bool           `json:"once"`
+	Replaces      string         `json:"replaces,omitempty"`
+	Reply         []ConvLine     `json:"reply"`
+	Do            []Do           `json:"do"`
+	Next          string         `json:"next,omitempty"`
+	FollowUp      string         `json:"follow_up,omitempty"`
+	KeepUsedCheck bool           `json:"keep_used_check,omitempty"`
+	Close         string         `json:"close,omitempty"`
+	Trade         bool           `json:"trade"`
+	Check         *DialogueCheck `json:"check,omitempty"`
+	Fail          *ConvFail      `json:"fail,omitempty"`
 }
 type ConvFail struct {
 	Reply []ConvLine `json:"reply"`
@@ -484,7 +487,7 @@ func memoryNodePossible(c *Conversation, node string, facts, topics map[string]b
 			if yes, _ := memoryPossible(o.When, facts, topics); !yes {
 				continue
 			}
-			for _, next := range []string{o.Next, failNext(o)} {
+			for _, next := range []string{o.Next, o.FollowUp, failNext(o)} {
 				if next != "" && !seen[next] {
 					seen[next] = true
 					queue = append(queue, next)
@@ -897,6 +900,9 @@ func (k *memoryChecker) conversation(c *Conversation) error {
 		if c.Nodes[e.Node] == nil {
 			return fmt.Errorf("%s: unknown node %s", at, e.Node)
 		}
+		if c.Nodes[e.Node].AfterDecision {
+			return fmt.Errorf("%s: follow-up node %s requires a decision", at, e.Node)
+		}
 		if e.When == nil && i != len(c.Entries)-1 {
 			return fmt.Errorf("%s: an entry without a condition must be the last (the ones after it are never taken)", at)
 		}
@@ -957,6 +963,15 @@ func (k *memoryChecker) conversation(c *Conversation) error {
 			if o.Next != "" && c.Nodes[o.Next] == nil {
 				return fmt.Errorf("%s: unknown node %s", oat, o.Next)
 			}
+			if o.Next != "" && c.Nodes[o.Next].AfterDecision != n.AfterDecision {
+				return fmt.Errorf("%s: next cannot cross into or out of a follow-up", oat)
+			}
+			if o.FollowUp != "" {
+				target := c.Nodes[o.FollowUp]
+				if n.AfterDecision || target == nil || !target.AfterDecision || o.Close == "" {
+					return fmt.Errorf("%s: follow_up needs a closing answer and an after_decision node", oat)
+				}
+			}
 			if o.Trade && (o.Next != "" || o.Close != "" || o.Check != nil) {
 				return fmt.Errorf("%s: a trade answer opens the trade window and nothing else", oat)
 			}
@@ -965,6 +980,9 @@ func (k *memoryChecker) conversation(c *Conversation) error {
 			}
 			if o.Close != "" {
 				closes[o.Close] = true
+			}
+			if o.KeepUsedCheck && (o.Check == nil || o.Check.Kind != "once") {
+				return fmt.Errorf("%s: keep_used_check needs a once check", oat)
 			}
 			if (o.Check == nil) != (o.Fail == nil) {
 				return fmt.Errorf("%s: a skill check needs its failure, and only a check has one", oat)
@@ -980,6 +998,9 @@ func (k *memoryChecker) conversation(c *Conversation) error {
 				}
 				if f.Next != "" && c.Nodes[f.Next] == nil {
 					return fmt.Errorf("%s.fail: unknown node %s", oat, f.Next)
+				}
+				if f.Next != "" && c.Nodes[f.Next].AfterDecision != n.AfterDecision {
+					return fmt.Errorf("%s.fail: next cannot cross into or out of a follow-up", oat)
 				}
 				if f.Next != "" && f.Close != "" {
 					return fmt.Errorf("%s.fail: goes on or closes, not both", oat)
@@ -1027,7 +1048,7 @@ func (k *memoryChecker) conversation(c *Conversation) error {
 		id := queue[0]
 		queue = queue[1:]
 		for _, o := range c.Nodes[id].Options {
-			for _, next := range []string{o.Next, failNext(o)} {
+			for _, next := range []string{o.Next, o.FollowUp, failNext(o)} {
 				if next != "" && !reached[next] {
 					reached[next] = true
 					queue = append(queue, next)
@@ -1043,7 +1064,7 @@ func (k *memoryChecker) conversation(c *Conversation) error {
 				continue
 			}
 			for _, o := range c.Nodes[id].Options {
-				if o.Close != "" || o.Next != "" && exits[o.Next] {
+				if o.Close != "" && o.FollowUp == "" || o.Next != "" && exits[o.Next] || o.FollowUp != "" && exits[o.FollowUp] {
 					exits[id], changed = true, true
 					break
 				}
@@ -1197,8 +1218,19 @@ func checkMemory(c *Compiled) error {
 			k.castes[caste] = true
 		}
 	}
+	names := map[string]bool{}
 	for _, msg := range c.Localization.Messages {
 		k.messages[msg.Key] = true
+		if strings.HasPrefix(msg.Key, "actor.") && strings.HasSuffix(msg.Key, ".name") {
+			names[msg.Key] = strings.TrimSpace(msg.Texts["ru"]) != "" && strings.TrimSpace(msg.Texts["en"]) != ""
+		}
+	}
+	talkName := func(where, person string) error {
+		key := "actor." + person + ".name"
+		if !names[key] {
+			return fmt.Errorf("%s: the name of %s needs ru and en for %q", where, person, key)
+		}
+		return nil
 	}
 	if m.InterjectionRules.FreshDays < 1 || m.InterjectionRules.HeardBelief <= 0 || m.InterjectionRules.HeardBelief >= 1 {
 		return fmt.Errorf("world.memory.interjection_rules: fresh days and the heard belief")
@@ -1323,7 +1355,7 @@ func checkMemory(c *Compiled) error {
 				return fmt.Errorf("%s: %s already talks in %s", where, p, talkOf[p])
 			}
 			// the column shows the speaker's name: a person who talks has one in the texts
-			if err := k.text(where+": the name of "+p, "actor."+p+".name"); err != nil {
+			if err := talkName(where, p); err != nil {
 				return err
 			}
 			talkOf[p] = t.Conversation
@@ -1356,7 +1388,22 @@ func checkMemory(c *Compiled) error {
 			}
 		}
 	}
+	if others != "" {
+		for _, a := range life.Actors {
+			if a.ID == "char.hero" || talkOf[a.ID] != "" {
+				continue
+			}
+			if err := talkName("world.memory.talks: "+others, a.ID); err != nil {
+				return err
+			}
+		}
+	}
 	if e := c.CalendarEncounter; e != nil {
+		for _, person := range []string{e.Actor, e.Guard} {
+			if err := talkName("calendar encounter", person); err != nil {
+				return err
+			}
+		}
 		for _, slot := range []struct{ id, what string }{
 			{e.Talk.Sack, "встреча: у мешка, дни 1–" + fmt.Sprint(e.FirstDays)},
 			{e.Talk.Custody, "встреча: арест, день " + fmt.Sprint(e.FirstDays+e.MissingDays+1)},

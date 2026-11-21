@@ -259,6 +259,12 @@ func checkCalendarEncounter(c *Compiled) error {
 	checked := map[string]bool{}
 	for _, n := range custody.Nodes {
 		for _, o := range n.Options {
+			if n.AfterDecision {
+				if o.Trade || o.Next != "" || o.Close != "" && o.Close != "bye" || o.Fail != nil && o.Fail.Close != "" && o.Fail.Close != "bye" {
+					return fmt.Errorf("calendar encounter: follow-up answer %s stays in the follow-up or closes it", o.ID)
+				}
+				continue
+			}
 			if o.Close != "" {
 				words[o.Close] = true
 				if o.Check != nil {
@@ -267,6 +273,9 @@ func checkCalendarEncounter(c *Compiled) error {
 					}
 					checked[o.Close] = true
 				}
+			}
+			if o.Fail != nil && o.Fail.Close != "" && o.Fail.Close != o.Close {
+				return fmt.Errorf("calendar encounter: failed decision %s must use its own outcome", o.ID)
 			}
 			if o.Trade || o.Next != "" {
 				return fmt.Errorf("calendar encounter: custody answer %s neither trades nor leaves the decision", o.ID)

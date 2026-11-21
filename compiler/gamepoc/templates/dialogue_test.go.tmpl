@@ -236,16 +236,30 @@ func TestDialogueRollIsDeterministicAndBothOutcomesHappen(t *testing.T) {
 		if !success {
 			want, reply = c.Fail.Outcome, o.Fail.Reply
 		}
-		last := talk.Lines[len(talk.Lines)-1]
-		if a.CalendarEncounter.Choice != c.ID || a.CalendarEncounter.Outcome != want || last.Text != reply[len(reply)-1].Text || a.CalendarEncounter.ReplyKey != last.Text {
-			t.Fatalf("seed %d success=%v: choice %s outcome %s reply %s", seed, success, a.CalendarEncounter.Choice, a.CalendarEncounter.Outcome, last.Text)
+		last := reply[len(reply)-1]
+		var spoken dialogueEntry
+		for _, line := range talk.Lines {
+			if success && o.FollowUp != "" && line.Text == "encounter.prokhor.lead.stumble" {
+				break
+			}
+			if line.Kind == "line" {
+				spoken = line
+			}
+		}
+		if a.CalendarEncounter.Choice != c.ID || a.CalendarEncounter.Outcome != want || spoken.Text != last.Text || spoken.Speaker != last.Speaker || a.CalendarEncounter.ReplyKey != last.Text {
+			t.Fatalf("seed %d success=%v: choice %s outcome %s reply %s", seed, success, a.CalendarEncounter.Choice, a.CalendarEncounter.Outcome, a.CalendarEncounter.ReplyKey)
 		}
 		if err := runs[0].validateEncounterSave(runs[0].state); err != nil {
 			t.Fatalf("seed %d: a resolved check does not validate: %v", seed, err)
 		}
 		// the reply's header is who spoke last
-		if v := dialogueView(t, runs[0], "ru"); v.Kind != "reply" || !v.Leave || v.Speaker != reply[len(reply)-1].Speaker {
-			t.Fatalf("seed %d: the reply's speaker is %s, the last line's %s", seed, v.Speaker, reply[len(reply)-1].Speaker)
+		v := dialogueView(t, runs[0], "ru")
+		if success && o.FollowUp != "" {
+			if v.Kind != "talk" || v.Leave || talk.Node != o.FollowUp {
+				t.Fatalf("seed %d: success did not continue to %s", seed, o.FollowUp)
+			}
+		} else if v.Kind != "reply" || !v.Leave || v.Speaker != last.Speaker {
+			t.Fatalf("seed %d: the reply's speaker is %s, the last line's %s", seed, v.Speaker, last.Speaker)
 		}
 	}
 	if outcomes[true] == 0 || outcomes[false] == 0 {
@@ -521,8 +535,11 @@ func TestDialogueAnswersChangeTheWorldByTheirData(t *testing.T) {
 			if !r.optionShown(ctx, o) {
 				// an answer for people who know each other: the acquaintance first
 				r.memoryWrite(r.encounterMetFact(), map[string]string{"how": "greeted"}, talkCtx{self: e.Actor})
+				if o.When != nil && o.When.Fact != nil && !r.optionShown(ctx, o) {
+					r.memoryWrite(o.When.Fact.ID, nil, ctx)
+				}
 				if !r.optionShown(ctx, o) {
-					t.Skipf("answer %s is not offered here", o.ID)
+					t.Fatalf("answer %s is not offered here", o.ID)
 				}
 			}
 			c := encounterChoiceOf(r, o.Close)

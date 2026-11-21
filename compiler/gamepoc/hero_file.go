@@ -134,6 +134,7 @@ type HeroFileRecheck struct {
 	Title      string `json:"title"`
 	Body       string `json:"body"`
 	Do         string `json:"do"`
+	Confirm    string `json:"confirm"`
 	Skip       string `json:"skip"`
 	Done       string `json:"done"`
 }
@@ -491,7 +492,7 @@ func (h *HeroFile) check(c *Compiled) error {
 			return fail("skill %s: the hero's growth cap %d is below the start cap %d", s, got.Cap, h.Strengths.StartCap)
 		}
 	}
-	keys := []string{h.Fight.Text, h.Club, h.NoTrait, h.Recheck.Title, h.Recheck.Body, h.Recheck.Do, h.Recheck.Skip, h.Recheck.Done}
+	keys := []string{h.Fight.Text, h.Club, h.NoTrait, h.Recheck.Title, h.Recheck.Body, h.Recheck.Do, h.Recheck.Confirm, h.Recheck.Skip, h.Recheck.Done}
 	t := h.Text
 	// every key the runtime words the screen and its refusals with comes from here (templates/hero_file.go.tmpl names no key)
 	keys = append(keys, t.Header, t.Training, t.Recommended, t.Confirm, t.Reset, t.All, t.Level, t.Raised, t.Capped, t.Strength, t.Chance, t.First, t.NoMinus, t.ProblemStrengths, t.ProblemEpisodes, t.PastLocked, t.Invalid, t.NoRecheck, t.Separator)

@@ -340,16 +340,18 @@ func(r *Runtime)encounterTalkOf(person string)(string,bool){
  return "",false
 }
 // encounterTalkAllowed: whether a conversation is the encounter's (owned), and whether it may go on now.
-func(r *Runtime)encounterTalkAllowed(conv string)(owned,ok bool){
+func(r *Runtime)encounterTalkAllowed(c talkCtx)(owned,ok bool){
  e:=r.world.CalendarEncounter;if e==nil{return false,false};s:=r.state.CalendarEncounter
  reach:=func(id string)int{if d:=r.world.Conversations[id];d!=nil{return d.Reach};return e.Reach}
- switch conv{
+ switch c.conv.ID{
  case e.Talk.Custody:
-  return true,s.Phase=="conversation"&&s.Outcome==""&&r.encounterGuardAvailable()&&r.encounterNear(e.Guard,e.Reach)&&!r.heroInCombat()
+  if !r.encounterGuardAvailable()||!r.encounterNear(e.Guard,e.Reach)||r.heroInCombat(){return true,false}
+  if c.afterDecision(){return true,s.Phase=="escort"&&s.Outcome!=""}
+  return true,s.Phase=="conversation"&&s.Outcome==""
  case e.Talk.Sack:
-  return true,s.Day<=e.FirstDays&&s.Phase=="selling"&&r.encounterTradeAllowed(e.Actor)&&r.talkNear(e.Actor,reach(conv))
+  return true,s.Day<=e.FirstDays&&s.Phase=="selling"&&r.encounterTradeAllowed(e.Actor)&&r.talkNear(e.Actor,reach(c.conv.ID))
  case e.Talk.Gate:
-  return true,s.Outcome=="escape"&&r.talkNear(e.Actor,reach(conv))
+  return true,s.Outcome=="escape"&&r.talkNear(e.Actor,reach(c.conv.ID))
  }
  return false,false
 }
