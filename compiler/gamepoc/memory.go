@@ -30,6 +30,32 @@ type Memory struct {
 		HeardBelief float64 `json:"heard_belief"`
 	} `json:"interjection_rules"`
 	Talks []MemoryTalk `json:"talks"`
+	Trade MemoryTrade  `json:"trade"`
+}
+
+// MemoryTrade is trade inside a talk (owner 21.11): an answer marked trade lists the person's goods as numbered rows of
+// the conversation column. Rows is how many numbered rows fit (a longer list pages); the rest are text keys of its own
+// rows, of the summary above them and of what the stall trade says (a peddler's trade words its own).
+type MemoryTrade struct {
+	Rows    int    `json:"rows"`
+	More    string `json:"more"`
+	Prev    string `json:"prev"`
+	Done    string `json:"done"`
+	Sell    string `json:"sell"`
+	Buy     string `json:"buy"`
+	Balance string `json:"balance"`
+	Cash    string `json:"cash"`
+	Load    string `json:"load"`
+	Count   string `json:"count"`
+	Mass    string `json:"mass"`
+	Bought  string `json:"bought"`
+	Short   string `json:"short"`
+	Gone    string `json:"gone"`
+	Failed  string `json:"failed"`
+	Closed  string `json:"closed"`
+	Away    string `json:"away"`
+	Empty   string `json:"empty"`
+	Nothing string `json:"nothing"`
 }
 
 // MemoryFact is one significant event of the hero's story, defined ahead like an item (doc 103 §1).
@@ -85,6 +111,8 @@ type MemoryTalk struct {
 	Conversation string   `json:"conversation"`
 	People       []string `json:"people"`
 	Open         string   `json:"open"`
+	// the talk of everyone else the hero can address (a person no talk names); one talk at most
+	Others bool `json:"others"`
 }
 
 // When is a condition: every field set holds; Any — one of; Not — negation.
@@ -1015,7 +1043,7 @@ func (k *memoryChecker) conversation(c *Conversation) error {
 				continue
 			}
 			for _, o := range c.Nodes[id].Options {
-				if o.Close != "" || o.Trade || o.Next != "" && exits[o.Next] {
+				if o.Close != "" || o.Next != "" && exits[o.Next] {
 					exits[id], changed = true, true
 					break
 				}
@@ -1268,8 +1296,18 @@ func checkMemory(c *Compiled) error {
 	}
 	// who opens which conversation
 	talkOf := map[string]string{}
+	others := ""
 	for i, t := range m.Talks {
 		where := fmt.Sprintf("world.memory.talks[%d]", i)
+		if t.Others {
+			if others != "" {
+				return fmt.Errorf("%s: %s already takes everyone else", where, others)
+			}
+			if t.Open != "always" {
+				return fmt.Errorf("%s: the talk of everyone else opens always", where)
+			}
+			others = t.Conversation
+		}
 		conv := c.Conversations[t.Conversation]
 		if conv == nil || conv.Event || conv.Waits != "" {
 			return fmt.Errorf("%s: unknown, event or waiting conversation %s", where, t.Conversation)
@@ -1284,10 +1322,39 @@ func checkMemory(c *Compiled) error {
 			if talkOf[p] != "" {
 				return fmt.Errorf("%s: %s already talks in %s", where, p, talkOf[p])
 			}
+			// the column shows the speaker's name: a person who talks has one in the texts
+			if err := k.text(where+": the name of "+p, "actor."+p+".name"); err != nil {
+				return err
+			}
 			talkOf[p] = t.Conversation
 			k.links.add(k.links.people, p, t.Conversation)
 		}
 		k.links.opened[t.Conversation] = "«Поговорить» с человеком, когда ему есть что сказать (" + t.Open + ")"
+		if t.Others {
+			k.links.opened[t.Conversation] = "«Поговорить» с любым человеком (" + t.Open + "); у кого нет своих слов — общий разговор"
+		}
+	}
+	// trade inside a talk: its rows and texts
+	trades := false
+	for _, conv := range c.Conversations {
+		for _, n := range conv.Nodes {
+			for _, o := range n.Options {
+				trades = trades || o.Trade
+			}
+		}
+	}
+	if trades {
+		tr := m.Trade
+		if tr.Rows < 5 || tr.Rows > 9 {
+			return fmt.Errorf("world.memory.trade.rows: %d (5–9 numbered rows)", tr.Rows)
+		}
+		for name, key := range map[string]string{"more": tr.More, "prev": tr.Prev, "done": tr.Done, "sell": tr.Sell, "buy": tr.Buy, "balance": tr.Balance,
+			"cash": tr.Cash, "load": tr.Load, "count": tr.Count, "mass": tr.Mass, "bought": tr.Bought, "short": tr.Short, "gone": tr.Gone,
+			"failed": tr.Failed, "closed": tr.Closed, "away": tr.Away, "empty": tr.Empty, "nothing": tr.Nothing} {
+			if err := k.text("world.memory.trade."+name, key); err != nil {
+				return err
+			}
+		}
 	}
 	if e := c.CalendarEncounter; e != nil {
 		for _, slot := range []struct{ id, what string }{

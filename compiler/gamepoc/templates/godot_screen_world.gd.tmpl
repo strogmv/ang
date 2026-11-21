@@ -99,15 +99,6 @@ func open(target: Dictionary) -> void:
 	host.open_game_screen(target.kind.screen)
 	host.game_ui.select_key(target.kind.list, target.kind.row_key, target.id)
 
-## The trade window of a person (a conversation's «show me» answer): the world target that trades with him, opened as
-## the world action on him would — at once when he is within reach, after the walk otherwise.
-func open_person(actor: String) -> bool:
-	for target in targets:
-		if target.get("actor", "") == actor and not target.kind.get("screen", "").is_empty():
-			cancel()
-			return peaceful(target)
-	return false
-
 func peaceful(target: Dictionary) -> bool:
 	if target.is_empty():
 		return false
@@ -240,9 +231,8 @@ func verb(name: String) -> void:
 			if not peaceful(find(highlighted)) and not config.is_empty():
 				host.open_game_screen(config.fallback)
 		"talk":
-			var person := _nearest_where(func(t): return t.kind.get("person", false))
-			if not peaceful(person) and not config.is_empty():
-				host.open_game_screen(config.fallback)
+			# the nearest person the server lets the hero talk to: his conversation column, never another screen
+			peaceful(_nearest_where(func(t): return t.kind.get("action", "") == "talk"))
 		"approach":
 			var target := find(highlighted)
 			if target.is_empty():

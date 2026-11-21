@@ -144,34 +144,7 @@ func (r *Runtime) appendScreenTrade(msg *pb.PocGameState, locale string) {
 				v.Message = r.screenText(locale, "ui.screen.approach")
 				break
 			}
-			for _, id := range sortedCraftingItems(r.state.Inventory) {
-				item := r.state.Inventory.Items[id]
-				if item.Hidden || !item.ForSale || item.Quantity < 1 || item.Location.Kind != "store" ||
-					item.Location.Store != shop.DisplayStore {
-					continue
-				}
-				definition := r.world.Inventory.Definitions[item.Definition]
-				price, err := inv.Quote(definition, 1)
-				if err != nil {
-					continue
-				}
-				from, _, ok := r.tradeAccounts(item.Owner, definition.PriceUnit)
-				scale := r.world.Inventory.Currencies[definition.PriceUnit].Scale
-				o := &pb.PocVendingOffer{
-					ItemId:     item.ID,
-					Name:       r.screenInventoryName(locale, item.Definition),
-					Quantity:   item.Quantity,
-					Revision:   item.Revision,
-					Definition: item.Definition,
-					Price:      inv.FormatMoney(price, scale),
-					PriceText:  r.screenMoney(locale, inv.FormatMoney(price, scale), definition.PriceUnit),
-					Ok:         ok && from.Balance >= price,
-				}
-				if !o.Ok {
-					o.Reason = r.screenText(locale, "ui.peddler.refused.funds")
-				}
-				v.Offers = append(v.Offers, o)
-			}
+			v.Offers = r.storefrontOffers(locale, shop)
 			if len(v.Offers) == 0 {
 				v.Message = r.screenText(locale, "ui.screen.shop_empty")
 			}

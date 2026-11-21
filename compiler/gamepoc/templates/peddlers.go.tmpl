@@ -530,7 +530,6 @@ func (r *Runtime) appendPeddlers(view *pb.PocLifeView, hero *behavior.LifeActor,
 	if hero == nil || !hero.OnFloor() || len(r.world.Peddlers.Peddlers) == 0 {
 		return
 	}
-	scale := r.world.Inventory.Currencies["CRD"].Scale
 	day := r.state.Life.Seconds % 86400
 	for _, p := range r.world.Peddlers.Peddlers {
 		a := r.state.Life.Actor(p.Actor)
@@ -551,46 +550,54 @@ func (r *Runtime) appendPeddlers(view *pb.PocLifeView, hero *behavior.LifeActor,
 		}
 		if r.peddlerHeroNear(p) && !r.heroInCombat() {
 			out.Active = true
-			stock := r.craftingClassStock()
-			heroCRD, _ := r.peddlerAccount(playerActorID)
-			for _, id := range sortedCraftingItems(r.state.Inventory) {
-				i := r.state.Inventory.Items[id]
-				if i.Location != (inv.Location{Kind: "store", Store: p.Tray}) || !i.ForSale || i.Hidden {
-					continue
-				}
-				d := r.world.Inventory.Definitions[i.Definition]
-				price := r.peddlerLawPrice(i, stock)
-				o := &pb.PocVendingOffer{ItemId: i.ID, Name: r.localText(locale, d.Name, d.Name), Quantity: i.Quantity, Price: inv.FormatMoney(price, scale), Revision: i.Revision, Ok: heroCRD.Balance >= price, Definition: i.Definition, Reason: r.peddlerGradeText(locale, i)}
-				if !o.Ok {
-					o.Reason = r.localText(locale, "ui.peddler.refused.funds", "ui.peddler.refused.funds")
-				}
-				out.Offers = append(out.Offers, o)
-			}
-			sort.SliceStable(out.Offers, func(x, y int) bool { return out.Offers[x].Name < out.Offers[y].Name })
-			if p.Buys != nil {
-				cash, _ := r.peddlerAccount(p.Actor)
-				out.Cash = inv.FormatMoney(cash.Balance, scale)
-				for _, id := range sortedCraftingItems(r.state.Inventory) {
-					i := r.state.Inventory.Items[id]
-					if !r.carried(i) || i.Hidden {
-						continue
-					}
-					price, takes := r.peddlerBuyPrice(p, i, stock)
-					if !takes {
-						continue
-					}
-					d := r.world.Inventory.Definitions[i.Definition]
-					o := &pb.PocVendingOffer{ItemId: i.ID, Name: r.localText(locale, d.Name, d.Name), Quantity: i.Quantity, Price: inv.FormatMoney(price, scale), Revision: i.Revision, Ok: cash.Balance >= price, Definition: i.Definition}
-					o.Reason = strings.ReplaceAll(r.localText(locale, "ui.peddler.weight", "{g} g"), "{g}", fmt.Sprint(d.Mass))
-					if !o.Ok {
-						o.Reason = r.localText(locale, "ui.peddler.refused.cash", "ui.peddler.refused.cash")
-					}
-					out.Buyback = append(out.Buyback, o)
-				}
-			}
+			out.Offers, out.Buyback, out.Cash = r.peddlerOffers(locale, p)
 		}
 		view.Peddlers = append(view.Peddlers, out)
 	}
+}
+
+// peddlerOffers: the tray with the law's prices, what the peddler would buy from the hero, and the money he has for it —
+// one list for his own panel and for the trade inside a talk.
+func (r *Runtime) peddlerOffers(locale string, p peddlerDef) (offers, buyback []*pb.PocVendingOffer, cash string) {
+	scale := r.world.Inventory.Currencies["CRD"].Scale
+	stock := r.craftingClassStock()
+	heroCRD, _ := r.peddlerAccount(playerActorID)
+	for _, id := range sortedCraftingItems(r.state.Inventory) {
+		i := r.state.Inventory.Items[id]
+		if i.Location != (inv.Location{Kind: "store", Store: p.Tray}) || !i.ForSale || i.Hidden {
+			continue
+		}
+		d := r.world.Inventory.Definitions[i.Definition]
+		price := r.peddlerLawPrice(i, stock)
+		o := &pb.PocVendingOffer{ItemId: i.ID, Name: r.localText(locale, d.Name, d.Name), Quantity: i.Quantity, Price: inv.FormatMoney(price, scale), Revision: i.Revision, Ok: heroCRD.Balance >= price, Definition: i.Definition, Reason: r.peddlerGradeText(locale, i)}
+		if !o.Ok {
+			o.Reason = r.localText(locale, "ui.peddler.refused.funds", "ui.peddler.refused.funds")
+		}
+		offers = append(offers, o)
+	}
+	sort.SliceStable(offers, func(x, y int) bool { return offers[x].Name < offers[y].Name })
+	if p.Buys != nil {
+		account, _ := r.peddlerAccount(p.Actor)
+		cash = inv.FormatMoney(account.Balance, scale)
+		for _, id := range sortedCraftingItems(r.state.Inventory) {
+			i := r.state.Inventory.Items[id]
+			if !r.carried(i) || i.Hidden {
+				continue
+			}
+			price, takes := r.peddlerBuyPrice(p, i, stock)
+			if !takes {
+				continue
+			}
+			d := r.world.Inventory.Definitions[i.Definition]
+			o := &pb.PocVendingOffer{ItemId: i.ID, Name: r.localText(locale, d.Name, d.Name), Quantity: i.Quantity, Price: inv.FormatMoney(price, scale), Revision: i.Revision, Ok: account.Balance >= price, Definition: i.Definition}
+			o.Reason = strings.ReplaceAll(r.localText(locale, "ui.peddler.weight", "{g} g"), "{g}", fmt.Sprint(d.Mass))
+			if !o.Ok {
+				o.Reason = r.localText(locale, "ui.peddler.refused.cash", "ui.peddler.refused.cash")
+			}
+			buyback = append(buyback, o)
+		}
+	}
+	return offers, buyback, cash
 }
 
 func (r *Runtime) validatePeddlerSave(s state) error {

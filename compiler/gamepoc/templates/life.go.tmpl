@@ -439,7 +439,7 @@ func (r *Runtime) lifeCommand(q *pb.PocLifeCommand) error {
   return r.hearRegionRumour(q.Destination)
  case "debug_next_morning": return r.encounterCommand(q)
  // story memory: open a talk with a person, answer in it (conversation.go); encounter_choice is the custody's old name
- case "conversation_open", "conversation_choice", "encounter_choice": return r.conversationCommand(q)
+ case "conversation_open", "conversation_choice", "encounter_choice", "conversation_buy", "conversation_sell", "conversation_trade": return r.conversationCommand(q)
  case "busker_choice": return r.buskerCommand(q)
  case "interact":return r.playableInteract(q.Destination)
  case "illumination_power_off","illumination_power_on":return r.illuminationCommand(q.Action,q.Destination)

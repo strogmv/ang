@@ -216,7 +216,9 @@ func (r *Runtime) appendScreenTargets(msg *pb.PocGameState) {
 			)
 		}
 	}
-	// story memory: a person who has something to say — walk up close, then the talk opens
+	// story memory: a person the hero can talk to — walk up close, then the talk opens. A person who trades is talked to
+	// from where the hero can buy from him (a peddler's reach, the customer's cells of an open stall): trade goes on
+	// inside the talk
 	for _, row := range msg.Life.TalkTargets {
 		actor := r.state.Life.Actor(row.Id)
 		if actor == nil || !actor.OnFloor() || actor.Level != hero.Level {
@@ -226,7 +228,26 @@ func (r *Runtime) appendScreenTargets(msg *pb.PocGameState) {
 		if conv, ok := r.talkAvailable(row.Id); ok && r.world.Conversations[conv] != nil {
 			reach = min(reach, r.world.Conversations[conv].Reach)
 		}
-		row.Access = r.screenAccess(msg, actor.Position, r.screenReachCells(actor.Position, reach))
+		cells := r.screenReachCells(actor.Position, reach)
+		if p, shops, trades := r.talkSeller(row.Id); trades {
+			if p.Actor != "" {
+				cells = r.screenReachCells(actor.Position, min(reach, r.world.Peddlers.ReachCells))
+			} else {
+				counter := []behavior.Cell{}
+				for _, shop := range shops {
+					anchor, err := r.state.Inventory.Root(r.inventoryModelFor(true), inv.Location{Kind: "store", Store: shop.DisplayStore})
+					if err != nil || anchor.Kind != "world" || anchor.Level != hero.Level || !r.storefrontOpen(shop.ID) {
+						continue
+					}
+					at := behavior.Cell{X: anchor.At.X, Y: anchor.At.Y}
+					counter = append(counter, r.screenReachCells(at, 1)...)
+				}
+				if len(counter) > 0 {
+					cells = counter
+				}
+			}
+		}
+		row.Access = r.screenAccess(msg, actor.Position, cells)
 	}
 	for _, row := range msg.Life.Vending {
 		for _, unit := range r.world.Vending.Units {

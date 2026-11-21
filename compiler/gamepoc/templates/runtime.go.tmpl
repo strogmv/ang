@@ -392,6 +392,8 @@ type Runtime struct {
 	tickHz, stepUS, lagMS  float64
 	publishingTick bool
 	publishedTick  int64
+	// steps the world waited through since the last published state (an open talk holds the tick: talkHolds)
+	heldSteps int64
 	lastAdvance, sampleAt  time.Time
 	sampleTicks            int64
 }
@@ -615,7 +617,11 @@ func (r *Runtime) advance(now time.Time) {
 			// At speed 1 every step is published; a faster calendar keeps the
 			// wall-clock publication rate at TickHz (Speed ticks per frame).
 			since := r.state.Tick - r.publishedTick
-			if r.client != nil && (since < 0 || since >= int64(max(1, r.state.Speed))) {
+			// a held world (an open talk) has no new tick: its state is still published once a second, so the client
+			// keeps its link (and sees what a deal inside the talk changed)
+			held := r.heldSteps >= int64(r.world.Config.TickHz)
+			if r.client != nil && (since < 0 || since >= int64(max(1, r.state.Speed)) || held) {
+				r.heldSteps = 0
 				phase := r.state.PhaseNS
 				r.state.PhaseNS = 0
 				r.publishingTick = true
@@ -657,8 +663,10 @@ func (r *Runtime) step() {
 	// (its answer and linger seconds, conversation.go), which a pause stops too
 	if r.state.Active && !r.state.Paused && r.state.Life.Enabled && r.talkHolds() {
 		r.talkTick()
+		r.heldSteps++
 		return
 	}
+	r.heldSteps = 0
 	defer r.updateExploration()
 	if !r.state.Active || r.state.Paused {
 		return

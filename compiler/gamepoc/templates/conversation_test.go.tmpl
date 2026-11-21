@@ -125,8 +125,8 @@ func TestMemorySackFirstMeeting(t *testing.T) {
 		t.Fatal("asked about drink before the voice smelled it")
 	}
 	for _, c := range v.Choices {
-		if c.Id == "trade" && c.TradeWith != e.Actor {
-			t.Fatalf("the trade answer opens %q", c.TradeWith)
+		if c.TradeWith != "" {
+			t.Fatalf("answer %s opens another window (%q): trade goes on inside the talk", c.Id, c.TradeWith)
 		}
 	}
 	if err := choose(r, "greet"); err != nil {
@@ -186,11 +186,14 @@ func TestMemorySackFirstMeeting(t *testing.T) {
 			t.Fatalf("fail=%v: the lamp is offered again", fail)
 		}
 	}
-	// trade closes the talk (the client opens his window); bye lingers with his last words, then goes
+	// trade keeps the talk open and shows his goods in it; bye lingers with his last words, then goes
 	w := encounterFixture(t)
 	w.state = r.snapshotState()
-	if err := choose(w, "trade"); err != nil || w.state.Memory.Open != "" {
-		t.Fatalf("trade did not close the talk: %v %q", err, w.state.Memory.Open)
+	if err := choose(w, "trade"); err != nil || w.state.Memory.Open != sackKey(w) {
+		t.Fatalf("trade left the talk: %v %q", err, w.state.Memory.Open)
+	}
+	if v := dialogueView(t, w, "ru"); v.Kind != "talk" || v.Trade == nil {
+		t.Fatalf("the sack's goods are not shown in the talk: %+v", v)
 	}
 	if err := choose(r, "bye"); err != nil {
 		t.Fatal(err)
@@ -268,6 +271,13 @@ func openWith(t *testing.T, r *Runtime, who string) *talkState {
 	return r.state.Memory.Talks[talkKey(conv.Conversation, who)]
 }
 
+// hasNews: the person has something of his own to say now — an interjection not yet said, a question not yet asked
+// (a talk that opens always is offered without it; one that opens with news only then).
+func hasNews(r *Runtime, who string) bool {
+	def, ok := r.talkOf(who)
+	return ok && r.talkNews(def.Conversation, who)
+}
+
 // witnessFor: the fact written now (minus ago seconds) with the person as its witness.
 func witnessFor(r *Runtime, who, fact string, ago int64) {
 	r.memoryWrite(fact, nil, talkCtx{self: who, quiet: true})
@@ -285,13 +295,22 @@ func TestMemoryMarketAsksAfterProkhorWhileHeIsMissing(t *testing.T) {
 		t.Fatal("the missing days wrote no fact")
 	}
 	akim := akimAt(t, r)
-	if _, ok := r.talkAvailable(akim.Actor); ok {
+	news := false
+	if def, ok := r.talkOf(akim.Actor); ok {
+		news = def.Open == "news"
+	}
+	// a talk that opens only with news: a stranger of Prokhor's is offered none; one that opens always is offered
+	if _, ok := r.talkAvailable(akim.Actor); ok == news {
+		t.Fatalf("Akim's talk with a stranger of Prokhor's: offered %v, opens only with news %v", ok, news)
+	}
+	if r.talkNews(r.world.Memory.Talks[0].Conversation, akim.Actor) {
 		t.Fatal("Akim has something to say to a stranger of Prokhor's")
 	}
 	met := r.encounterMetFact()
 	r.memoryWrite(met, map[string]string{"how": "greeted"}, talkCtx{self: e.Actor, quiet: true})
 	tk := openWith(t, r, akim.Actor)
-	if tk.Interjected || tk.Lines[0].Text != "dlg.market.open.copper" {
+	// his own greeting (the writer's line for him) or the caste's
+	if tk.Interjected || !strings.HasPrefix(tk.Lines[0].Text, "dlg.market.") || tk.Lines[0].Speaker != akim.Actor {
 		t.Fatalf("Akim did not see it, yet: %+v", tk.Lines)
 	}
 	if err := choose(r, "ask_prokhor"); err != nil {
@@ -328,7 +347,10 @@ func TestMemoryMarketAsksAfterProkhorWhileHeIsMissing(t *testing.T) {
 		t.Fatal(err)
 	}
 	w.talkDrop()
-	if _, ok := w.talkAvailable(akim.Actor); ok {
+	if _, ok := w.talkAvailable(akim.Actor); ok == news {
+		t.Fatalf("Akim's talk after he said it and was asked: offered %v, opens only with news %v", ok, news)
+	}
+	if def, _ := w.talkOf(akim.Actor); w.talkNews(def.Conversation, akim.Actor) {
 		t.Fatal("Akim has news after he said it and was asked")
 	}
 }
@@ -348,7 +370,7 @@ func TestMemoryInterjectionFreshestOnceAndStale(t *testing.T) {
 		}
 		r.talkDrop()
 	}
-	if _, ok := r.talkAvailable(akim.Actor); ok {
+	if hasNews(r, akim.Actor) {
 		t.Fatal("the same fact was offered twice")
 	}
 	// a fact older than the freshness is remembered, not said first
@@ -356,14 +378,14 @@ func TestMemoryInterjectionFreshestOnceAndStale(t *testing.T) {
 	akimAt(t, w)
 	w.world.Memory.InterjectionRules.FreshDays = 1
 	witnessFor(w, akim.Actor, "fact.prokhor.custody_refuse", 2*86400)
-	if _, ok := w.talkAvailable(akim.Actor); ok {
+	if hasNews(w, akim.Actor) {
 		t.Fatal("a stale fact was said first")
 	}
 	// who did not see it says nothing (step 1 has no rumours)
 	x := memoryDay(t, 5)
 	akimAt(t, x)
 	x.memoryWrite("fact.prokhor.custody_lie_caught", nil, talkCtx{self: x.world.CalendarEncounter.Actor, quiet: true})
-	if _, ok := x.talkAvailable(akim.Actor); ok {
+	if hasNews(x, akim.Actor) {
 		t.Fatal("Akim knows what he never witnessed")
 	}
 }
@@ -519,11 +541,15 @@ func TestMemoryTalkTargetsOnlyWithSomethingToSay(t *testing.T) {
 		}
 		return out
 	}
-	if targets()[akim.Actor] {
-		t.Fatal("Akim offers a talk with nothing to say")
+	def, _ := r.talkOf(akim.Actor)
+	if targets()[akim.Actor] == (def.Open == "news") {
+		t.Fatalf("Akim with nothing to say: a talk offered %v, his talk opens %s", targets()[akim.Actor], def.Open)
+	}
+	if r.talkNews(def.Conversation, akim.Actor) {
+		t.Fatal("Akim has news with nothing to say")
 	}
 	r.memoryWrite("fact.prokhor.custody_refuse", nil, talkCtx{self: r.world.CalendarEncounter.Actor})
-	if !targets()[akim.Actor] {
+	if !targets()[akim.Actor] || !r.talkNews(def.Conversation, akim.Actor) {
 		t.Fatal("Akim saw the refusal and offers no talk")
 	}
 }
@@ -707,7 +733,7 @@ func TestMemoryGateEveningAfterTheEscape(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.talkDrop()
-	if _, ok := r.talkAvailable(e.Actor); ok {
+	if conv, ok := r.talkAvailable(e.Actor); ok && conv == e.Talk.Gate {
 		t.Fatal("the gate talk opens again after his goodbye")
 	}
 	// outside the window: nothing (12 game hours)
@@ -725,7 +751,7 @@ func TestMemoryGateEveningAfterTheEscape(t *testing.T) {
 	a, h = w.state.Life.Actor(e.Actor), w.state.Life.Actor(playerActorID)
 	a.Level, a.Position, a.Path, a.Trip = e.Gate.Level, behavior.Cell{X: e.Gate.At.X, Y: e.Gate.At.Y}, nil, nil
 	h.Level, h.Position, h.Path, h.Trip, h.Body = e.Gate.Level, behavior.Cell{X: e.Gate.At.X + 1, Y: e.Gate.At.Y}, nil, nil, nil
-	if _, ok := w.talkAvailable(e.Actor); ok {
+	if conv, ok := w.talkAvailable(e.Actor); ok && conv == e.Talk.Gate {
 		t.Fatal("the gate talk opens after its evening")
 	}
 }
@@ -798,6 +824,506 @@ func TestMemoryTalkThingIsTheExactInstance(t *testing.T) {
 		if !reflect.DeepEqual(r.state.Inventory.Items[id], i) {
 			t.Fatalf("his stock %s was touched", id)
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Talk with anyone, trade inside the talk (owner 21.11, design/dialogue/talk-trade-v1).
+
+func tradeCommand(r *Runtime, action, id string) error {
+	return r.conversationCommand(&pb.PocLifeCommand{Action: action, Destination: id})
+}
+
+func tradeRows(v *pb.PocConversation, kind string) []*pb.PocConversationChoice {
+	var out []*pb.PocConversationChoice
+	for _, c := range v.Choices {
+		if c.Kind == kind {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func lastNote(t *testing.T, tk *talkState) dialogueEntry {
+	t.Helper()
+	if len(tk.Lines) == 0 || tk.Lines[len(tk.Lines)-1].Kind != "note" {
+		t.Fatalf("the deal left no note: %+v", tk.Lines)
+	}
+	return tk.Lines[len(tk.Lines)-1]
+}
+
+func lastShownLine(v *pb.PocConversation) *pb.PocConversationLine {
+	if len(v.Lines) == 0 {
+		return &pb.PocConversationLine{}
+	}
+	return v.Lines[len(v.Lines)-1]
+}
+
+// inventoryAnswer: the old trade window's command through the server's command path, with its result.
+func inventoryAnswer(t *testing.T, r *Runtime, q *pb.PocInventoryCommand) *pb.PocInventoryResult {
+	t.Helper()
+	c := &connection{out: make(chan *pb.ServerMessage, 8), stop: make(chan struct{}), locale: "ru"}
+	r.inventoryCommand(c, q)
+	for len(c.out) > 0 {
+		if result := (<-c.out).GetInventoryResult(); result != nil {
+			return result
+		}
+	}
+	t.Fatal("missing inventory result")
+	return nil
+}
+
+func heroBroke(t *testing.T, r *Runtime) {
+	t.Helper()
+	a, ok := r.peddlerAccount(playerActorID)
+	if !ok {
+		t.Fatal("the hero has no CRD account")
+	}
+	a.Balance = 0
+	r.state.Inventory.Accounts[a.ID] = a
+}
+
+func carriedCount(r *Runtime, definition string) int64 {
+	var n int64
+	for _, i := range r.state.Inventory.Items {
+		if i.Definition == definition && r.carried(i) {
+			n += i.Quantity
+		}
+	}
+	return n
+}
+
+// Anyone the hero can address opens the conversation column: a person with nothing special to say greets by his caste
+// and may be left; nobody is sent to another screen.
+func TestTalkWithAnyoneOpensTheSharedTalk(t *testing.T) {
+	r := memoryDay(t, 5)
+	shared := ""
+	named := map[string]bool{playerActorID: true, r.world.CalendarEncounter.Actor: true}
+	for _, def := range r.world.Memory.Talks {
+		if def.Others {
+			shared = def.Conversation
+		}
+		for _, p := range def.People {
+			named[p] = true
+		}
+	}
+	if shared == "" {
+		t.Skip("no talk takes everyone else")
+	}
+	hero := r.state.Life.Actor(playerActorID)
+	stranger := ""
+	for i := range r.state.Life.Actors {
+		a := &r.state.Life.Actors[i]
+		if named[a.ID] || a.Level != r.world.Peddlers.Level || !a.OnFloor() || a.CombatHold || !r.bodyCanSpeak(a.ID) || r.talkSelfTrades(a.ID) {
+			continue
+		}
+		if !r.talkNamed(a.ID) {
+			// a person without a name in the content is not addressed: no text key ever stands for a name
+			if _, ok := r.talkOf(a.ID); ok {
+				t.Fatalf("%s has no name, yet a talk", a.ID)
+			}
+			continue
+		}
+		for _, c := range []inv.Cell{{X: a.Position.X + 1, Y: a.Position.Y}, {X: a.Position.X - 1, Y: a.Position.Y}, {X: a.Position.X, Y: a.Position.Y + 1}, {X: a.Position.X, Y: a.Position.Y - 1}} {
+			if r.world.Life.Walks(a.Level, behavior.Cell{X: c.X, Y: c.Y}) {
+				peddlerPlace(t, r, playerActorID, c)
+				stranger = a.ID
+				break
+			}
+		}
+		if stranger != "" {
+			break
+		}
+	}
+	if stranger == "" {
+		t.Fatal("nobody of the hall stands where the hero can walk up")
+	}
+	hero = r.state.Life.Actor(playerActorID)
+	if conv, ok := r.talkAvailable(stranger); !ok || conv != shared {
+		t.Fatalf("%s offers %q, %v", stranger, conv, ok)
+	}
+	sees := &pb.PocObserverView{}
+	for y := 0; y < 256; y++ {
+		sees.Cells = append(sees.Cells, strings.Repeat("2", 256))
+	}
+	view := &pb.PocLifeView{}
+	r.appendTalkTargets(view, hero, sees, "ru")
+	offered, twice := false, map[string]bool{}
+	for _, target := range view.TalkTargets {
+		if twice[target.Id] || target.Id == playerActorID {
+			t.Fatalf("talk target %s twice, or the hero himself", target.Id)
+		}
+		twice[target.Id] = true
+		offered = offered || target.Id == stranger && target.Name != ""
+	}
+	if !offered {
+		t.Fatalf("%s beside the hero is no talk target", stranger)
+	}
+	tk := openWith(t, r, stranger)
+	if len(tk.Lines) == 0 || tk.Lines[0].Kind != "line" || tk.Lines[0].Speaker != stranger || !strings.HasPrefix(tk.Lines[0].Text, "dlg.market.") {
+		t.Fatalf("%s did not greet: %+v", stranger, tk.Lines)
+	}
+	v := dialogueView(t, r, "ru")
+	if v.Lines[0].Text == "" || v.SpeakerName == "" {
+		t.Fatalf("the greeting has no words or the speaker no name: %+v", v)
+	}
+	shown := shownIDs(v)
+	if shown["trade"] || !shown["bye"] || v.Trade != nil {
+		t.Fatalf("a person with nothing to sell offers %v", shown)
+	}
+	for _, c := range v.Choices {
+		if c.TradeWith != "" {
+			t.Fatalf("answer %s opens another window", c.Id)
+		}
+	}
+	// the goods' commands are refused outside trade
+	if err := tradeCommand(r, "conversation_buy", "anything"); err == nil {
+		t.Fatal("a buy was taken in a talk with a person who sells nothing")
+	}
+	if err := choose(r, "bye"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Trade with a peddler goes on inside his talk: his tray as numbered rows, one piece bought by a row with the money and
+// the piece moving exactly as through the old window's command; a refusal is worded by the same server text.
+func TestTalkTradeWithAPeddlerInsideTheTalk(t *testing.T) {
+	r := memoryDay(t, 5)
+	akim := akimAt(t, r)
+	old := memoryDay(t, 5)
+	akimAt(t, old)
+	tk := openWith(t, r, akim.Actor)
+	if shown := shownIDs(dialogueView(t, r, "ru")); !shown["trade"] || !shown["bye"] {
+		t.Fatalf("Akim's answers: %v", shown)
+	}
+	if err := choose(r, "trade"); err != nil {
+		t.Fatal(err)
+	}
+	if r.state.Memory.Open != talkKey(r.world.Memory.Talks[0].Conversation, akim.Actor) || !r.talkHolds() {
+		t.Fatal("asking for the goods left the talk, or the world does not wait")
+	}
+	if own := "dlg.market." + strings.TrimPrefix(akim.Actor, "char.market_") + ".show"; r.dialogueText("ru", own) != "" {
+		if last := tk.Lines[len(tk.Lines)-1]; last.Kind != "line" || last.Speaker != akim.Actor || last.Text != own {
+			t.Fatalf("Akim did not say his own word about his goods: %+v", last)
+		}
+	}
+	v := dialogueView(t, r, "ru")
+	if v.Trade == nil || v.Trade.Mode != "buy" || len(v.Trade.Summary) < 2 || len(v.Choices) > r.world.Memory.Trade.Rows {
+		t.Fatalf("the goods view: %+v, %d rows", v.Trade, len(v.Choices))
+	}
+	offers, _, _ := r.peddlerOffers("ru", akim)
+	goods := tradeRows(v, "good")
+	if len(offers) == 0 || len(goods) == 0 {
+		t.Fatalf("Akim shows nothing: %d offers, %d rows", len(offers), len(goods))
+	}
+	for i, g := range goods {
+		o := offers[i]
+		if g.Id != o.ItemId || g.Text != o.Name || !strings.HasPrefix(g.PriceText, strings.ReplaceAll(o.Price, ".", ",")) || g.Unavailable == o.Ok || g.Action != "conversation_buy" || g.Stock == "" || g.Detail == "" {
+			t.Fatalf("row %d %+v is not the tray's offer %+v", i, g, o)
+		}
+	}
+	if done := tradeRows(v, "done"); len(done) != 1 || v.Choices[len(v.Choices)-1].Kind != "done" || done[0].Text == "" {
+		t.Fatalf("no row back to the talk: %+v", v.Choices)
+	}
+	// one piece by its row, and the same piece through the old window's command in a twin world
+	var pick *pb.PocVendingOffer
+	for _, o := range offers {
+		if o.Ok {
+			pick = o
+			break
+		}
+	}
+	if pick == nil {
+		t.Fatal("the hero can afford nothing on Akim's tray")
+	}
+	before, sellerBefore, had := peddlerBalance(r, playerActorID), peddlerBalance(r, akim.Actor), carriedCount(r, pick.Definition)
+	if err := tradeCommand(r, "conversation_buy", pick.ItemId); err != nil {
+		t.Fatal(err)
+	}
+	item := old.state.Inventory.Items[pick.ItemId]
+	if res := inventoryAnswer(t, old, peddlerRequest(old, "buy", item, "")); !res.Ok {
+		t.Fatalf("the old window refused the same purchase: %s", res.Message)
+	}
+	paid := before - peddlerBalance(r, playerActorID)
+	if paid <= 0 || paid != before-peddlerBalance(old, playerActorID) {
+		t.Fatalf("paid %d in the talk, the old window took %d", paid, before-peddlerBalance(old, playerActorID))
+	}
+	if peddlerBalance(r, akim.Actor)-sellerBefore != paid || carriedCount(r, pick.Definition) != had+1 || carriedCount(old, pick.Definition) != had+1 {
+		t.Fatalf("the money or the piece did not move as before: seller +%d, carried %d (old %d)", peddlerBalance(r, akim.Actor)-sellerBefore, carriedCount(r, pick.Definition), carriedCount(old, pick.Definition))
+	}
+	if peddlerMoney(r) != peddlerMoney(old) {
+		t.Fatalf("the world's money differs from the old window's: %d, %d", peddlerMoney(r), peddlerMoney(old))
+	}
+	note := lastNote(t, tk)
+	if !note.Success || note.Text != "ui.peddler.result.bought" || note.Item != pick.Definition || note.Minor != paid {
+		t.Fatalf("the note of the purchase: %+v", note)
+	}
+	v = dialogueView(t, r, "ru")
+	if line := lastShownLine(v); line.Kind != "note" || !line.Success || !strings.Contains(line.Text, pick.Name) || v.Trade == nil {
+		t.Fatalf("the purchase in the log: %+v", line)
+	}
+	// no money: the row still sends, the server refuses in the old window's own words, nothing moves
+	heroBroke(t, r)
+	heroBroke(t, old)
+	v = dialogueView(t, r, "ru")
+	goods = tradeRows(v, "good")
+	if len(goods) == 0 || !goods[0].Unavailable || !strings.Contains(goods[0].Detail, r.localText("ru", "ui.peddler.refused.funds", "?")) {
+		t.Fatalf("a row the hero cannot pay for: %+v", goods)
+	}
+	tray, seller := len(tradeRows(v, "good")), peddlerBalance(r, akim.Actor)
+	if err := tradeCommand(r, "conversation_buy", goods[0].Id); err != nil {
+		t.Fatal(err)
+	}
+	refused := inventoryAnswer(t, old, peddlerRequest(old, "buy", old.state.Inventory.Items[goods[0].Id], ""))
+	note = lastNote(t, tk)
+	v = dialogueView(t, r, "ru")
+	if note.Success || refused.Ok || lastShownLine(v).Text != refused.Message || lastShownLine(v).Success {
+		t.Fatalf("the refusal: note %+v, shown %q, the old window said %q", note, lastShownLine(v).Text, refused.Message)
+	}
+	if peddlerBalance(r, playerActorID) != 0 || peddlerBalance(r, akim.Actor) != seller || len(tradeRows(v, "good")) != tray {
+		t.Fatal("a refused purchase moved money or goods")
+	}
+	// a piece that is gone, a row of the wrong list, a made-up row
+	if err := tradeCommand(r, "conversation_buy", "item.nothing"); err != nil || lastNote(t, tk).Success {
+		t.Fatalf("a row that is gone: %v %+v", err, lastNote(t, tk))
+	}
+	if err := tradeCommand(r, "conversation_sell", goods[0].Id); err == nil {
+		t.Fatal("a sale was taken while the tray is shown")
+	}
+	if err := tradeCommand(r, "conversation_trade", "elsewhere"); err == nil {
+		t.Fatal("an unknown row was taken")
+	}
+	// the cart man also buys: the list turns over to what he takes from the hero, and back
+	if akim.Buys != nil {
+		if len(tradeRows(v, "sell")) != 1 {
+			t.Fatalf("no row to sell to the cart man: %+v", v.Choices)
+		}
+		if err := tradeCommand(r, "conversation_trade", "sell"); err != nil {
+			t.Fatal(err)
+		}
+		v = dialogueView(t, r, "ru")
+		_, buyback, _ := r.peddlerOffers("ru", akim)
+		if v.Trade.Mode != "sell" || len(tradeRows(v, "good")) != min(len(buyback), len(tradeRows(v, "good"))) || len(tradeRows(v, "buy")) != 1 || len(v.Choices) > r.world.Memory.Trade.Rows {
+			t.Fatalf("the cart man's buying list: %+v", v.Trade)
+		}
+		for _, g := range tradeRows(v, "good") {
+			if g.Action != "conversation_sell" {
+				t.Fatalf("a row of the buying list buys: %+v", g)
+			}
+		}
+		if rows := tradeRows(v, "good"); len(rows) > 0 && !rows[0].Unavailable {
+			money, n := peddlerBalance(r, playerActorID), len(buyback)
+			if err := tradeCommand(r, "conversation_sell", rows[0].Id); err != nil {
+				t.Fatal(err)
+			}
+			if note := lastNote(t, tk); !note.Success || note.Text != "ui.peddler.result.sold" || peddlerBalance(r, playerActorID)-money != note.Minor || note.Minor <= 0 {
+				t.Fatalf("the sale: %+v, money +%d", note, peddlerBalance(r, playerActorID)-money)
+			}
+			if _, after, _ := r.peddlerOffers("ru", akim); len(after) > n {
+				t.Fatal("the sold thing is still offered")
+			}
+		}
+		if err := tradeCommand(r, "conversation_trade", "buy"); err != nil || dialogueView(t, r, "ru").Trade.Mode != "buy" {
+			t.Fatalf("back to his goods: %v", err)
+		}
+	}
+	// a node's answer is not taken while the goods are shown; «done» goes back to the talk, which goes on
+	if err := choose(r, "bye"); err == nil {
+		t.Fatal("an answer of the talk was taken while the goods are shown")
+	}
+	if err := tradeCommand(r, "conversation_trade", "done"); err != nil {
+		t.Fatal(err)
+	}
+	v = dialogueView(t, r, "ru")
+	if shown := shownIDs(v); v.Trade != nil || !shown["trade"] || !shown["bye"] {
+		t.Fatalf("after the goods: %v", shown)
+	}
+	if err := tradeCommand(r, "conversation_buy", pick.ItemId); err == nil {
+		t.Fatal("a buy was taken after the goods were put away")
+	}
+	// a save in the middle of the goods loads as it was
+	if err := choose(r, "trade"); err != nil {
+		t.Fatal(err)
+	}
+	slot := r.world.Config.SaveSlots[0]
+	if err := r.writeSave(slot, r.snapshotState()); err != nil {
+		t.Fatal(err)
+	}
+	loaded, _, err := r.readSave(slot)
+	if err != nil {
+		t.Fatalf("a save with the goods shown did not load: %v", err)
+	}
+	if !reflect.DeepEqual(r.state.Memory, loaded.Memory) || !loaded.Memory.Talks[r.state.Memory.Open].Trade.On {
+		t.Fatal("the talk's trade changed in the save")
+	}
+}
+
+// stallCounter: an open stall whose keeper stands at it and shows goods, with the hero on its customer's cell.
+func stallCounter(t *testing.T, r *Runtime) (inv.Shopfront, bool) {
+	t.Helper()
+	for _, sh := range r.world.Inventory.Shopfronts {
+		if _, peddler := r.peddlerOfActor(sh.Owner); peddler || !r.storefrontOpen(sh.ID) || !r.talkSelfTrades(sh.Owner) || len(r.storefrontOffers("ru", sh)) == 0 {
+			continue
+		}
+		anchor, err := r.state.Inventory.Root(r.inventoryModelFor(true), inv.Location{Kind: "store", Store: sh.DisplayStore})
+		if err != nil || anchor.Kind != "world" {
+			continue
+		}
+		for _, c := range []inv.Cell{{X: anchor.At.X + 1, Y: anchor.At.Y}, {X: anchor.At.X - 1, Y: anchor.At.Y}, {X: anchor.At.X, Y: anchor.At.Y + 1}, {X: anchor.At.X, Y: anchor.At.Y - 1}, anchor.At} {
+			if !r.world.Life.Walks(anchor.Level, behavior.Cell{X: c.X, Y: c.Y}) {
+				continue
+			}
+			peddlerPlace(t, r, playerActorID, c)
+			r.state.Life.Actor(playerActorID).Level = anchor.Level
+			r.syncLifeHero()
+			if r.inventoryReach(inv.Location{Kind: "store", Store: sh.DisplayStore}) {
+				return sh, true
+			}
+		}
+	}
+	return inv.Shopfront{}, false
+}
+
+// Trade at a stall goes on inside the keeper's talk, opened from the customer's cell: the stall's goods as rows, a piece
+// bought with the money and the piece moving exactly as through the old window's command.
+func TestTalkTradeAtAStallInsideTheTalk(t *testing.T) {
+	r := memoryDay(t, 5)
+	old := memoryDay(t, 5)
+	shop, ok := stallCounter(t, r)
+	for tries := 0; !ok && tries < 24; tries++ {
+		// the stalls open by their own hours: on with the morning, the twin world in step
+		encounterAdvanceTo(t, r, r.state.Life.Seconds+900)
+		encounterAdvanceTo(t, old, r.state.Life.Seconds)
+		shop, ok = stallCounter(t, r)
+	}
+	if !ok {
+		t.Fatal("no open stall with goods and a keeper at it all morning")
+	}
+	if twin, ok := stallCounter(t, old); !ok || twin.ID != shop.ID {
+		t.Fatalf("the twin world's stall: %s, %v", twin.ID, ok)
+	}
+	// the talk target stands where the hero can buy: the customer's cell is one of its cells
+	if !r.talkAtCounter(shop.Owner) {
+		t.Fatal("the customer's cell is not at the counter")
+	}
+	tk := openWith(t, r, shop.Owner)
+	if !strings.HasPrefix(tk.Lines[0].Text, "dlg.market.") && !tk.Interjected {
+		t.Fatalf("the keeper did not greet: %+v", tk.Lines)
+	}
+	if err := choose(r, "trade"); err != nil {
+		t.Fatal(err)
+	}
+	v := dialogueView(t, r, "ru")
+	offers := r.storefrontOffers("ru", shop)
+	goods := tradeRows(v, "good")
+	if v.Trade == nil || v.Trade.Message != "" || len(goods) == 0 || len(v.Choices) > r.world.Memory.Trade.Rows || len(tradeRows(v, "sell")) != 0 {
+		t.Fatalf("the stall's goods: %+v, %d rows of %d offers", v.Trade, len(goods), len(offers))
+	}
+	for i, g := range goods {
+		if o := offers[i]; g.Id != o.ItemId || g.Text != o.Name || g.PriceText != o.PriceText || g.Unavailable == o.Ok {
+			t.Fatalf("row %d %+v is not the stall's offer %+v", i, g, o)
+		}
+	}
+	var pick *pb.PocVendingOffer
+	for _, o := range offers[:len(goods)] {
+		if o.Ok {
+			pick = o
+			break
+		}
+	}
+	if pick == nil {
+		t.Fatal("the hero can afford nothing at the stall")
+	}
+	before, had := peddlerBalance(r, playerActorID), carriedCount(r, pick.Definition)
+	world := peddlerMoney(r)
+	if err := tradeCommand(r, "conversation_buy", pick.ItemId); err != nil {
+		t.Fatal(err)
+	}
+	if res := inventoryAnswer(t, old, peddlerRequest(old, "buy", old.state.Inventory.Items[pick.ItemId], shop.DisplayStore)); !res.Ok {
+		t.Fatalf("the old window refused the same purchase: %s", res.Message)
+	}
+	paid := before - peddlerBalance(r, playerActorID)
+	if paid <= 0 || paid != before-peddlerBalance(old, playerActorID) || carriedCount(r, pick.Definition) != had+1 || carriedCount(old, pick.Definition) != had+1 || peddlerMoney(r) != world || peddlerMoney(old) != world {
+		t.Fatalf("the stall purchase: paid %d (old %d), carried %d (old %d)", paid, before-peddlerBalance(old, playerActorID), carriedCount(r, pick.Definition), carriedCount(old, pick.Definition))
+	}
+	if note := lastNote(t, tk); !note.Success || note.Item != pick.Definition || note.Minor != paid {
+		t.Fatalf("the note of the purchase: %+v", note)
+	}
+	if line := lastShownLine(dialogueView(t, r, "ru")); line.Kind != "note" || !strings.Contains(line.Text, pick.Name) {
+		t.Fatalf("the purchase in the log: %+v", line)
+	}
+	// no money: the row says why, the server refuses, nothing moves
+	heroBroke(t, r)
+	v = dialogueView(t, r, "ru")
+	goods = tradeRows(v, "good")
+	if len(goods) == 0 {
+		return
+	}
+	funds := r.localText("ru", "ui.peddler.refused.funds", "?")
+	if !goods[0].Unavailable || !strings.HasPrefix(goods[0].Detail, funds) {
+		t.Fatalf("a row the hero cannot pay for: %+v", goods[0])
+	}
+	if err := tradeCommand(r, "conversation_buy", goods[0].Id); err != nil {
+		t.Fatal(err)
+	}
+	if note := lastNote(t, tk); note.Success || lastShownLine(dialogueView(t, r, "ru")).Text != funds || peddlerBalance(r, playerActorID) != 0 || peddlerMoney(r) != world-(before-paid) {
+		t.Fatalf("the refusal at the stall: %+v, shown %q", note, lastShownLine(dialogueView(t, r, "ru")).Text)
+	}
+}
+
+// A list longer than the column's rows pages: «more» and «back» keep the numbers under nine, the last row always goes
+// back to the talk, and a page out of range is brought back in.
+func TestTalkTradePagesKeepNineRows(t *testing.T) {
+	r := memoryDay(t, 5)
+	rows := r.world.Memory.Trade.Rows
+	many := talkGoods{}
+	for i := 0; i < 20; i++ {
+		many.rows = append(many.rows, &pb.PocVendingOffer{ItemId: fmt.Sprint("i", i)})
+	}
+	tk := &talkState{Trade: talkTrade{On: true}}
+	c := talkCtx{t: tk}
+	per, pages, page := r.talkTradePages(c, many)
+	if per != rows-3 || pages != (20+per-1)/per || page != 0 {
+		t.Fatalf("20 goods: %d a page, %d pages, page %d", per, pages, page)
+	}
+	tk.Trade.Page = 99
+	if _, _, page = r.talkTradePages(c, many); page != pages-1 {
+		t.Fatalf("a page out of range: %d of %d", page, pages)
+	}
+	many.buys = true
+	if per, _, _ = r.talkTradePages(c, many); per != rows-4 {
+		t.Fatalf("with the row that turns the list over: %d a page", per)
+	}
+	few := talkGoods{rows: many.rows[:rows-1]}
+	if per, pages, _ = r.talkTradePages(c, few); per != rows-1 || pages != 1 {
+		t.Fatalf("%d goods and the row back fit one page: %d a page, %d pages", rows-1, per, pages)
+	}
+	// in the world: whoever shows the most goods now never shows more than the rows, on any page
+	akim := akimAt(t, r)
+	openWith(t, r, akim.Actor)
+	if err := choose(r, "trade"); err != nil {
+		t.Fatal(err)
+	}
+	offers, _, _ := r.peddlerOffers("ru", akim)
+	seen := 0
+	for guard := 0; guard < 16; guard++ {
+		v := dialogueView(t, r, "ru")
+		if len(v.Choices) > rows || v.Choices[len(v.Choices)-1].Kind != "done" {
+			t.Fatalf("page %d shows %d rows", v.Trade.Page, len(v.Choices))
+		}
+		seen += len(tradeRows(v, "good"))
+		if (v.Trade.Page > 1) != (len(tradeRows(v, "prev")) == 1) || (v.Trade.Page < v.Trade.Pages) != (len(tradeRows(v, "more")) == 1) {
+			t.Fatalf("page %d of %d: %+v", v.Trade.Page, v.Trade.Pages, v.Choices)
+		}
+		if v.Trade.Page == v.Trade.Pages {
+			break
+		}
+		if err := tradeCommand(r, "conversation_trade", "more"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if seen != len(offers) {
+		t.Fatalf("the pages showed %d of %d goods", seen, len(offers))
 	}
 }
 

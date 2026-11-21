@@ -78,7 +78,7 @@ type dialogueSession struct {
 	Nodes  []string                       `json:",omitempty"`
 }
 type dialogueEntry struct {
-	// line | hero | check | voice
+	// line | hero | check | voice | note (what came of a deal inside a talk: Text is the server's text key)
 	Kind       string
 	Speaker    string `json:",omitempty"`
 	Text       string `json:",omitempty"`
@@ -86,6 +86,9 @@ type dialogueEntry struct {
 	Difficulty string `json:",omitempty"`
 	Chance     int    `json:",omitempty"`
 	Success    bool   `json:",omitempty"`
+	// a note's piece (item definition) and price in minor units
+	Item  string `json:",omitempty"`
+	Minor int64  `json:",omitempty"`
 }
 type dialogueCheckRecord struct {
 	Attempts int
@@ -336,6 +339,11 @@ func (r *Runtime) dialogueLog(locale string, s dialogueSession) []*pb.PocConvers
 				}
 			}
 			line.Label = strings.NewReplacer("{skill}", line.Name, "{difficulty}", level, "{result}", line.Text).Replace(r.dialogueText(locale, d.Text.Result))
+		case "note":
+			// a deal inside a talk, in the words of the trade that made it
+			if r.dialogueText(locale, e.Text) != "" {
+				line.Text = r.peddlerText(locale, e.Text, e.Item, e.Minor)
+			}
 		}
 		if line.Text == "" {
 			continue
@@ -423,6 +431,10 @@ func (r *Runtime) validateDialogueSession(s dialogueSession, options, nodes, spe
 		case "check":
 			if _, level := d.Chance[e.Difficulty]; !skill || !level || e.Chance < 0 || e.Chance > 100 {
 				return fmt.Errorf("saved conversation: check of unknown skill %q or difficulty %q", e.Skill, e.Difficulty)
+			}
+		case "note":
+			if _, known := r.world.Inventory.Definitions[e.Item]; e.Text == "" || e.Minor < 0 || e.Item != "" && !known {
+				return fmt.Errorf("saved conversation: note of unknown piece %q", e.Item)
 			}
 		default:
 			return fmt.Errorf("saved conversation: unknown entry %q", e.Kind)

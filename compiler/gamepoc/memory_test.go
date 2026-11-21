@@ -15,7 +15,7 @@ import (
 func memoryWorld(t *testing.T) *Compiled {
 	t.Helper()
 	c := &Compiled{Life: json.RawMessage(`{"actors":[{"id":"char.hero"},{"id":"char.trader"},{"id":"char.guard"}]}`)}
-	keys := []string{"t.open", "t.first", "t.ask", "t.answer", "t.fix", "t.ok", "t.fail", "t.bye", "t.reply", "t.interject", "t.topic", "t.journal", "t.voice"}
+	keys := []string{"t.open", "t.first", "t.ask", "t.answer", "t.fix", "t.ok", "t.fail", "t.bye", "t.reply", "t.interject", "t.topic", "t.journal", "t.voice", "actor.char.trader.name"}
 	for _, k := range keys {
 		c.Localization.Messages = append(c.Localization.Messages, LocalizationMessage{Key: k, Context: "c", Texts: map[string]string{"ru": k, "en": k}})
 	}
@@ -108,6 +108,10 @@ func TestMemoryChecksRejectBrokenLinks(t *testing.T) {
 		"missing localization":            func(c *Compiled) { node(c).Options[0].Text = "t.unknown" },
 		"does not take part":              func(c *Compiled) { node(c).Options[0].Reply[0].Speaker = "char.guard" },
 		"a private fact has no witnesses": func(c *Compiled) { c.Memory.Facts["fact.trader.met"].Visibility = "private" },
+		// talk with anyone, trade inside the talk (owner 21.11)
+		"the name of char.trader": func(c *Compiled) { c.Localization.Messages = c.Localization.Messages[:len(c.Localization.Messages)-1] },
+		"opens always":            func(c *Compiled) { c.Memory.Talks[0].Others = true },
+		"world.memory.trade.rows": func(c *Compiled) { node(c).Options[0].Trade = true },
 	}
 	for want, mutate := range cases {
 		c := memoryWorld(t)

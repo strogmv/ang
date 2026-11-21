@@ -114,6 +114,15 @@ func (r *Runtime) tradeAccounts(owner, unit string) (inv.Account, inv.Account, b
 	from, to, err := r.state.Inventory.TradeAccounts(r.inventoryModelFor(r.state.Life.Enabled), playerActorID, owner, r.currentLevel(), unit)
 	return from, to, err == nil
 }
+// inventoryTag: the request tag of an inventory command (its replay is told by it).
+func inventoryTag(q *pb.PocInventoryCommand) (string, error) {
+	raw, err := proto.MarshalOptions{Deterministic: true}.Marshal(q)
+	if err != nil {
+		return "", err
+	}
+	hash := sha256.Sum256(raw)
+	return hex.EncodeToString(hash[:]), nil
+}
 func (r *Runtime) inventoryCommand(c *connection, q *pb.PocInventoryCommand) {
 	result := &pb.PocInventoryResult{Sequence: q.Sequence}
 	defer func() {
@@ -129,13 +138,11 @@ func (r *Runtime) inventoryCommand(c *connection, q *pb.PocInventoryCommand) {
 		reject(r.localText(c.locale, "ui.screen.inventory.state_changed", "ui.screen.inventory.state_changed"))
 		return
 	}
-	raw, e := proto.MarshalOptions{Deterministic: true}.Marshal(q)
+	tag, e := inventoryTag(q)
 	if e != nil {
 		reject(r.localText(c.locale, "ui.screen.inventory.bad_command", "ui.screen.inventory.bad_command"))
 		return
 	}
-	hash := sha256.Sum256(raw)
-	tag := hex.EncodeToString(hash[:])
 	cursor := r.state.Inventory.Cursors[playerActorID]
 	if q.Action != "open" && q.Sequence <= cursor.Sequence {
 		if q.Sequence == cursor.Sequence && cursor.RequestTag == tag {
