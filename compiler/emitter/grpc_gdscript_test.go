@@ -159,3 +159,13 @@ func TestGDScriptFromIRAndOption(t *testing.T) {
 		t.Fatal("normal pipeline did not emit contract")
 	}
 }
+
+// GDScript 4 reserves trait and namespace for later use: a contract field of that name does not parse in Godot (the
+// hero file's choice has a trait), so it gets the same injective prefix as a keyword; the wire name stays.
+func TestGDScriptFieldNameEscapesWordsReservedForLater(t *testing.T) {
+	for name, want := range map[string]string{"trait": "pb_trait", "namespace": "pb_namespace", "and": "pb_and", "traits": "traits", "profile": "profile"} {
+		if got := GDScriptFieldName(name); got != want {
+			t.Errorf("GDScriptFieldName(%q) = %q, want %q", name, got, want)
+		}
+	}
+}

@@ -36,7 +36,9 @@ func gdName(d protoreflect.Descriptor) string {
 	return name
 }
 
-const gdKeywords = " and or not when abstract if elif else for while match break continue pass return class class_name extends is in as self tool signal func static const enum var onready export setget breakpoint preload yield assert void null true false await super set get int float bool PI TAU INF NAN "
+// trait and namespace are reserved by GDScript 4 for later use: a field of that name does not parse (the hero file's
+// choice has a trait).
+const gdKeywords = " and or not when abstract trait namespace if elif else for while match break continue pass return class class_name extends is in as self tool signal func static const enum var onready export setget breakpoint preload yield assert void null true false await super set get int float bool PI TAU INF NAN "
 
 // Keep proto names on the wire even when a field is a GDScript keyword or
 // shadows RefCounted/Object members. Prefixing is injective (including pb_*).
