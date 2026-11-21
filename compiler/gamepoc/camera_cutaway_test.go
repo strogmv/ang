@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"cuelang.org/go/cue/cuecontext"
 )
 
 func cameraCutawayFixture() (CameraCutaway, func(string) bool, map[string][]string, map[string]map[string]bool) {
@@ -109,5 +111,38 @@ func TestCameraCutawayRejected(t *testing.T) {
 				t.Fatal("accepted")
 			}
 		})
+	}
+}
+
+func TestPlayableLevelRequiresCameraCutawayOrDefault(t *testing.T) {
+	ctx := cuecontext.New()
+	world := Compiled{Life: json.RawMessage(`{"locations":{"level.hall":{},"level.warehouse":{}}}`)}
+	const settings = `
+		stub_m: 1.2, reach_m: 10, seconds: 0.4, hold_seconds: 1, cap_color: "#17130F"
+		levels: [{level_id: "level.hall", occluder_terrains: ["pillar"], why: "Hall pillars."}]
+	`
+	for _, row := range []struct{ name, input, want string }{
+		{"no rule", "{}", "missing for playable levels"},
+		{"incomplete list", "camera_cutaway: {" + settings + "}", "level.warehouse"},
+		{"invalid default", "camera_cutaway: {" + settings + `default_occluder_terrains: ["floor"]}`, "default_occluder_terrains"},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			_, err := readCameraCutaway(ctx.CompileString(row.input), world)
+			if err == nil || !strings.Contains(err.Error(), row.want) {
+				t.Fatalf("want %q, got %v", row.want, err)
+			}
+		})
+	}
+	conf, err := readCameraCutaway(ctx.CompileString("camera_cutaway: {"+settings+`default_occluder_terrains: ["wall"]}`), world)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projected, err := json.Marshal(clientCameraCutaway(conf)["levels"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = `{"level.hall":{"occluder_terrains":["pillar"]},"level.warehouse":{"occluder_terrains":["wall"]}}`
+	if string(projected) != want {
+		t.Fatalf("got %s, want %s", projected, want)
 	}
 }

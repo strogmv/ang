@@ -27,8 +27,9 @@ type CameraCutaway struct {
 	Seconds     float64 `json:"seconds"`
 	HoldSeconds float64 `json:"hold_seconds"`
 	// CapColor: the colour of the cut top edge (the dark cap).
-	CapColor string               `json:"cap_color"`
-	Levels   []CameraCutawayLevel `json:"levels"`
+	CapColor                string               `json:"cap_color"`
+	Levels                  []CameraCutawayLevel `json:"levels"`
+	DefaultOccluderTerrains []string             `json:"default_occluder_terrains,omitempty"`
 	// SeeThrough: the see-through circle around the hero (optional).
 	SeeThrough *CutawaySeeThrough `json:"see_through,omitempty"`
 }
@@ -94,8 +95,19 @@ var cutawayColor = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
 // readCameraCutaway reads world.camera_cutaway and checks it against the levels of the world. A level that is also a
 // world.levels entry must name exactly its own view.occluder_terrains (one source for the hint).
 func readCameraCutaway(world cue.Value, c Compiled) (*CameraCutaway, error) {
+	var life struct {
+		Locations map[string]json.RawMessage `json:"locations"`
+	}
+	if len(c.Life) > 0 {
+		if err := json.Unmarshal(c.Life, &life); err != nil {
+			return nil, err
+		}
+	}
 	v := world.LookupPath(cue.ParsePath("camera_cutaway"))
 	if !v.Exists() {
+		if len(life.Locations) > 0 {
+			return nil, fmt.Errorf("world.camera_cutaway: missing for playable levels")
+		}
 		return nil, nil
 	}
 	raw, err := v.MarshalJSON()
@@ -107,12 +119,6 @@ func readCameraCutaway(world cue.Value, c Compiled) (*CameraCutaway, error) {
 	d.DisallowUnknownFields()
 	if err := d.Decode(&out); err != nil {
 		return nil, fmt.Errorf("world.camera_cutaway: %w", err)
-	}
-	var life struct {
-		Locations map[string]json.RawMessage `json:"locations"`
-	}
-	if err := json.Unmarshal(c.Life, &life); err != nil {
-		return nil, err
 	}
 	views := map[string][]string{}
 	if levels := world.LookupPath(cue.ParsePath("levels")); levels.Exists() {
@@ -132,6 +138,9 @@ func readCameraCutaway(world cue.Value, c Compiled) (*CameraCutaway, error) {
 			views[it.Selector().Unquoted()] = kinds
 		}
 	}
+	if err := inheritCameraCutaway(&out, life.Locations); err != nil {
+		return nil, fmt.Errorf("world.camera_cutaway: %w", err)
+	}
 	known := func(id string) bool { _, ok := life.Locations[id]; return ok }
 	// the modules placed on each level of the rule (the instances of the level's location SDK layout, as the exit zones
 	// find it: level.c7_market -> example.market_hub): a cut part names one of them
@@ -148,6 +157,30 @@ func readCameraCutaway(world cue.Value, c Compiled) (*CameraCutaway, error) {
 		return nil, fmt.Errorf("world.camera_cutaway: %w", err)
 	}
 	return &out, nil
+}
+
+// Each playable level must have an explicit rule or inherit the world default.
+func inheritCameraCutaway(c *CameraCutaway, locations map[string]json.RawMessage) error {
+	explicit := map[string]bool{}
+	for _, level := range c.Levels {
+		explicit[level.LevelID] = true
+	}
+	var missing []string
+	for id := range locations {
+		if !explicit[id] {
+			missing = append(missing, id)
+		}
+	}
+	sort.Strings(missing)
+	if len(missing) > 0 && len(c.DefaultOccluderTerrains) == 0 {
+		return fmt.Errorf("playable levels %v need a rule or default_occluder_terrains", missing)
+	}
+	for _, id := range missing {
+		c.Levels = append(c.Levels, CameraCutawayLevel{
+			LevelID: id, OccluderTerrains: c.DefaultOccluderTerrains, Why: "Inherits the world camera cutaway.",
+		})
+	}
+	return nil
 }
 
 func checkCameraCutaway(c CameraCutaway, known func(string) bool, views map[string][]string, placed map[string]map[string]bool) error {
@@ -169,6 +202,11 @@ func checkCameraCutaway(c CameraCutaway, known func(string) bool, views map[stri
 	if err := checkSeeThrough(c.SeeThrough); err != nil {
 		return fmt.Errorf("see_through: %w", err)
 	}
+	if len(c.DefaultOccluderTerrains) > 0 {
+		if _, err := cutawayKinds(c.DefaultOccluderTerrains); err != nil {
+			return fmt.Errorf("default_occluder_terrains: %w", err)
+		}
+	}
 	seen := map[string]bool{}
 	for _, l := range c.Levels {
 		if seen[l.LevelID] {
@@ -181,18 +219,9 @@ func checkCameraCutaway(c CameraCutaway, known func(string) bool, views map[stri
 		if l.Why == "" {
 			return fmt.Errorf("level %s: say why the rule applies there", l.LevelID)
 		}
-		if len(l.OccluderTerrains) == 0 {
-			return fmt.Errorf("level %s: no occluder kind", l.LevelID)
-		}
-		kinds := map[string]bool{}
-		for _, k := range l.OccluderTerrains {
-			if kinds[k] {
-				return fmt.Errorf("level %s: occluder kind %s twice", l.LevelID, k)
-			}
-			kinds[k] = true
-			if k == "floor" {
-				return fmt.Errorf("level %s: a floor is walked on, never cut away", l.LevelID)
-			}
+		kinds, err := cutawayKinds(l.OccluderTerrains)
+		if err != nil {
+			return fmt.Errorf("level %s: %w", l.LevelID, err)
 		}
 		if hint, ok := views[l.LevelID]; ok {
 			a, b := append([]string{}, hint...), append([]string{}, l.OccluderTerrains...)
@@ -207,6 +236,23 @@ func checkCameraCutaway(c CameraCutaway, known func(string) bool, views map[stri
 		}
 	}
 	return nil
+}
+
+func cutawayKinds(terrains []string) (map[string]bool, error) {
+	if len(terrains) == 0 {
+		return nil, fmt.Errorf("no occluder kind")
+	}
+	kinds := map[string]bool{}
+	for _, kind := range terrains {
+		if kinds[kind] {
+			return nil, fmt.Errorf("occluder kind %s twice", kind)
+		}
+		if kind == "floor" {
+			return nil, fmt.Errorf("a floor is walked on, never cut away")
+		}
+		kinds[kind] = true
+	}
+	return kinds, nil
 }
 
 // checkSeeThrough: the circle is a readable patch around the hero, not the screen and not a dot.
