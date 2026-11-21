@@ -198,21 +198,6 @@ func (d *DialogueRules) check(c *Compiled) error {
 	return requireLocalized(c, "world.dialogue_rules", keys)
 }
 
-// lines: speakers among the allowed ids, texts localized.
-func (d *DialogueRules) lines(c *Compiled, where string, lines []DialogueLine, speakers map[string]bool) error {
-	if len(lines) == 0 {
-		return fmt.Errorf("%s: no lines", where)
-	}
-	keys := make([]string, 0, len(lines))
-	for _, l := range lines {
-		if !speakers[l.Speaker] {
-			return fmt.Errorf("%s: %s does not take part in this conversation", where, l.Speaker)
-		}
-		keys = append(keys, l.Text)
-	}
-	return requireLocalized(c, where, keys)
-}
-
 // skillCheck: a check names a developed skill and a known difficulty.
 func (d *DialogueRules) skillCheck(where string, k DialogueCheck) error {
 	if d == nil {
@@ -228,21 +213,6 @@ func (d *DialogueRules) skillCheck(where string, k DialogueCheck) error {
 		return fmt.Errorf("%s: check kind %q is neither once nor retry", where, k.Kind)
 	}
 	return nil
-}
-
-// voices: each names a developed skill, a threshold 0..100 and a localized line.
-func (d *DialogueRules) voices(c *Compiled, where string, voices []DialogueVoice) error {
-	keys := []string{}
-	for _, v := range voices {
-		if d == nil {
-			return fmt.Errorf("%s: an inner voice needs world.dialogue_rules", where)
-		}
-		if _, ok := d.Skills[v.Skill]; !ok || v.AtLeast < 0 || v.AtLeast > 100 {
-			return fmt.Errorf("%s: voice of unknown skill %s or threshold %d", where, v.Skill, v.AtLeast)
-		}
-		keys = append(keys, v.Text)
-	}
-	return requireLocalized(c, where, keys)
 }
 
 func requireLocalized(c *Compiled, where string, keys []string) error {

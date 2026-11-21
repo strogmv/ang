@@ -387,7 +387,7 @@ func _order_focus() -> void:
 		rail[i].focus_neighbor_top = rail[i].focus_previous
 		rail[i].focus_neighbor_bottom = rail[i].focus_next
 
-func _act(action: Dictionary, row: C.ProtoMessage = null) -> void:
+func _act(action: Dictionary, row: C.ProtoMessage = null, always := false) -> void:
 	if action.command == "host.toggle":
 		var id: String = value(action.params.control, row)
 		var key := screen_id + "/" + id
@@ -404,7 +404,8 @@ func _act(action: Dictionary, row: C.ProtoMessage = null) -> void:
 		elif action.command == "host.close":
 			_close()
 		return
-	if busy or state == null:
+	# a screen's close always reaches the server (a talk holds the world until it hears it), even with an answer in flight
+	if state == null or busy and not always:
 		return
 	var request := "screen-%d" % Time.get_ticks_usec()
 	var command := Catalog.command(action.ref, state, row, selected, request)
@@ -428,7 +429,7 @@ func _close() -> void:
 		_act(spec.close)
 		return
 	if spec.close.command != "host.close":
-		_act(spec.close)
+		_act(spec.close, null, true)
 	_dismiss()
 
 func _dismiss() -> void:

@@ -113,6 +113,9 @@ type worldData struct {
 	CalendarEncounter *CalendarEncounter `json:"calendar_encounter"`
 	// conversation like Disco Elysium (owner 20.11): skill checks and inner voices (dialogue.go)
 	DialogueRules *dialogueRules `json:"dialogue_rules"`
+	// story memory (doc 103 step 1): facts, topics, interjections, talks, and every conversation (conversation.go)
+	Memory        *memoryCatalog              `json:"memory"`
+	Conversations map[string]*conversationDef `json:"conversations"`
  Peddlers                peddlerCatalog                  `json:"peddlers"`
 	Visitors                visitorCatalog                  `json:"visitors"`
 	Busker                  buskerCatalog                   `json:"busker"`
@@ -176,6 +179,8 @@ type state struct {
 	NPCEconomy           npcEconomyState
 	Vending              vendingState
 	CalendarEncounter encounterState
+	// story memory (conversation.go): the hero's facts and topics, who knows what, the talks
+	Memory               memoryState `json:",omitempty"`
  Peddlers             peddlerState
 	Visitors             visitorState
 	Busker               buskerState `json:",omitempty"`
@@ -373,7 +378,8 @@ func New(data, token string) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
-	r.state = state{Wounds:wounds.Save{Version:1},Epoch: newEpoch(), Speed: 1, Inventory: initialItems}
+	// the first state is a game too: it has its own check value like its epoch (a save of it keeps it; 0 is only an older save's)
+	r.state = state{Wounds:wounds.Save{Version:1},Epoch: newEpoch(), CheckSeed: drawCheckSeed(), Speed: 1, Inventory: initialItems}
 	return r, nil
 }
 func newEpoch() string {
@@ -590,6 +596,13 @@ func (r *Runtime) moveDurationNS() int64 {
 	return int64(time.Second) / int64(r.world.Config.TickHz) * r.world.Config.MoveEveryTicks
 }
 func (r *Runtime) step() {
+	// story memory (owner 21.11, doc 09 «мир ждёт — весь шаг мира»): while the hero answers in an open talk the whole
+	// world step waits — no tick, no reservations, zones, cranes, Life or exploration; the talk counts its own real time
+	// (its answer and linger seconds, conversation.go), which a pause stops too
+	if r.state.Active && !r.state.Paused && r.state.Life.Enabled && r.talkHolds() {
+		r.talkTick()
+		return
+	}
 	defer r.updateExploration()
 	if !r.state.Active || r.state.Paused {
 		return
@@ -887,7 +900,7 @@ func (r *Runtime) command(in input) {
 			return
 		}
 		if checkSeed == 0 {
-			checkSeed = newCheckSeed()
+			checkSeed = drawCheckSeed()
 		}
 		name := v.PlayerName
 		if name == "" {
@@ -1187,6 +1200,9 @@ func (r *Runtime) readSaveFile(slot string) (state, int64, error) {
  if err:=validator.validateStealth(s);err!=nil{return s,0,err}
 	r = validator
 	if s.Life.Enabled {
+		// story memory: what the content no longer has is dropped; an older save's encounter becomes facts (conversation.go)
+		validator.sanitizeMemory(&s)
+		if err := validator.validateMemorySave(s); err != nil {return state{},0,err}
 		if err := validator.validateEncounterSave(s); err != nil {return state{},0,err}
 		if err := validator.validateSavedResidents(s); err != nil {return state{},0,err}
 		if err := validator.validateSavedPlaces(s); err != nil {return state{},0,err}

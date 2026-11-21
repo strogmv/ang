@@ -43,14 +43,21 @@ type CalendarEncounter struct {
 	IdlePose    string            `json:"idle_pose"`
 	ReturnWalk  string            `json:"return_walk"`
 	ReturnIdle  string            `json:"return_idle"`
-	Greeting    string            `json:"greeting"`
 	Choices     []EncounterChoice `json:"choices"`
-	// The custody conversation like Disco Elysium (owner 20.11): its opening lines with their speakers, the hero's inner
-	// voices at the opening, and questions answered before the decision (the shared conversation types, dialogue.go).
-	Prompt    []DialogueLine      `json:"prompt"`
-	Voices    []DialogueVoice     `json:"voices"`
-	Questions []EncounterQuestion `json:"questions"`
-	Duty      struct {
+	// The conversations of the week (story memory, memory.go): at the sack on the first days, the custody on the day of
+	// the return, the evening at the gate after an escape. The encounter opens them; the custody's closing word is one of
+	// the choices below (or "timeout"), which the encounter turns into an outcome.
+	Talk struct {
+		Sack    string `json:"sack"`
+		Custody string `json:"custody"`
+		Gate    string `json:"gate"`
+	} `json:"talk"`
+	// Facts the encounter itself writes: the missing days (Life) and a fight with the guard during the custody (combat).
+	Facts struct {
+		Missing string `json:"missing"`
+		Fight   string `json:"fight"`
+	} `json:"facts"`
+	Duty struct {
 		Law             string  `json:"law"`
 		PlayerEligible  bool    `json:"player_eligible"`
 		IncludesFriends bool    `json:"includes_friends"`
@@ -72,41 +79,28 @@ type EncounterPose struct {
 	Bark    string `json:"bark"`
 	Item    string `json:"item"`
 }
-type EncounterChoice struct {
-	ReplyUnseen []DialogueLine `json:"reply_unseen,omitempty"`
-	Reply       []DialogueLine `json:"reply"`
-	// A skill check of this answer and what follows its failure (another outcome, another reply).
-	Check *DialogueCheck `json:"check,omitempty"`
-	Fail  *EncounterFail `json:"fail,omitempty"`
 
-	ID              string `json:"id"`
-	Text            string `json:"text"`
-	Approach        string `json:"approach"`
-	Hook            string `json:"hook"`
-	Condition       string `json:"condition"`
-	Risk            string `json:"risk"`
-	Consequence     string `json:"consequence"`
-	RequiresContact bool   `json:"requires_contact"`
-	Outcome         string `json:"outcome"`
+// EncounterChoice: what one closing word of the custody conversation means for the encounter (its words, its check and
+// its facts are the conversation's, world.conversations).
+type EncounterChoice struct {
+	// the outcome when the answer's skill check failed (the conversation's option has a check)
+	Fail *EncounterFail `json:"fail,omitempty"`
+
+	ID          string `json:"id"`
+	Approach    string `json:"approach"`
+	Hook        string `json:"hook"`
+	Condition   string `json:"condition"`
+	Risk        string `json:"risk"`
+	Consequence string `json:"consequence"`
+	Outcome     string `json:"outcome"`
 }
 
-// EncounterFail is the outcome and the reply of a failed skill check.
+// EncounterFail is the outcome of a failed skill check.
 type EncounterFail struct {
 	Outcome     string `json:"outcome"`
 	Consequence string `json:"consequence"`
 	// TrustCost: the person heard it fail; his trust in the hero drops by this much more (≤ 0), whatever the outcome
-	TrustCost float64        `json:"trust_cost"`
-	Reply     []DialogueLine `json:"reply"`
-}
-
-// EncounterQuestion is asked before the decision: the reply is written to the log and the same answers come back. A
-// question may carry a skill check (once or retry); a failed one is answered with FailReply.
-type EncounterQuestion struct {
-	ID        string         `json:"id"`
-	Text      string         `json:"text"`
-	Reply     []DialogueLine `json:"reply"`
-	Check     *DialogueCheck `json:"check,omitempty"`
-	FailReply []DialogueLine `json:"fail_reply,omitempty"`
+	TrustCost float64 `json:"trust_cost"`
 }
 
 func readCalendarEncounter(world cue.Value) (*CalendarEncounter, error) {
@@ -156,7 +150,7 @@ func (e CalendarEncounter) validate() error {
 		return false
 	}
 	for _, c := range e.Choices {
-		if c.ID == "" || c.ID == "timeout" || keys[c.ID] || c.Text == "" || len(c.Reply) == 0 || c.Approach == "" || c.Hook == "" || c.Condition == "" || c.Risk == "" || c.Consequence == "" {
+		if c.ID == "" || c.ID == "timeout" || keys[c.ID] || c.Approach == "" || c.Hook == "" || c.Condition == "" || c.Risk == "" || c.Consequence == "" {
 			return fail("incomplete or duplicate conversation choice")
 		}
 		keys[c.ID] = true
@@ -164,26 +158,19 @@ func (e CalendarEncounter) validate() error {
 			return fail("unknown deterministic consequence")
 		}
 		outcomes[c.Outcome] = true
-		// a check decides between two outcomes: the failure has its own, and a failure without a check is meaningless
-		if (c.Check == nil) != (c.Fail == nil) || c.Fail != nil && (!known(c.Fail.Outcome) || c.Fail.Consequence == "" || len(c.Fail.Reply) == 0 || c.Fail.TrustCost > 0 || c.Fail.TrustCost < -1) {
-			return fail("choice " + c.ID + ": a skill check needs its failure (outcome, consequence, reply) and only a check has one")
+		// a check decides between two outcomes: the failure has its own (the check itself is the conversation's)
+		if c.Fail != nil && (!known(c.Fail.Outcome) || c.Fail.Consequence == "" || c.Fail.TrustCost > 0 || c.Fail.TrustCost < -1) {
+			return fail("choice " + c.ID + ": a failure needs its outcome and consequence")
 		}
-		// a decisive answer ends the conversation either way: it has one try
-		if c.Check != nil && c.Check.Kind != "once" {
-			return fail("choice " + c.ID + ": the check of a decisive answer is once")
-		}
-	}
-	for _, q := range e.Questions {
-		if q.ID == "" || q.ID == "timeout" || keys[q.ID] || q.Text == "" || len(q.Reply) == 0 || (q.Check == nil) != (len(q.FailReply) == 0) {
-			return fail("incomplete or duplicate conversation question, or a check without its failure reply")
-		}
-		keys[q.ID] = true
 	}
 	if len(outcomes) != 4 {
 		return fail("conversation must include willing, forced, refusal and escape")
 	}
-	if len(e.Poses) < 1 || e.WalkPose == "" || e.IdlePose == "" || e.ReturnWalk == "" || e.ReturnIdle == "" || len(e.Prompt) == 0 || e.Greeting == "" {
-		return fail("missing poses or speech")
+	if len(e.Poses) < 1 || e.WalkPose == "" || e.IdlePose == "" || e.ReturnWalk == "" || e.ReturnIdle == "" {
+		return fail("missing poses")
+	}
+	if e.Talk.Sack == "" || e.Talk.Custody == "" || e.Talk.Gate == "" || e.Facts.Missing == "" || e.Facts.Fight == "" {
+		return fail("missing conversations or facts of the week")
 	}
 	for _, p := range e.Poses {
 		if p.State == "" || p.Seconds < 1 || p.Seconds > 120 {
@@ -253,48 +240,58 @@ func checkCalendarEncounter(c *Compiled) error {
 	for _, m := range c.Localization.Messages {
 		messages[m.Key] = true
 	}
-	// the conversation's lines are spoken by the encounter's own two people; checks and voices follow the shared rules
-	speakers := map[string]bool{e.Actor: true, e.Guard: true}
-	rules := c.DialogueRules
-	if err := rules.lines(c, "calendar encounter prompt", e.Prompt, speakers); err != nil {
-		return err
+	// the week's conversations (memory.go): the sack has a «usual» entry, the custody and the gate open in their window;
+	// they are spoken by the encounter's own two people
+	sack, custody, gate := c.Conversations[e.Talk.Sack], c.Conversations[e.Talk.Custody], c.Conversations[e.Talk.Gate]
+	if sack == nil || custody == nil || gate == nil || sack.Event || !custody.Event || !gate.Event {
+		return fmt.Errorf("calendar encounter: the sack conversation is ordinary, the custody and the gate are events")
 	}
-	if err := rules.voices(c, "calendar encounter voices", e.Voices); err != nil {
-		return err
+	for _, conv := range []*Conversation{sack, custody, gate} {
+		for _, id := range conv.Speakers {
+			if id != e.Actor && id != e.Guard {
+				return fmt.Errorf("calendar encounter: %s does not take part in %s", id, conv.ID)
+			}
+		}
 	}
-	texts := []string{e.Greeting, e.RestLabel}
-	for _, q := range e.Choices {
-		texts = append(texts, q.Text)
-		for _, set := range [][]DialogueLine{q.Reply, q.ReplyUnseen} {
-			if len(set) > 0 {
-				if err := rules.lines(c, "calendar encounter choice "+q.ID, set, speakers); err != nil {
-					return err
+	// every closing word of the custody is a choice (or the timeout event), every choice is closed with; a checked answer's
+	// choice has its failure, and only that one
+	words := map[string]bool{}
+	checked := map[string]bool{}
+	for _, n := range custody.Nodes {
+		for _, o := range n.Options {
+			if o.Close != "" {
+				words[o.Close] = true
+				if o.Check != nil {
+					if o.Check.Kind != "once" {
+						return fmt.Errorf("calendar encounter: the check of the decisive answer %s is once", o.ID)
+					}
+					checked[o.Close] = true
 				}
 			}
-		}
-		if q.Check != nil {
-			if err := rules.skillCheck("calendar encounter choice "+q.ID, *q.Check); err != nil {
-				return err
-			}
-			if err := rules.lines(c, "calendar encounter choice "+q.ID+" failure", q.Fail.Reply, speakers); err != nil {
-				return err
+			if o.Trade || o.Next != "" {
+				return fmt.Errorf("calendar encounter: custody answer %s neither trades nor leaves the decision", o.ID)
 			}
 		}
 	}
-	for _, q := range e.Questions {
-		texts = append(texts, q.Text)
-		if err := rules.lines(c, "calendar encounter question "+q.ID, q.Reply, speakers); err != nil {
-			return err
+	if t := custody.Events["timeout"]; t == nil || t.Close != "timeout" {
+		return fmt.Errorf("calendar encounter: the custody needs its timeout event")
+	}
+	choices := map[string]bool{}
+	for _, ch := range e.Choices {
+		choices[ch.ID] = true
+		if !words[ch.ID] {
+			return fmt.Errorf("calendar encounter: no custody answer closes with choice %s", ch.ID)
 		}
-		if q.Check != nil {
-			if err := rules.skillCheck("calendar encounter question "+q.ID, *q.Check); err != nil {
-				return err
-			}
-			if err := rules.lines(c, "calendar encounter question "+q.ID+" failure", q.FailReply, speakers); err != nil {
-				return err
-			}
+		if checked[ch.ID] != (ch.Fail != nil) {
+			return fmt.Errorf("calendar encounter: choice %s has a failure exactly when its answer has a check", ch.ID)
 		}
 	}
+	for w := range words {
+		if !choices[w] {
+			return fmt.Errorf("calendar encounter: custody closes with %s, which is no choice", w)
+		}
+	}
+	texts := []string{e.RestLabel}
 	for _, p := range e.Poses {
 		if p.Bark != "" {
 			texts = append(texts, p.Bark)

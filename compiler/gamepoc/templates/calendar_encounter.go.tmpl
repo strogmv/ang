@@ -34,12 +34,12 @@ type CalendarEncounter struct {
  IdlePose string `json:"idle_pose"`
  ReturnWalk string `json:"return_walk"`
  ReturnIdle string `json:"return_idle"`
- Greeting string `json:"greeting"`
  Choices []EncounterChoice `json:"choices"`
- // the custody conversation like Disco Elysium (owner 20.11): opening lines, inner voices, questions (dialogue.go)
- Prompt []DialogueLine `json:"prompt"`
- Voices []DialogueVoice `json:"voices"`
- Questions []EncounterQuestion `json:"questions"`
+ // the week's conversations (conversation.go): at the sack, the custody, the evening at the gate; the custody closes
+ // with a choice's id (or "timeout"), which becomes the outcome
+ Talk struct { Sack string `json:"sack"`; Custody string `json:"custody"`; Gate string `json:"gate"` } `json:"talk"`
+ // facts the encounter writes itself: the missing days, a fight with the guard during the custody
+ Facts struct { Missing string `json:"missing"`; Fight string `json:"fight"` } `json:"facts"`
  Duty struct {
   Law string `json:"law"`
   PlayerEligible bool `json:"player_eligible"`
@@ -51,23 +51,16 @@ type CalendarEncounter struct {
 }
 type EncounterPlace struct { Level string `json:"level"`; At struct {X int `json:"x"`;Y int `json:"y"`} `json:"at"` }
 type EncounterPose struct { State string `json:"state"`; Seconds int64 `json:"seconds"`; Bark string `json:"bark"`; Item string `json:"item"` }
+// EncounterChoice: what a closing word of the custody means (its words, check and facts are the conversation's).
 type EncounterChoice struct {
- ReplyUnseen []DialogueLine `json:"reply_unseen,omitempty"`
- Reply []DialogueLine `json:"reply"`
- Check *DialogueCheck `json:"check,omitempty"`
  Fail *EncounterFail `json:"fail,omitempty"`
-
- ID string `json:"id"`; Text string `json:"text"`
+ ID string `json:"id"`
  Approach string `json:"approach"`; Hook string `json:"hook"`; Condition string `json:"condition"`; Risk string `json:"risk"`; Consequence string `json:"consequence"`
- RequiresContact bool `json:"requires_contact"`; Outcome string `json:"outcome"`
+ Outcome string `json:"outcome"`
 }
 
-// EncounterFail: the outcome and the reply of a decisive answer whose check failed.
-type EncounterFail struct { Outcome string `json:"outcome"`; Consequence string `json:"consequence"`; TrustCost float64 `json:"trust_cost"`; Reply []DialogueLine `json:"reply"` }
-// EncounterQuestion: asked before the decision; the reply goes to the log and the same answers come back.
-type EncounterQuestion struct { ID string `json:"id"`; Text string `json:"text"`; Reply []DialogueLine `json:"reply"`; Check *DialogueCheck `json:"check,omitempty"`; FailReply []DialogueLine `json:"fail_reply,omitempty"` }
-// encounterTalkNode: the custody conversation's one node (its prompt and voices).
-const encounterTalkNode = "custody"
+// EncounterFail: the outcome of a decisive answer whose check failed.
+type EncounterFail struct { Outcome string `json:"outcome"`; Consequence string `json:"consequence"`; TrustCost float64 `json:"trust_cost"` }
 
 // Private facts and reasons are saved, never projected as future-consequence UI.
 type encounterReason struct {Second int64; Cause,Choice,Outcome string; Observed bool}
@@ -85,8 +78,11 @@ type encounterState struct {
  Rating int
  SolsStatus string
  Log []encounterReason
- // the custody conversation's log, answers and checks (dialogue.go)
- Talk dialogueSession
+ // a save from before story memory: the custody conversation's log, answers and checks; and the greeting and purchase
+ // flags — sanitizeMemory moves them into the memory (migrateEncounterMemory) and they stay empty after
+ Talk dialogueSession `json:",omitempty"`
+ // the day the sack talk opened by itself (the first meeting of a day calls out once)
+ SackDay int64 `json:",omitempty"`
 }
 func(s encounterState)clone()encounterState{s.Log=append([]encounterReason(nil),s.Log...);s.Talk=s.Talk.clone();return s}
 func(r *Runtime)initCalendarEncounter(){
@@ -198,29 +194,39 @@ func(r *Runtime)calendarEncounterAfterFrame(){
  }
  if s.Day<=e.FirstDays{
   if r.encounterAt(e.Actor,e.Meet){if s.Phase!="selling"{s.Since=now};s.Phase="selling"}else{s.Phase="walking";s.Since=now}
+  // the first meeting of a day: he calls out once (the sack talk opens by itself); after that the hero talks to him
+  if _,met:=r.state.Memory.Facts[r.encounterMetFact()];s.Phase=="selling"&&!met&&s.SackDay!=s.Day&&r.encounterTradeAllowed(e.Actor)&&r.encounterNear(e.Actor,e.Reach)&&!r.heroInCombat(){
+   if c,on:=r.talkOpenNow();!on||!c.conv.Event{s.SackDay=s.Day;_ = r.talkOpen(e.Talk.Sack,e.Actor)}
+  }
   return
  }
- if s.Day<=e.FirstDays+e.MissingDays{return}
+ if s.Day<=e.FirstDays+e.MissingDays{
+  // the missing days are a fact of the hall: public, written once on the first missing morning, on the market level
+  if _,ok:=r.state.Memory.Facts[e.Facts.Missing];!ok&&s.Phase=="missing"{r.memoryWrite(e.Facts.Missing,nil,talkCtx{self:e.Actor,level:e.Level})}
+  return
+ }
  if s.Phase=="return"&&r.encounterGuardAvailable()&&r.encounterAt(e.Actor,e.Meet)&&r.encounterAt(e.Guard,e.GuardAt)&&r.encounterNear(e.Guard,e.Reach)&&!r.heroInCombat(){
   s.Phase="conversation";s.Assigned=now;s.Since=now;r.encounterReason(e.Duty.Law,"assigned","pending",true)
  }
- // the conversation opens in the log: the guard's assignment, Prokhor's answer, the hero's inner voices
- if s.Phase=="conversation"{r.dialogueEnter(&s.Talk,encounterTalkNode,e.Prompt,e.Voices)}
- if s.Phase=="conversation"&&now-s.Assigned>=e.Duty.TimeoutSeconds&&!r.heroInCombat()&&r.encounterGuardAvailable(){r.resolveEncounter("timeout","forced",true,false)}
+ // the custody opens in the log (conversation.go): the guard's assignment, Prokhor's answer by what the hero is to him,
+ // the hero's inner voices; it stays open until a closing answer or the timeout
+ custody:=talkKey(e.Talk.Custody,e.Actor)
+ if s.Phase=="conversation"&&r.state.Memory.Open!=custody{_ = r.talkOpen(e.Talk.Custody,e.Actor)}
+ if s.Phase=="conversation"&&now-s.Assigned>=e.Duty.TimeoutSeconds&&!r.heroInCombat()&&r.encounterGuardAvailable(){
+  if c,on:=r.talkOpenNow();on&&c.key==custody{r.talkEvent("timeout")}
+  r.resolveEncounter("timeout","forced",true,false)
+ }
 }
 func(r *Runtime)encounterTradeAllowed(actor string)bool{
  e:=r.world.CalendarEncounter;if e==nil||actor!=e.Actor{return true}
  s:=r.state.CalendarEncounter;day:=r.state.Life.Seconds/86400+1
  return day<=e.FirstDays&&s.Outcome==""
 }
-// failed: the answer's skill check failed: its failure's reply is spoken (the outcome is the failure's).
+// failed: the answer's skill check failed (the outcome is the failure's). The words and facts are the conversation's.
 func(r *Runtime)resolveEncounter(choice,outcome string,observed,failed bool){
  e:=r.world.CalendarEncounter;s:=&r.state.CalendarEncounter
  s.Choice=choice;s.Outcome=outcome
- for _,c:=range e.Choices{if c.ID==choice{
-  reply:=c.Reply;if !observed&&len(c.ReplyUnseen)>0{reply=c.ReplyUnseen};if failed&&c.Fail!=nil{reply=c.Fail.Reply}
-  r.dialogueSpeak(&s.Talk,reply);if len(reply)>0{s.ReplyKey=reply[len(reply)-1].Text}
- }}
+ if t:=r.state.Memory.Talks[talkKey(e.Talk.Custody,e.Actor)];t!=nil{for _,l:=range t.Lines{if l.Kind=="line"{s.ReplyKey=l.Text}}}
  s.Phase="escort";s.Since=r.state.Life.Seconds;s.ReplyUntil=s.Since+e.ReplySeconds
  if outcome=="refuse"||choice=="timeout"||outcome=="escape"{
   // Existing system trust/rating: the refusal really reduces it, and survives a save.
@@ -241,7 +247,6 @@ func(r *Runtime)resolveEncounter(choice,outcome string,observed,failed bool){
 }
 func(r *Runtime)encounterCommand(q *pb.PocLifeCommand)error{
  e:=r.world.CalendarEncounter;if e==nil{return textError{Key:"error.encounter.unavailable"}}
- s:=&r.state.CalendarEncounter
  switch q.Action{
  case "debug_next_morning":
   if !r.world.Config.DebugPerception||r.state.Paused||r.heroInCombat(){return textError{Key:"error.encounter.debug_unavailable"}}
@@ -257,32 +262,6 @@ func(r *Runtime)encounterCommand(q *pb.PocLifeCommand)error{
    if err:=r.advanceLifeFrameBy(delta);err!=nil{return err}
   }
   r.updateLifeExploration();return nil
- case "encounter_greet":
-  if !r.encounterTradeAllowed(e.Actor)||!r.encounterNear(e.Actor,e.Reach)||s.Phase!="selling"{return textError{Key:"error.encounter.unavailable"}}
-  s.Met=true;if p,ok:=r.peddlerOfActor(e.Actor);ok{r.peddlerHeroResult(p,e.Greeting,"",0)};r.encounterReason("conversation.greeting","greet","contact",true);return nil
- case "encounter_choice":
-  if s.Phase!="conversation"||s.Outcome!=""||!r.encounterGuardAvailable()||!r.encounterNear(e.Guard,e.Reach)||r.heroInCombat(){return textError{Key:"error.encounter.unavailable"}}
-  // (dialogueEnter: an older save stopped in the conversation before it had a log opens it before the answer)
-  for _,question:=range e.Questions{if question.ID==q.Destination{
-   // asked before (no check to try again): the answer is already in the log, nothing is written twice
-   if question.Check==nil&&s.Talk.chose(question.ID){return nil}
-   if question.Check!=nil{if open,_:=r.dialogueCheckOpen(&s.Talk,question.ID,*question.Check);!open{return textError{Key:"error.dialogue.closed"}}}
-   r.dialogueEnter(&s.Talk,encounterTalkNode,e.Prompt,e.Voices)
-   r.dialogueAnswer(&s.Talk,question.ID,question.Text)
-   if question.Check!=nil&&!r.dialogueRoll(&s.Talk,e.ID,question.ID,*question.Check){r.dialogueSpeak(&s.Talk,question.FailReply);return nil}
-   r.dialogueSpeak(&s.Talk,question.Reply);return nil
-  }}
-  for _,c:=range e.Choices{if c.ID==q.Destination{
-   if c.RequiresContact&&!s.Met&&!s.Bought{return textError{Key:"error.encounter.condition"}}
-   if c.Check!=nil{if open,_:=r.dialogueCheckOpen(&s.Talk,c.ID,*c.Check);!open{return textError{Key:"error.dialogue.closed"}}}
-   g:=r.state.Life.Actor(e.Guard);h:=r.state.Life.Actor(playerActorID)
-   observed:=g!=nil&&h!=nil&&r.combatWorldIdentifies(combatLifeObserver{ID:e.Guard,Level:g.Level,At:g.Position},playerActorID)
-   r.dialogueEnter(&s.Talk,encounterTalkNode,e.Prompt,e.Voices)
-   r.dialogueAnswer(&s.Talk,c.ID,c.Text)
-   // the server's roll (dialogue.go): a failed check takes the failure's outcome and reply
-   if c.Check!=nil&&!r.dialogueRoll(&s.Talk,e.ID,c.ID,*c.Check){r.resolveEncounter(c.ID,c.Fail.Outcome,observed,true);return nil}
-   r.resolveEncounter(c.ID,c.Outcome,observed,false);return nil
-  }}
  }
  return textError{Key:"error.encounter.unavailable"}
 }
@@ -310,44 +289,11 @@ func(r *Runtime)encounterAgent(a *pb.PocAgentState){
  }
  a.EncounterPose=pose
 }
-func(r *Runtime)appendConversation(msg *pb.PocGameState,locale string){
- defer func(){
-  v:=msg.Conversation;if v==nil{return}
-  v.SpeakerName=r.craftingActorName(locale,v.Speaker)
-  v.Skin=barkCatalog.Castes[v.Speaker];if v.Skin!="copper"&&v.Skin!="silver"&&v.Skin!="gold"{v.Skin="copper"}
-  v.CasteName=r.localText(locale,"ui.caste."+v.Skin,"")
-  v.SpeakerColour=r.dialogueCasteColour(v.Speaker)
-  for _,choice:=range v.Choices{choice.Action="encounter_choice";if v.Kind=="trade_greeting"{choice.Action="encounter_greet"}}
- }()
-
- e:=r.world.CalendarEncounter;if e==nil{return};s:=r.state.CalendarEncounter
- text:=func(key string)string{return r.localText(locale,key,key)}
- if s.Phase=="selling"&&r.encounterNear(e.Actor,e.Reach)&&!s.Met{
-  msg.Conversation=&pb.PocConversation{Kind:"trade_greeting",Id:e.ID,Speaker:e.Actor,Text:text(e.Greeting),Leave:true,Choices:[]*pb.PocConversationChoice{{Id:"greet",Text:text("ui.encounter.greet")}}};return
- }
- if s.Outcome!=""&&r.state.Life.Seconds<s.ReplyUntil{
-  // the header follows who spoke last (the guard may have the last word)
-  speaker:=e.Actor;for _,l:=range s.Talk.Lines{if l.Kind=="line"{speaker=l.Speaker}}
-  for _,c:=range e.Choices{if c.ID==s.Choice{msg.Conversation=&pb.PocConversation{Kind:"reply",Id:e.ID,Speaker:speaker,Text:text(s.ReplyKey),Leave:true,Lines:r.dialogueLog(locale,s.Talk)};return}};return
- }
- if s.Phase!="conversation"||!r.encounterGuardAvailable()||!r.encounterNear(e.Guard,e.Reach)||r.heroInCombat(){return}
- // an assignment: the hero answers (refusing is an answer), no closing answer is offered (Leave stays false)
- v:=&pb.PocConversation{Kind:"custody",Id:e.ID,Speaker:e.Actor,Text:text(e.Prompt[len(e.Prompt)-1].Text),Lines:r.dialogueLog(locale,s.Talk)}
- talk:=s.Talk
- for _,question:=range e.Questions{
-  // a once check already tried is gone; a failed retry check stays, locked
-  if question.Check!=nil{if open,locked:=r.dialogueCheckOpen(&talk,question.ID,*question.Check);!open&&!locked{continue}}
-  v.Choices=append(v.Choices,r.dialogueChoice(locale,talk,question.ID,question.Text,question.Check))
- }
- for _,c:=range e.Choices{if c.RequiresContact&&!s.Met&&!s.Bought{continue};v.Choices=append(v.Choices,r.dialogueChoice(locale,talk,c.ID,c.Text,c.Check))};msg.Conversation=v
-}
 func(r *Runtime)validateEncounterSave(s state)error{
  e:=r.world.CalendarEncounter;if e==nil{return nil};v:=s.CalendarEncounter
  if v.Day<1||v.Day>s.Life.Seconds/86400+1||v.Since<0||v.Since>s.Life.Seconds||v.Assigned<0||v.Assigned>s.Life.Seconds||len(v.Log)>64||v.Rating<0||v.Rating>1{return errors.New("invalid calendar encounter save")}
  if v.Outcome!=""{found:=v.Choice=="timeout"&&v.Outcome=="forced";for _,c:=range e.Choices{found=found||c.ID==v.Choice&&(c.Outcome==v.Outcome||c.Fail!=nil&&c.Fail.Outcome==v.Outcome)};if !found{return errors.New("invalid saved conversation choice")}}
- // the conversation's log refers to answers, the node, skills and the encounter's two people by id (dialogue.go)
- options:=map[string]bool{};for _,c:=range e.Choices{options[c.ID]=true};for _,question:=range e.Questions{options[question.ID]=true}
- if err:=r.validateDialogueSession(v.Talk,options,map[string]bool{encounterTalkNode:true},map[string]bool{e.Actor:true,e.Guard:true});err!=nil{return err}
+ if v.SackDay<0||v.SackDay>s.Life.Seconds/86400+1{return errors.New("invalid calendar encounter save")}
  for _,entry:=range v.Log{if entry.Second<0||entry.Second>s.Life.Seconds{return errors.New("invalid encounter reason clock")}}
  return nil
 }
@@ -362,4 +308,103 @@ func(r *Runtime)appendEncounterBark(view *pb.PocLifeView,msg *pb.PocGameState,he
   keep:=view.Barks[:0];for _,old:=range view.Barks{if old.SpeakerId!=e.Actor{keep=append(keep,old)}};view.Barks=append(keep,b)
   for _,a:=range msg.SceneAgents{if a.Id==e.Actor{a.Speech=b.Text;a.SpeechUntilTick=b.UntilNs/r.tickNS()}};return
  }
+}
+
+// encounterMetFact: the fact a purchase from the actor writes (world.memory: on_trade) — knowing each other.
+func(r *Runtime)encounterMetFact()string{
+ e:=r.world.CalendarEncounter;m:=r.world.Memory;if e==nil||m==nil{return ""}
+ best:="";for id,f:=range m.Facts{if f.OnTrade!=nil&&f.OnTrade.Seller==e.Actor&&(best==""||id<best){best=id}};return best
+}
+// encounterTalkOf: the conversation the encounter's actor opens with the hero now: at his sack while he trades on the first
+// days; in the gate passage on the evening after the escape (its own entries keep the window). The custody opens itself.
+func(r *Runtime)encounterTalkOf(person string)(string,bool){
+ e:=r.world.CalendarEncounter;if e==nil||person!=e.Actor{return "",false};s:=r.state.CalendarEncounter
+ if s.Day<=e.FirstDays&&s.Phase=="selling"&&r.encounterTradeAllowed(e.Actor)&&r.talkNear(e.Actor,24){return e.Talk.Sack,true}
+ // the custody the hero stepped away from (closed its column): he can come back to it
+ if s.Phase=="conversation"&&s.Outcome==""{if t:=r.state.Memory.Talks[talkKey(e.Talk.Custody,e.Actor)];t!=nil&&t.Hidden&&r.state.Memory.Open==talkKey(e.Talk.Custody,e.Actor)&&r.talkNear(e.Actor,24){return e.Talk.Custody,true};return "",false}
+ if s.Outcome=="escape"&&s.Phase=="done"&&r.talkNear(e.Actor,24){
+  if d:=r.world.Conversations[e.Talk.Gate];d!=nil&&r.talkEntry(talkCtx{conv:d,key:talkKey(e.Talk.Gate,e.Actor),self:e.Actor,t:&talkState{}})!=nil{
+   if t:=r.state.Memory.Talks[talkKey(e.Talk.Gate,e.Actor)];t==nil||!t.chose("bye"){return e.Talk.Gate,true}
+  }
+ }
+ return "",false
+}
+// encounterTalkAllowed: whether a conversation is the encounter's (owned), and whether it may go on now.
+func(r *Runtime)encounterTalkAllowed(conv string)(owned,ok bool){
+ e:=r.world.CalendarEncounter;if e==nil{return false,false};s:=r.state.CalendarEncounter
+ reach:=func(id string)int{if d:=r.world.Conversations[id];d!=nil{return d.Reach};return e.Reach}
+ switch conv{
+ case e.Talk.Custody:
+  return true,s.Phase=="conversation"&&s.Outcome==""&&r.encounterGuardAvailable()&&r.encounterNear(e.Guard,e.Reach)&&!r.heroInCombat()
+ case e.Talk.Sack:
+  return true,s.Day<=e.FirstDays&&s.Phase=="selling"&&r.encounterTradeAllowed(e.Actor)&&r.talkNear(e.Actor,reach(conv))
+ case e.Talk.Gate:
+  return true,s.Outcome=="escape"&&r.talkNear(e.Actor,reach(conv))
+ }
+ return false,false
+}
+// encounterTalkClosed: the custody's closing word is a choice: its outcome, or the failure's when the check failed; the
+// talk's own timeout (no answer within its answer seconds) is the duty's timeout.
+func(r *Runtime)encounterTalkClosed(conv,self,word string,failed bool){
+ e:=r.world.CalendarEncounter;if e==nil||conv!=e.Talk.Custody||r.state.CalendarEncounter.Outcome!=""{return}
+ if word=="timeout"{r.resolveEncounter("timeout","forced",true,false);return}
+ for _,c:=range e.Choices{if c.ID==word{
+  outcome:=c.Outcome;if failed&&c.Fail!=nil{outcome=c.Fail.Outcome}
+  r.resolveEncounter(c.ID,outcome,r.memorySeenBy(talkCtx{},e.Guard),failed);return
+ }}
+}
+// encounterPassageOpen (world query passage_open): the way from the actor to the gate's passage is open on the floor.
+func(r *Runtime)encounterPassageOpen()bool{
+ e:=r.world.CalendarEncounter;if e==nil{return false};a:=r.state.Life.Actor(e.Actor);edge:=r.world.Life.Edge(e.GateEdge)
+ return a!=nil&&edge!=nil&&a.OnFloor()&&a.Level==edge.From&&r.state.Life.StaticTravelSeconds(r.world.Life,a.Level,a.Position,edge.Exit)>=0
+}
+// migrateEncounterMemory: a save from before story memory had the custody's log in the encounter and the acquaintance as
+// two flags. The log becomes the custody talk; the acquaintance and a settled custody become the facts the conversation
+// would have written (its own data replayed: the closing answer's effects, with the guard's sight as it was saved).
+func(r *Runtime)migrateEncounterMemory(s *state){
+ e:=r.world.CalendarEncounter;if e==nil||r.world.Memory==nil{s.CalendarEncounter.Talk=dialogueSession{};return}
+ keep:=r.state;r.state=*s;defer func(){*s=r.state;r.state=keep}();v:=&r.state.CalendarEncounter
+ if met:=r.encounterMetFact();met!=""&&(v.Met||v.Bought){if _,ok:=r.state.Memory.Facts[met];!ok{
+  args:=r.world.Memory.Facts[met].OnTrade.Args
+  if v.Met&&!v.Bought{if d:=r.world.Conversations[e.Talk.Sack];d!=nil{for _,n:=range d.Nodes{for _,o:=range n.Options{for _,do:=range o.Do{if do.Fact==met&&do.When==nil&&o.Check==nil{args=do.Args}}}}}}
+  r.memoryWrite(met,args,talkCtx{self:e.Actor,quiet:true})
+ }}
+ v.Met,v.Bought=false,false
+ custody:=talkKey(e.Talk.Custody,e.Actor)
+ if d:=r.world.Conversations[e.Talk.Custody];d!=nil&&len(v.Talk.Lines)+len(v.Talk.Chosen)+len(v.Talk.Checks)>0&&r.state.Memory.Talks[custody]==nil{
+  t:=r.talkState(custody);t.dialogueSession=migrateTalk(d,v.Talk)
+  t.Node=d.Entries[len(d.Entries)-1].Node;t.Entry=d.Entries[len(d.Entries)-1].ID;t.Nodes=[]string{t.Node}
+  r.state.Memory.Serial++;t.Serial=r.state.Memory.Serial
+  if v.Phase=="conversation"{r.state.Memory.Open=custody}
+ }
+ v.Talk=dialogueSession{}
+ if v.Outcome==""{return}
+ d:=r.world.Conversations[e.Talk.Custody];if d==nil{return}
+ settled:=false;for _,n:=range d.Nodes{for _,o:=range n.Options{for _,do:=range append(append([]memDo(nil),o.Do...),failDo(o)...){if _,ok:=r.state.Memory.Facts[do.Fact];do.Fact!=""&&ok{settled=true}}}}
+ if settled{return}
+ seen:=false;for _,entry:=range v.Log{if entry.Choice==v.Choice&&entry.Cause==e.Duty.Law{seen=entry.Observed}}
+ c:=talkCtx{conv:d,key:custody,self:e.Actor,t:r.talkState(custody),seen:map[string]bool{e.Guard:seen},quiet:true}
+ if v.Choice=="timeout"{if ev:=d.Events["timeout"];ev!=nil{r.memoryDo(c,ev.Do)};return}
+ for _,n:=range d.Nodes{for _,o:=range n.Options{if o.Close!=v.Choice{continue}
+  failed:=false;for _,ch:=range e.Choices{if ch.ID==v.Choice&&ch.Fail!=nil&&ch.Fail.Outcome==v.Outcome&&ch.Outcome!=v.Outcome{failed=true}}
+  if failed&&o.Fail!=nil{r.memoryDo(c,o.Fail.Do)}else{r.memoryDo(c,o.Do)};return
+ }}
+}
+func failDo(o convOption)[]memDo{if o.Fail==nil{return nil};return o.Fail.Do}
+// migrateTalk: an older custody log keeps what the conversation still has — its answers and checks by id (a question
+// folded since, like the old intake question, goes), its people's lines, the voices and check results.
+func migrateTalk(d *conversationDef,old dialogueSession)dialogueSession{
+ options:=map[string]bool{};for _,n:=range d.Nodes{for _,o:=range n.Options{options[o.ID]=true}}
+ speakers:=map[string]bool{};for _,sp:=range d.Speakers{speakers[sp]=true}
+ s:=dialogueSession{}
+ for _,id:=range old.Chosen{if options[id]{s.Chosen=append(s.Chosen,id)}}
+ for id,c:=range old.Checks{if options[id]{if s.Checks==nil{s.Checks=map[string]dialogueCheckRecord{}};s.Checks[id]=c}}
+ for _,l:=range old.Lines{if l.Kind!="line"||speakers[l.Speaker]{s.Lines=append(s.Lines,l)}}
+ return s
+}
+// encounterFight: the hero attacked the guard during the custody (combat.go): a fact of the hall. The talk is hidden while
+// the fight goes on (its owner does not hold it) and the guard's fate decides the rest.
+func(r *Runtime)encounterFight(){
+ e:=r.world.CalendarEncounter;if e==nil{return}
+ if _,ok:=r.state.Memory.Facts[e.Facts.Fight];!ok{r.memoryWrite(e.Facts.Fight,nil,talkCtx{self:e.Actor})}
 }

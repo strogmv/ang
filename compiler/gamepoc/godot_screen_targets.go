@@ -75,8 +75,17 @@ func (g *screenCompiler) targets(s *GodotScreens) error {
 			}
 			target.Bind[key] = value
 		}
-		if target.Action != "" && target.Action != "life_enter" {
+		if target.Action != "" && target.Action != "life_enter" && target.Action != "talk" {
 			return fmt.Errorf("screen %s field %s.action: unknown action", g.id, field)
+		}
+		// talk (story memory): the server opens the person's conversation; the column opens by its own state
+		if target.Action == "talk" {
+			if target.Screen != "" || target.Position != "actor" {
+				return fmt.Errorf("screen %s field %s: a talk action is on a person and opens no screen", g.id, field)
+			}
+			if _, ok := target.Bind["actor"]; !ok {
+				return fmt.Errorf("screen %s field %s.bind.actor: required", g.id, field)
+			}
 		}
 		if target.Action == "life_enter" {
 			if target.Screen != "" {

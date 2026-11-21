@@ -18,6 +18,11 @@ import (
 // retry checks, the threshold of an inner voice, a save in the middle of a conversation. The only conversation with the
 // rule today is the calendar encounter's custody conversation, so the tests run it.
 
+// Every game a test of this package starts in-process gets the same check value, so two fresh worlds are the same world
+// (a new game's own random value broke the tests that compare two runs, e.g. TestNoiseWavesChangeNoState). The draw
+// itself is tested where it is meant: TestDialogueNewGameDrawsItsOwnCheckValue, TestDialogueNewGameCheckValue.
+func init() { drawCheckSeed = func() int64 { return 1 } }
+
 var dialogueDayEleven struct {
 	once  sync.Once
 	state state
@@ -56,10 +61,61 @@ func dialogueCustody(t *testing.T, prepare func(*Runtime)) *Runtime {
 		prepare(r)
 	}
 	r.calendarEncounterAfterFrame()
-	if r.state.CalendarEncounter.Phase != "conversation" {
-		t.Fatalf("not assigned: %+v", r.state.CalendarEncounter)
+	if r.state.CalendarEncounter.Phase != "conversation" || r.state.Memory.Open != custodyKey(r) {
+		t.Fatalf("not assigned: %+v, open %q", r.state.CalendarEncounter, r.state.Memory.Open)
 	}
 	return r
+}
+
+func custodyKey(r *Runtime) string {
+	e := r.world.CalendarEncounter
+	return talkKey(e.Talk.Custody, e.Actor)
+}
+func custodyConv(r *Runtime) *conversationDef { return r.world.Conversations[r.world.CalendarEncounter.Talk.Custody] }
+func custodyTalk(r *Runtime) *talkState    { return r.state.Memory.Talks[custodyKey(r)] }
+
+// custodyNode: the node the custody decides in.
+func custodyNode(t *testing.T, r *Runtime) *convNode {
+	t.Helper()
+	tk := custodyTalk(r)
+	if tk == nil || custodyConv(r).Nodes[tk.Node] == nil {
+		t.Fatal("no custody talk")
+	}
+	return custodyConv(r).Nodes[tk.Node]
+}
+
+// custodyQuestions: the questions of the custody shown now (their condition holds).
+func custodyQuestions(t *testing.T, r *Runtime) []convOption {
+	t.Helper()
+	c, _ := r.talkOpenNow()
+	out := []convOption{}
+	for _, o := range custodyNode(t, r).Options {
+		if o.question() && r.optionShown(c, o) {
+			out = append(out, o)
+		}
+	}
+	return out
+}
+
+func choose(r *Runtime, id string) error {
+	return r.conversationCommand(&pb.PocLifeCommand{Action: "conversation_choice", Destination: id})
+}
+
+// editConversation: a test's own copy of a conversation (the world's stays as it is).
+func editConversation(t *testing.T, r *Runtime, id string, edit func(*conversationDef)) {
+	t.Helper()
+	raw, _ := json.Marshal(r.world.Conversations[id])
+	var d conversationDef
+	if err := json.Unmarshal(raw, &d); err != nil {
+		t.Fatal(err)
+	}
+	edit(&d)
+	all := map[string]*conversationDef{}
+	for k, v := range r.world.Conversations {
+		all[k] = v
+	}
+	all[id] = &d
+	r.world.Conversations = all
 }
 
 func dialogueSetSkill(r *Runtime, skill string, value int) {
@@ -89,54 +145,73 @@ func dialogueOption(t *testing.T, v *pb.PocConversation, id string) *pb.PocConve
 	return nil
 }
 
-func dialogueCheckedChoice(t *testing.T, r *Runtime) EncounterChoice {
+func dialogueCheckedOption(t *testing.T, r *Runtime) convOption {
 	t.Helper()
-	for _, c := range r.world.CalendarEncounter.Choices {
-		if c.Check != nil {
-			return c
+	for _, o := range custodyNode(t, r).Options {
+		if o.Check != nil && o.Close != "" {
+			return o
 		}
 	}
 	t.Skip("no answer with a skill check")
+	return convOption{}
+}
+
+func encounterChoiceOf(r *Runtime, id string) EncounterChoice {
+	for _, c := range r.world.CalendarEncounter.Choices {
+		if c.ID == id {
+			return c
+		}
+	}
 	return EncounterChoice{}
+}
+
+// seedFor: a game check value that makes the answer's first roll fail (true) or succeed (false).
+func seedFor(r *Runtime, key, option string, k DialogueCheck, fail bool) int64 {
+	chance := r.dialogueChance(k)
+	for seed := int64(1); ; seed++ {
+		if (dialogueDie(r.state.Seed, seed, key, option, 1) >= chance) == fail {
+			return seed
+		}
+	}
 }
 
 func TestDialogueShownChanceIsTheRolledChance(t *testing.T) {
 	r := dialogueCustody(t, nil)
-	c := dialogueCheckedChoice(t, r)
-	row := r.world.DialogueRules.Chance[c.Check.Difficulty]
+	o := dialogueCheckedOption(t, r)
+	row := r.world.DialogueRules.Chance[o.Check.Difficulty]
 	for _, skill := range []int{0, 10, 20, 25, 33, 60, 100} {
-		dialogueSetSkill(r, c.Check.Skill, skill)
+		dialogueSetSkill(r, o.Check.Skill, skill)
 		for _, locale := range []string{"ru", "en"} {
-			o := dialogueOption(t, dialogueView(t, r, locale), c.ID)
-			if o == nil || int(o.Chance) != row[skill] || !strings.Contains(o.CheckLabel, strconv.Itoa(row[skill])) || o.CheckColour == "" || !o.Once || o.Locked {
-				t.Fatalf("skill %d %s: shown %+v, table %d", skill, locale, o, row[skill])
+			c := dialogueOption(t, dialogueView(t, r, locale), o.ID)
+			if c == nil || int(c.Chance) != row[skill] || !strings.Contains(c.CheckLabel, strconv.Itoa(row[skill])) || c.CheckColour == "" || !c.Once || c.Locked {
+				t.Fatalf("skill %d %s: shown %+v, table %d", skill, locale, c, row[skill])
 			}
 		}
 	}
-	dialogueSetSkill(r, c.Check.Skill, 20)
-	shown := dialogueOption(t, dialogueView(t, r, "ru"), c.ID).Chance
-	if err := r.encounterCommand(&pb.PocLifeCommand{Action: "encounter_choice", Destination: c.ID}); err != nil {
+	dialogueSetSkill(r, o.Check.Skill, 20)
+	shown := dialogueOption(t, dialogueView(t, r, "ru"), o.ID).Chance
+	if err := choose(r, o.ID); err != nil {
 		t.Fatal(err)
 	}
-	talk := r.state.CalendarEncounter.Talk
+	talk := custodyTalk(r)
 	var check dialogueEntry
 	for _, e := range talk.Lines {
 		if e.Kind == "check" {
 			check = e
 		}
 	}
-	if check.Chance != int(shown) || check.Skill != c.Check.Skill || check.Difficulty != c.Check.Difficulty {
+	if check.Chance != int(shown) || check.Skill != o.Check.Skill || check.Difficulty != o.Check.Difficulty {
 		t.Fatalf("rolled with %d, showed %d", check.Chance, shown)
 	}
-	if want := dialogueDie(r.state.Seed, r.state.CheckSeed, r.world.CalendarEncounter.ID, c.ID, 1) < check.Chance; check.Success != want || talk.Checks[c.ID].Success != want {
+	if want := dialogueDie(r.state.Seed, r.state.CheckSeed, custodyKey(r), o.ID, 1) < check.Chance; check.Success != want || talk.Checks[o.ID].Success != want {
 		t.Fatalf("the roll is not the server's die: %+v", check)
 	}
 }
 
 func TestDialogueRollIsDeterministicAndBothOutcomesHappen(t *testing.T) {
 	base := dialogueCustody(t, nil)
-	c := dialogueCheckedChoice(t, base)
-	// one runtime per world, every seed from the same return-day state
+	o := dialogueCheckedOption(t, base)
+	c := encounterChoiceOf(base, o.Close)
 	runs := [2]*Runtime{encounterFixture(t), encounterFixture(t)}
 	outcomes := map[bool]int{}
 	// the world's seed stays; the game's own check value decides the roll
@@ -144,49 +219,50 @@ func TestDialogueRollIsDeterministicAndBothOutcomesHappen(t *testing.T) {
 		for _, r := range runs {
 			r.state = base.snapshotState()
 			r.state.CheckSeed = seed
-			if err := r.encounterCommand(&pb.PocLifeCommand{Action: "encounter_choice", Destination: c.ID}); err != nil {
+			if err := choose(r, o.ID); err != nil {
 				t.Fatal(err)
 			}
 		}
-		a, b := runs[0].state.CalendarEncounter, runs[1].state.CalendarEncounter
-		if !reflect.DeepEqual(a, b) {
+		a, b := runs[0].state, runs[1].state
+		if !reflect.DeepEqual(a.CalendarEncounter, b.CalendarEncounter) || !reflect.DeepEqual(a.Memory, b.Memory) {
 			t.Fatalf("seed %d: the same world rolled differently", seed)
 		}
-		success := a.Talk.Checks[c.ID].Success
+		talk := a.Memory.Talks[custodyKey(runs[0])]
+		success := talk.Checks[o.ID].Success
 		outcomes[success]++
-		want, reply := c.Outcome, c.Reply
+		want, reply := c.Outcome, o.Reply
 		if !success {
-			want, reply = c.Fail.Outcome, c.Fail.Reply
+			want, reply = c.Fail.Outcome, o.Fail.Reply
 		}
-		last := a.Talk.Lines[len(a.Talk.Lines)-1]
-		if a.Choice != c.ID || a.Outcome != want || last.Text != reply[len(reply)-1].Text || a.ReplyKey != last.Text {
-			t.Fatalf("seed %d success=%v: choice %s outcome %s reply %s", seed, success, a.Choice, a.Outcome, last.Text)
+		last := talk.Lines[len(talk.Lines)-1]
+		if a.CalendarEncounter.Choice != c.ID || a.CalendarEncounter.Outcome != want || last.Text != reply[len(reply)-1].Text || a.CalendarEncounter.ReplyKey != last.Text {
+			t.Fatalf("seed %d success=%v: choice %s outcome %s reply %s", seed, success, a.CalendarEncounter.Choice, a.CalendarEncounter.Outcome, last.Text)
 		}
 		if err := runs[0].validateEncounterSave(runs[0].state); err != nil {
 			t.Fatalf("seed %d: a resolved check does not validate: %v", seed, err)
 		}
 		// the reply's header is who spoke last
-		if v := dialogueView(t, runs[0], "ru"); v.Kind != "reply" || v.Speaker != reply[len(reply)-1].Speaker {
+		if v := dialogueView(t, runs[0], "ru"); v.Kind != "reply" || !v.Leave || v.Speaker != reply[len(reply)-1].Speaker {
 			t.Fatalf("seed %d: the reply's speaker is %s, the last line's %s", seed, v.Speaker, reply[len(reply)-1].Speaker)
 		}
 	}
 	if outcomes[true] == 0 || outcomes[false] == 0 {
-		t.Fatalf("64 seeds at %d%% gave only one outcome: %v", base.dialogueChance(*c.Check), outcomes)
+		t.Fatalf("64 seeds at %d%% gave only one outcome: %v", base.dialogueChance(*o.Check), outcomes)
 	}
 }
 
 func TestDialogueOnceCheckHasNoSecondTry(t *testing.T) {
 	r := dialogueCustody(t, nil)
-	c := dialogueCheckedChoice(t, r)
-	if err := r.encounterCommand(&pb.PocLifeCommand{Action: "encounter_choice", Destination: c.ID}); err != nil {
+	o := dialogueCheckedOption(t, r)
+	if err := choose(r, o.ID); err != nil {
 		t.Fatal(err)
 	}
-	if r.encounterCommand(&pb.PocLifeCommand{Action: "encounter_choice", Destination: c.ID}) == nil {
+	if choose(r, o.ID) == nil {
 		t.Fatal("a once check was tried twice")
 	}
 	// the rule itself: a once check stays closed after its attempt even when the skill grows
 	s := dialogueSession{}
-	k := DialogueCheck{Skill: "speech", Difficulty: c.Check.Difficulty, Kind: "once"}
+	k := DialogueCheck{Skill: "speech", Difficulty: o.Check.Difficulty, Kind: "once"}
 	if open, locked := r.dialogueCheckOpen(&s, "q", k); !open || locked {
 		t.Fatal("an untried check is closed")
 	}
@@ -197,14 +273,23 @@ func TestDialogueOnceCheckHasNoSecondTry(t *testing.T) {
 	}
 	// a question with a once check: after its try it leaves the answers
 	r = dialogueCustody(t, nil)
-	e := r.world.CalendarEncounter
-	if len(e.Questions) == 0 {
-		t.Skip("no questions")
-	}
-	q := &e.Questions[0]
-	q.Check = &DialogueCheck{Skill: "speech", Difficulty: c.Check.Difficulty, Kind: "once"}
-	q.FailReply = q.Reply
-	if err := r.encounterCommand(&pb.PocLifeCommand{Action: "encounter_choice", Destination: q.ID}); err != nil {
+	q := custodyQuestions(t, r)[0]
+	editConversation(t, r, r.world.CalendarEncounter.Talk.Custody, func(d *conversationDef) {
+		for _, n := range d.Nodes {
+			for i := range n.Options {
+				if n.Options[i].ID == q.ID {
+					n.Options[i].Check = &DialogueCheck{Skill: "speech", Difficulty: o.Check.Difficulty, Kind: "once"}
+					n.Options[i].Fail = &struct {
+						Reply []convLine `json:"reply"`
+						Do    []memDo    `json:"do"`
+						Next  string     `json:"next,omitempty"`
+						Close string     `json:"close,omitempty"`
+					}{Reply: q.Reply}
+				}
+			}
+		}
+	})
+	if err := choose(r, q.ID); err != nil {
 		t.Fatal(err)
 	}
 	if dialogueOption(t, dialogueView(t, r, "ru"), q.ID) != nil {
@@ -214,62 +299,73 @@ func TestDialogueOnceCheckHasNoSecondTry(t *testing.T) {
 
 func TestDialogueRetryCheckLocksUntilTheSkillGrows(t *testing.T) {
 	r := dialogueCustody(t, nil)
-	e := r.world.CalendarEncounter
-	if len(e.Questions) == 0 {
-		t.Skip("no questions")
-	}
-	q := &e.Questions[0]
-	q.Check = &DialogueCheck{Skill: "speech", Difficulty: "hard", Kind: "retry"}
-	q.FailReply = []DialogueLine{{Speaker: e.Guard, Text: q.Reply[0].Text}}
 	if _, ok := r.world.DialogueRules.Chance["hard"]; !ok {
 		t.Skip("no hard difficulty")
 	}
-	dialogueSetSkill(r, "speech", 20)
-	chance := r.dialogueChance(*q.Check)
-	for seed := int64(1); ; seed++ {
-		if dialogueDie(r.state.Seed, seed, e.ID, q.ID, 1) >= chance {
-			r.state.CheckSeed = seed
-			break
+	e := r.world.CalendarEncounter
+	q := custodyQuestions(t, r)[0]
+	k := DialogueCheck{Skill: "speech", Difficulty: "hard", Kind: "retry"}
+	editConversation(t, r, e.Talk.Custody, func(d *conversationDef) {
+		for _, n := range d.Nodes {
+			for i := range n.Options {
+				if n.Options[i].ID == q.ID {
+					n.Options[i].Check = &k
+					n.Options[i].Fail = &struct {
+						Reply []convLine `json:"reply"`
+						Do    []memDo    `json:"do"`
+						Next  string     `json:"next,omitempty"`
+						Close string     `json:"close,omitempty"`
+					}{Reply: []convLine{{Speaker: e.Guard, Text: q.Reply[0].Text}}}
+				}
+			}
 		}
-	}
-	if err := r.encounterCommand(&pb.PocLifeCommand{Action: "encounter_choice", Destination: q.ID}); err != nil {
+	})
+	dialogueSetSkill(r, "speech", 20)
+	chance := r.dialogueChance(k)
+	r.state.CheckSeed = seedFor(r, custodyKey(r), q.ID, k, true)
+	if err := choose(r, q.ID); err != nil {
 		t.Fatal(err)
 	}
-	rec := r.state.CalendarEncounter.Talk.Checks[q.ID]
+	rec := custodyTalk(r).Checks[q.ID]
 	if rec.Success || rec.Attempts != 1 || rec.SkillAt != 20 {
 		t.Fatalf("not a first failed attempt: %+v", rec)
 	}
 	o := dialogueOption(t, dialogueView(t, r, "ru"), q.ID)
-	if o == nil || !o.Locked || o.Once || o.CheckLabel != r.dialogueCheckLabel("ru", *q.Check, chance, true) {
+	if o == nil || !o.Locked || o.Once || o.CheckLabel != r.dialogueCheckLabel("ru", k, chance, true) {
 		t.Fatalf("a failed retry check is not shown locked: %+v", o)
 	}
-	before, _ := json.Marshal(r.state.CalendarEncounter)
-	if r.encounterCommand(&pb.PocLifeCommand{Action: "encounter_choice", Destination: q.ID}) == nil {
+	before, _ := json.Marshal(r.state.Memory)
+	if choose(r, q.ID) == nil {
 		t.Fatal("a locked retry check was tried at the same skill")
 	}
-	if after, _ := json.Marshal(r.state.CalendarEncounter); string(before) != string(after) {
+	if after, _ := json.Marshal(r.state.Memory); string(before) != string(after) {
 		t.Fatal("a refused answer changed the conversation")
 	}
 	dialogueSetSkill(r, "speech", 21)
-	if o := dialogueOption(t, dialogueView(t, r, "en"), q.ID); o == nil || o.Locked || int(o.Chance) != r.dialogueChance(*q.Check) {
+	if o := dialogueOption(t, dialogueView(t, r, "en"), q.ID); o == nil || o.Locked || int(o.Chance) != r.dialogueChance(k) {
 		t.Fatalf("a grown skill did not open the check: %+v", o)
 	}
-	if err := r.encounterCommand(&pb.PocLifeCommand{Action: "encounter_choice", Destination: q.ID}); err != nil {
+	if err := choose(r, q.ID); err != nil {
 		t.Fatal(err)
 	}
-	rec = r.state.CalendarEncounter.Talk.Checks[q.ID]
-	if rec.Attempts != 2 || rec.SkillAt != 21 || rec.Success != (dialogueDie(r.state.Seed, r.state.CheckSeed, e.ID, q.ID, 2) < r.dialogueChance(*q.Check)) {
+	rec = custodyTalk(r).Checks[q.ID]
+	if rec.Attempts != 2 || rec.SkillAt != 21 || rec.Success != (dialogueDie(r.state.Seed, r.state.CheckSeed, custodyKey(r), q.ID, 2) < r.dialogueChance(k)) {
 		t.Fatalf("the second attempt is not its own roll: %+v", rec)
 	}
 }
 
 func TestDialogueInnerVoiceNeedsItsSkill(t *testing.T) {
-	probe := encounterFixture(t)
-	e := probe.world.CalendarEncounter
-	if len(e.Voices) == 0 {
-		t.Skip("no inner voice")
+	probe := dialogueCustody(t, nil)
+	var v convVoice
+	for _, voice := range custodyNode(t, probe).Voices {
+		if voice.When == nil && len(voice.Variants) == 0 {
+			v = voice
+			break
+		}
 	}
-	v := e.Voices[0]
+	if v.ID == "" {
+		t.Skip("no plain inner voice")
+	}
 	for _, skill := range []int{v.AtLeast, v.AtLeast - 1} {
 		if skill < 0 {
 			continue
@@ -277,9 +373,9 @@ func TestDialogueInnerVoiceNeedsItsSkill(t *testing.T) {
 		r := dialogueCustody(t, func(r *Runtime) { dialogueSetSkill(r, v.Skill, skill) })
 		found := false
 		for _, line := range dialogueView(t, r, "ru").Lines {
-			if line.Kind == "voice" && line.Skill == v.Skill {
+			if line.Kind == "voice" && line.Text == r.localText("ru", v.Text, "") {
 				name, colour := r.dialogueSkillTag("ru", v.Skill)
-				if line.Name != name || line.Colour != colour || line.Text != r.localText("ru", v.Text, "") {
+				if line.Name != name || line.Colour != colour {
 					t.Fatalf("voice shown as %+v", line)
 				}
 				found = true
@@ -293,14 +389,14 @@ func TestDialogueInnerVoiceNeedsItsSkill(t *testing.T) {
 
 func TestDialogueSaveAndLoadInTheMiddleOfTheConversation(t *testing.T) {
 	r := dialogueCustody(t, nil)
-	e := r.world.CalendarEncounter
-	for _, q := range e.Questions {
-		if err := r.encounterCommand(&pb.PocLifeCommand{Action: "encounter_choice", Destination: q.ID}); err != nil {
+	questions := custodyQuestions(t, r)
+	for _, q := range questions {
+		if err := choose(r, q.ID); err != nil {
 			t.Fatal(err)
 		}
 	}
 	view := dialogueView(t, r, "ru")
-	for _, q := range e.Questions {
+	for _, q := range questions {
 		if o := dialogueOption(t, view, q.ID); o == nil || !o.Seen {
 			t.Fatalf("an asked question is not dimmed: %+v", o)
 		}
@@ -313,8 +409,8 @@ func TestDialogueSaveAndLoadInTheMiddleOfTheConversation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(r.state.CalendarEncounter, loaded.CalendarEncounter) || loaded.CheckSeed != r.state.CheckSeed {
-		t.Fatal("the conversation or the game's check value changed in the save")
+	if !reflect.DeepEqual(r.state.CalendarEncounter, loaded.CalendarEncounter) || !reflect.DeepEqual(r.state.Memory, loaded.Memory) || loaded.CheckSeed != r.state.CheckSeed {
+		t.Fatal("the conversation, the memory or the game's check value changed in the save")
 	}
 	other := encounterFixture(t)
 	other.state = loaded
@@ -323,35 +419,44 @@ func TestDialogueSaveAndLoadInTheMiddleOfTheConversation(t *testing.T) {
 	if string(a) != string(b) {
 		t.Fatalf("the loaded conversation shows differently:\n%s\n%s", a, b)
 	}
-	if err := other.encounterCommand(&pb.PocLifeCommand{Action: "encounter_choice", Destination: e.Choices[0].ID}); err != nil {
+	if err := choose(other, r.world.CalendarEncounter.Choices[0].ID); err != nil {
 		t.Fatalf("the loaded conversation cannot go on: %v", err)
 	}
-	// a saved answer that no longer exists refuses the load, with the reason
-	r.state.CalendarEncounter.Talk.Chosen = append(r.state.CalendarEncounter.Talk.Chosen, "answer.removed")
+	// a saved answer that no longer exists: the load keeps the game and drops that talk (it starts again)
+	custodyTalk(r).Chosen = append(custodyTalk(r).Chosen, "answer_removed")
 	if err := r.writeSave(slot, r.snapshotState()); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := r.readSave(slot); err == nil || !strings.Contains(err.Error(), "answer.removed") {
-		t.Fatalf("a save with a removed answer loaded: %v", err)
+	loaded, _, err = r.readSave(slot)
+	if err != nil {
+		t.Fatalf("a save with a removed answer did not load: %v", err)
+	}
+	if loaded.Memory.Talks[custodyKey(r)] != nil || loaded.Memory.Open != "" {
+		t.Fatal("a talk naming a removed answer was kept")
 	}
 }
 
 func TestDialogueCustodyViewIsReadOnlyAndComplete(t *testing.T) {
 	r := dialogueCustody(t, nil)
-	e := r.world.CalendarEncounter
+	d := custodyConv(r)
+	entry := d.Entries[len(d.Entries)-1]
+	if custodyTalk(r).Entry != entry.ID {
+		t.Fatalf("a stranger's custody opened by %s, want the usual %s", custodyTalk(r).Entry, entry.ID)
+	}
 	before, _ := json.Marshal(r.snapshotState())
+	questions := custodyQuestions(t, r)
 	for _, locale := range []string{"ru", "en"} {
 		v := dialogueView(t, r, locale)
-		if v.Leave || v.SpeakerColour == "" || len(v.Lines) < len(e.Prompt) || len(v.Choices) < len(e.Questions)+1 {
+		if v.Leave || v.SpeakerColour == "" || len(v.Lines) < len(entry.Lines) || len(v.Choices) < len(questions)+1 {
 			t.Fatalf("%s: incomplete custody view: %+v", locale, v)
 		}
-		for i, l := range e.Prompt {
+		for i, l := range entry.Lines {
 			if v.Lines[i].Kind != "line" || v.Lines[i].Speaker != l.Speaker || v.Lines[i].Name == "" || v.Lines[i].Colour == "" || v.Lines[i].Text != r.localText(locale, l.Text, "") {
-				t.Fatalf("%s: prompt line %d shown as %+v", locale, i, v.Lines[i])
+				t.Fatalf("%s: opening line %d shown as %+v", locale, i, v.Lines[i])
 			}
 		}
-		for i, q := range e.Questions {
-			if v.Choices[i].Id != q.ID || v.Choices[i].Action != "encounter_choice" {
+		for i, q := range questions {
+			if v.Choices[i].Id != q.ID || v.Choices[i].Action != "conversation_choice" {
 				t.Fatalf("%s: questions come first: %+v", locale, v.Choices[i])
 			}
 		}
@@ -369,7 +474,8 @@ func TestDialogueNewGameDrawsItsOwnCheckValue(t *testing.T) {
 }
 
 // Every answer of the custody changes the world by its data: the outcome, the rating (refusing, the gate), the trust of
-// the person (the custody's cost; a heard lie costs more), and who leads him (a forced one goes under the guard).
+// the person (the custody's cost; a heard lie costs more), who leads him, and the facts its effects name (doc 103: a
+// fact per answer, with who knew it at once).
 func TestDialogueAnswersChangeTheWorldByTheirData(t *testing.T) {
 	probe := dialogueCustody(t, nil)
 	e := probe.world.CalendarEncounter
@@ -378,10 +484,13 @@ func TestDialogueAnswersChangeTheWorldByTheirData(t *testing.T) {
 		failed bool
 	}
 	cases := []answer{}
-	for _, c := range e.Choices {
-		cases = append(cases, answer{c.ID, false})
-		if c.Check != nil {
-			cases = append(cases, answer{c.ID, true})
+	for _, o := range custodyNode(t, probe).Options {
+		if o.Close == "" {
+			continue
+		}
+		cases = append(cases, answer{o.ID, false})
+		if o.Check != nil {
+			cases = append(cases, answer{o.ID, true})
 		}
 	}
 	for _, a := range cases {
@@ -391,27 +500,41 @@ func TestDialogueAnswersChangeTheWorldByTheirData(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			r := dialogueCustody(t, nil)
-			var c EncounterChoice
-			for _, choice := range e.Choices {
-				if choice.ID == a.id {
-					c = choice
+			var o convOption
+			for _, option := range custodyNode(t, r).Options {
+				if option.ID == a.id {
+					o = option
 				}
 			}
-			if c.RequiresContact {
-				r.state.CalendarEncounter.Met = true
-			}
-			if c.Check != nil {
-				chance := r.dialogueChance(*c.Check)
-				for seed := int64(1); ; seed++ {
-					if (dialogueDie(r.state.Seed, seed, e.ID, c.ID, 1) >= chance) == a.failed {
-						r.state.CheckSeed = seed
-						break
-					}
+			ctx, _ := r.talkOpenNow()
+			if !r.optionShown(ctx, o) {
+				// an answer for people who know each other: the acquaintance first
+				r.memoryWrite(r.encounterMetFact(), map[string]string{"how": "greeted"}, talkCtx{self: e.Actor})
+				if !r.optionShown(ctx, o) {
+					t.Skipf("answer %s is not offered here", o.ID)
 				}
+			}
+			c := encounterChoiceOf(r, o.Close)
+			if o.Check != nil {
+				r.state.CheckSeed = seedFor(r, custodyKey(r), o.ID, *o.Check, a.failed)
+			}
+			effects := o.Do
+			if a.failed {
+				effects = o.Fail.Do
+			}
+			want := map[string]bool{}
+			for _, d := range effects {
+				if d.Fact != "" && r.memoryHolds(ctx, d.When) {
+					want[d.Fact] = true
+				}
+			}
+			had := map[string]bool{}
+			for id := range r.state.Memory.Facts {
+				had[id] = true
 			}
 			rating := r.state.Crafting.Law.Trust
 			trust := r.state.Life.RelationTo(r.world.Life, e.Actor, playerActorID)
-			if err := r.encounterCommand(&pb.PocLifeCommand{Action: "encounter_choice", Destination: c.ID}); err != nil {
+			if err := choose(r, o.ID); err != nil {
 				t.Fatal(err)
 			}
 			s := r.state.CalendarEncounter
@@ -435,19 +558,69 @@ func TestDialogueAnswersChangeTheWorldByTheirData(t *testing.T) {
 			if got := r.state.Life.RelationTo(r.world.Life, e.Actor, playerActorID); got < max(-1, trust+cost)-1e-9 || got > max(-1, trust+cost)+1e-9 {
 				t.Fatalf("trust %.3f, want %.3f (before %.3f, cost %.3f)", got, max(-1, trust+cost), trust, cost)
 			}
-			// forced or refused: the guard leads him (alone after a refusal); willing walks, escape heads for the gate
 			if led := r.guardEscortTarget(e.Guard); (outcome == "forced" || outcome == "refuse") != (led == e.Actor) {
 				t.Fatalf("outcome %s: the guard leads %q", outcome, led)
 			}
 			if a.failed && cost >= e.Duty.TrustCost {
 				t.Fatal("a heard lie costs no more trust than the custody")
 			}
+			if len(want) == 0 {
+				t.Fatal("an answer of the custody writes no fact")
+			}
+			for fact := range want {
+				rec, ok := r.state.Memory.Facts[fact]
+				if !ok || rec.Count != 1 || rec.Second != r.state.Life.Seconds {
+					t.Fatalf("fact %s not written once now: %+v", fact, rec)
+				}
+				def := r.world.Memory.Facts[fact]
+				for _, who := range def.KnownBy {
+					if !r.memoryKnows(talkCtx{self: e.Actor}.person(who), fact) {
+						t.Fatalf("fact %s: %s should know it at once", fact, who)
+					}
+				}
+				if def.Visibility == "private" && len(rec.Witnesses) != len(def.KnownBy) {
+					t.Fatalf("private fact %s has witnesses %v", fact, rec.Witnesses)
+				}
+			}
+			for id := range r.state.Memory.Facts {
+				if !want[id] && !had[id] {
+					t.Fatalf("answer %s wrote fact %s, not in its data", o.ID, id)
+				}
+			}
 		})
+	}
+}
+
+// The timeout of the custody is the conversation's event: the guard's line, its facts, the forced outcome.
+func TestDialogueCustodyTimeoutWritesItsFacts(t *testing.T) {
+	r := dialogueCustody(t, nil)
+	e := r.world.CalendarEncounter
+	ev := custodyConv(r).Events["timeout"]
+	if ev == nil {
+		t.Skip("no timeout event")
+	}
+	r.state.CalendarEncounter.Assigned = r.state.Life.Seconds - e.Duty.TimeoutSeconds
+	r.calendarEncounterAfterFrame()
+	if s := r.state.CalendarEncounter; s.Choice != "timeout" || s.Outcome != "forced" {
+		t.Fatalf("the timeout did not force: %+v", s)
+	}
+	for _, d := range ev.Do {
+		if _, ok := r.state.Memory.Facts[d.Fact]; d.Fact != "" && !ok {
+			t.Fatalf("the timeout did not write %s", d.Fact)
+		}
+	}
+	lines := custodyTalk(r).Lines
+	if last := lines[len(lines)-1]; last.Text != ev.Lines[len(ev.Lines)-1].Text {
+		t.Fatalf("the timeout's line is %s", last.Text)
 	}
 }
 
 // A new game draws its own check value; a fixed one is taken only in a debug build (proofs).
 func TestDialogueNewGameCheckValue(t *testing.T) {
+	// the real draw for this test: a new game's own value
+	fixed := drawCheckSeed
+	drawCheckSeed = newCheckSeed
+	defer func() { drawCheckSeed = fixed }()
 	r, err := New(t.TempDir(), "token")
 	if err != nil {
 		t.Fatal(err)
@@ -496,21 +669,19 @@ func TestDialogueNewGameCheckValue(t *testing.T) {
 // Asking a plain question again writes nothing twice: its answer is already in the log.
 func TestDialogueAskingAgainWritesNothingTwice(t *testing.T) {
 	r := dialogueCustody(t, nil)
-	e := r.world.CalendarEncounter
-	if len(e.Questions) == 0 {
-		t.Skip("no questions")
-	}
-	q := e.Questions[0]
-	if err := r.encounterCommand(&pb.PocLifeCommand{Action: "encounter_choice", Destination: q.ID}); err != nil {
+	q := custodyQuestions(t, r)[0]
+	if err := choose(r, q.ID); err != nil {
 		t.Fatal(err)
 	}
-	lines := len(r.state.CalendarEncounter.Talk.Lines)
+	lines := len(custodyTalk(r).Lines)
+	facts, _ := json.Marshal(r.state.Memory.Facts)
 	for i := 0; i < 80; i++ {
-		if err := r.encounterCommand(&pb.PocLifeCommand{Action: "encounter_choice", Destination: q.ID}); err != nil {
+		if err := choose(r, q.ID); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if got := len(r.state.CalendarEncounter.Talk.Lines); got != lines {
-		t.Fatalf("asking again wrote %d more lines", got-lines)
+	again, _ := json.Marshal(r.state.Memory.Facts)
+	if got := len(custodyTalk(r).Lines); got != lines || string(facts) != string(again) {
+		t.Fatalf("asking again wrote %d more lines or changed the facts", got-lines)
 	}
 }

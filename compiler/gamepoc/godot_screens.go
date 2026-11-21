@@ -314,8 +314,10 @@ static func _read_%s(
 }
 
 // Host commands are presentation/lifecycle operations, deliberately closed. host.delete_save deletes the save the
-// action's row names (its slot id): the host sends it to the server, which answers with the new list.
-var screenHostCommands = map[string]bool{"host.close": true, "host.open": true, "host.back": true, "host.main": true, "host.quit": true, "host.setting": true, "host.toggle": true, "host.delete_save": true, "host.world": true}
+// action's row names (its slot id): the host sends it to the server, which answers with the new list. host.trade opens
+// the trade window of the person the row names (story memory: a conversation's «show me» answer) through the world
+// target that trades with him, as the world action on him would.
+var screenHostCommands = map[string]bool{"host.close": true, "host.open": true, "host.back": true, "host.main": true, "host.quit": true, "host.setting": true, "host.toggle": true, "host.delete_save": true, "host.world": true, "host.trade": true}
 
 // The verbs of host.world: the HUD's touches of the world, through the world targets the client already has (doc 09,
 // «Касание мира»): use = the peaceful action on the pointed or nearest target (E/X), talk = the nearest person's,
@@ -342,6 +344,8 @@ func (g *screenCompiler) action(a *ScreenAction, row, field string) error {
 			allowed["slot"] = "row string"
 		case "host.world":
 			allowed["verb"] = "verb"
+		case "host.trade":
+			allowed["actor"] = "row string"
 		}
 		for _, key := range sortedScreenKeys(a.Params) {
 			if _, ok := allowed[key]; !ok {

@@ -355,6 +355,12 @@ type Compiled struct {
 	// Conversation like Disco Elysium (owner 20.11, world.dialogue_rules): the chance table of skill checks, the colours
 	// and names of skills and castes in the log (dialogue.go); nil without it.
 	DialogueRules *DialogueRules `json:"dialogue_rules,omitempty"`
+	// Story memory (doc 103 step 1, world.memory and world.conversations; memory.go): facts, topics, interjections, who
+	// opens which conversation, and every conversation the one server executor runs. nil without them.
+	Memory        *Memory                  `json:"memory,omitempty"`
+	Conversations map[string]*Conversation `json:"conversations,omitempty"`
+	memoryLinks   *memoryLinks
+	linksPage     []byte
 	// Craft places of the hub islands (demo-hub v16-goods, world.market_goods); nil in worlds without them.
 	Craft *CraftCatalog `json:"craft,omitempty"`
 	// The sound of the hall (demo-hub v26-alive, world.soundscape); nil in worlds without it.
@@ -607,6 +613,9 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 		return out, nil, err
 	}
 	if out.DialogueRules, err = readDialogueRules(world); err != nil {
+		return out, nil, err
+	}
+	if out.Memory, out.Conversations, err = readMemory(world); err != nil {
 		return out, nil, err
 	}
 	if err = rejectUnrunDialogueFields(world); err != nil {
@@ -1210,6 +1219,10 @@ func generatePOC(project string, legacyUnity bool) error {
 		return err
 	}
 	phases.mark("emit: barks")
+	// story memory: the links of facts, topics and conversations (castes and bark lines come from the barks)
+	if err := checkMemory(&compiled); err != nil {
+		return err
+	}
 	if err := compileWounds(&compiled); err != nil {
 		return err
 	}
@@ -1328,6 +1341,10 @@ func generatePOC(project string, legacyUnity bool) error {
 	}
 	if len(compiled.barksReport) > 0 {
 		files[filepath.Join(project, "..", "design/barks/barks-report.md")] = compiled.barksReport
+	}
+	// the map of links of the conversations (doc 103 §6), generated
+	if len(compiled.linksPage) > 0 {
+		files[filepath.Join(project, "..", "design/dialogue/links.html")] = compiled.linksPage
 	}
 	if compiled.Wounds != nil {
 		woundFiles, err := wounds.Render(*compiled.Wounds)
@@ -1534,6 +1551,8 @@ func generatePOC(project string, legacyUnity bool) error {
 		"cart_parking_test.go.tmpl":             filepath.Join(project, "internal/poc/cart_parking_generated_test.go"),
 		"peddlers_test.go.tmpl":                 filepath.Join(project, "internal/poc/peddlers_generated_test.go"),
 		"calendar_encounter.go.tmpl":            filepath.Join(project, "internal/poc/calendar_encounter.gen.go"),
+		"conversation.go.tmpl":                  filepath.Join(project, "internal/poc/conversation.gen.go"),
+		"conversation_test.go.tmpl":             filepath.Join(project, "internal/poc/conversation_generated_test.go"),
 		"dialogue.go.tmpl":                      filepath.Join(project, "internal/poc/dialogue.gen.go"),
 		"dialogue_test.go.tmpl":                 filepath.Join(project, "internal/poc/dialogue_generated_test.go"),
 		"calendar_encounter_test.go.tmpl":       filepath.Join(project, "internal/poc/calendar_encounter_generated_test.go"),

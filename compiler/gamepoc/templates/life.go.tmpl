@@ -47,6 +47,7 @@ func (r *Runtime) initLifeState(life behavior.LifeState) {
 	r.initPeddlers()
 	r.initVisitors()
 	r.state.Busker = buskerState{}
+ r.state.Memory = memoryState{}
  r.initCalendarEncounter()
 	r.initCrafting()
 	r.initBarks()
@@ -136,6 +137,8 @@ func (r *Runtime) advanceLifeFrameBy(delta int64) error {
 	}
 	r.calendarEncounterBeforeFrame()
  r.calendarEncounterAfterFrame()
+ // story memory: topics from heard barks, the talk's life (conversation.go)
+ r.memoryAfterFrame()
  if err:=r.advanceCombatCare();err!=nil{return err}
  if err:=r.advanceMedicalCapsules();err!=nil{return err}
  if err:=r.advanceSanitaryServices();err!=nil{return err}
@@ -351,6 +354,7 @@ func (r *Runtime) sendLifeState(c *connection) {
 	r.appendStorefrontState(view, hero, msg.PlayerView)
 	r.appendVending(view, hero, msg.PlayerView, c.locale)
 	r.appendPeddlers(view, hero, msg.PlayerView, c.locale)
+	r.appendTalkTargets(view, hero, msg.PlayerView, c.locale)
 	r.appendVisitors(view, hero, msg.PlayerView)
  r.appendTurretWatch(view, hero, msg.PlayerView)
  r.appendAccessZones(view, hero, msg.PlayerView)
@@ -400,6 +404,8 @@ func (r *Runtime) sendLifeState(c *connection) {
 	r.send(c, &pb.ServerMessage{Msg: &pb.ServerMessage_GameState{GameState: msg}})
 }
 func (r *Runtime) lifeCommand(q *pb.PocLifeCommand) error {
+ // story memory: the column closed (Esc) always reaches the talk, before any guard — a held world must not stay frozen
+ if q.Action=="conversation_leave"{return r.conversationCommand(q)}
  if q.Action=="sanitary_request"||q.Action=="sanitary_cancel"{return r.sanitaryCommand(q)}
  if r.sanitaryReserved(playerActorID){return textError{Key:"sanitary.error.busy"}}
  if q.Action=="medical_request"||q.Action=="medical_accept"||q.Action=="medical_cancel"{return r.medicalCommand(q)}
@@ -421,7 +427,9 @@ func (r *Runtime) lifeCommand(q *pb.PocLifeCommand) error {
 	switch q.Action {
  case "hear_rumour":
   return r.hearRegionRumour(q.Destination)
- case "encounter_choice", "encounter_greet", "debug_next_morning": return r.encounterCommand(q)
+ case "debug_next_morning": return r.encounterCommand(q)
+ // story memory: open a talk with a person, answer in it (conversation.go); encounter_choice is the custody's old name
+ case "conversation_open", "conversation_choice", "encounter_choice": return r.conversationCommand(q)
  case "busker_choice": return r.buskerCommand(q)
  case "interact":return r.playableInteract(q.Destination)
  case "illumination_power_off","illumination_power_on":return r.illuminationCommand(q.Action,q.Destination)

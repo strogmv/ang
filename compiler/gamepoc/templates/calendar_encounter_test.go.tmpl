@@ -55,16 +55,16 @@ func TestCalendarEncounterDeterministicChoicesTraceAndPenalty(t *testing.T){
   h:=r.state.Life.Actor(playerActorID);h.Position.X+=2;h.Goal=h.Position;h.Body=nil;r.syncLifeHero()
   r.calendarEncounterAfterFrame();if r.state.CalendarEncounter.Phase!="conversation"{t.Fatalf("not assigned: %+v",r.state.CalendarEncounter)}
   before:=r.state.Crafting.Law.Trust
-  if choice=="known"{if r.encounterCommand(&pb.PocLifeCommand{Action:"encounter_choice",Destination:choice})==nil{t.Fatal("unsaved contact accepted")};r.state.CalendarEncounter.Met=true}
-  if err:=r.encounterCommand(&pb.PocLifeCommand{Action:"encounter_choice",Destination:choice});err!=nil{t.Fatal(err)}
+  if choice=="known"{if r.conversationCommand(&pb.PocLifeCommand{Action:"encounter_choice",Destination:choice})==nil{t.Fatal("unsaved contact accepted")};r.memoryWrite(r.encounterMetFact(),map[string]string{"how":"greeted"},talkCtx{self:e.Actor})}
+  if err:=r.conversationCommand(&pb.PocLifeCommand{Action:"encounter_choice",Destination:choice});err!=nil{t.Fatal(err)}
   if r.state.CalendarEncounter.Choice!=choice||len(r.state.CalendarEncounter.Log)<2{t.Fatal("private trace absent")}
   if choice=="refuse"&&r.state.Crafting.Law.Trust!=max(0,before-e.Duty.RatingPenalty){t.Fatal("refusal did not charge actual rating")}
-  if r.encounterCommand(&pb.PocLifeCommand{Action:"encounter_choice",Destination:choice})==nil{t.Fatal("choice replay accepted")}
-  slot:=r.world.Config.SaveSlots[0];if err:=r.writeSave(slot,r.snapshotState());err!=nil{t.Fatal(err)};loaded,_,err:=r.readSave(slot);if err!=nil{t.Fatal(err)};if !reflect.DeepEqual(r.state.CalendarEncounter,loaded.CalendarEncounter){t.Fatal("saved trace lost")}
+  if r.conversationCommand(&pb.PocLifeCommand{Action:"encounter_choice",Destination:choice})==nil{t.Fatal("choice replay accepted")}
+  slot:=r.world.Config.SaveSlots[0];if err:=r.writeSave(slot,r.snapshotState());err!=nil{t.Fatal(err)};loaded,_,err:=r.readSave(slot);if err!=nil{t.Fatal(err)};if !reflect.DeepEqual(r.state.CalendarEncounter,loaded.CalendarEncounter)||!reflect.DeepEqual(r.state.Memory,loaded.Memory){t.Fatal("saved trace lost")}
   r.state=loaded;encounterAdvanceTo(t,r,r.state.Life.Seconds+1800)
   if r.state.CalendarEncounter.Phase!="done"{data,_:=json.Marshal(r.state.Life.Actor(e.Actor));t.Fatalf("escort failed: %s",data)}
  })}
- t.Run("attack_guard",func(t *testing.T){r:=encounterFixture(t);r.state=base.snapshotState();e:=r.world.CalendarEncounter;peddlerPlace(t,r,playerActorID,inv.Cell{X:e.GuardAt.At.X+2,Y:e.GuardAt.At.Y});r.state.Life.Actor(playerActorID).Body=nil;r.calendarEncounterAfterFrame();if err:=r.combatCommand(&pb.PocCombatCommand{Action:"start",TargetId:e.Guard});err!=nil{t.Fatal(err)};if !r.heroInCombat()||r.state.Combat.Actor(e.Guard)==nil{t.Fatal("ordinary combat did not open")};found:=false;for _,x:=range r.state.CalendarEncounter.Log{found=found||x.Choice=="attack_guard"};if !found{t.Fatal("guard attack trace missing")}})
+ t.Run("attack_guard",func(t *testing.T){r:=encounterFixture(t);r.state=base.snapshotState();e:=r.world.CalendarEncounter;peddlerPlace(t,r,playerActorID,inv.Cell{X:e.GuardAt.At.X+2,Y:e.GuardAt.At.Y});r.state.Life.Actor(playerActorID).Body=nil;r.calendarEncounterAfterFrame();if err:=r.combatCommand(&pb.PocCombatCommand{Action:"start",TargetId:e.Guard});err!=nil{t.Fatal(err)};if !r.heroInCombat()||r.state.Combat.Actor(e.Guard)==nil{t.Fatal("ordinary combat did not open")};found:=false;for _,x:=range r.state.CalendarEncounter.Log{found=found||x.Choice=="attack_guard"};if !found{t.Fatal("guard attack trace missing")};if _,ok:=r.state.Memory.Facts[e.Facts.Fight];!ok{t.Fatal("a fight with the guard during the custody wrote no fact")}})
 }
 func TestCalendarEncounterDebugUsesKernelAndIsGated(t *testing.T){r:=encounterFixture(t);r.world.Config.DebugPerception=false;before:=r.snapshotState();if r.encounterCommand(&pb.PocLifeCommand{Action:"debug_next_morning"})==nil{t.Fatal("production accepted debug")};if !reflect.DeepEqual(before,r.snapshotState()){t.Fatal("rejected debug mutated world")};r.world.Config.DebugPerception=true;tick:=r.state.Tick;now:=r.state.Life.Seconds;if err:=r.encounterCommand(&pb.PocLifeCommand{Action:"debug_next_morning"});err!=nil{t.Fatal(err)};if r.state.Tick<=tick||r.state.Life.Seconds<=now{t.Fatal("debug did not advance ordinary frames")}}
 
@@ -72,8 +72,8 @@ func TestCalendarEncounterActualPurchasePersistsContact(t *testing.T){
  r:=encounterFixture(t);encounterAdvanceTo(t,r,r.world.CalendarEncounter.Morning+600);p:=peddlerNamed(t,r,"peddler.prokhor");peddlerOpenAt(t,r,p,0);peddlerHeroBeside(t,r,p,0)
  item:=peddlerFirstOnTray(r,p,"item.part.spring");if item.ID==""{t.Fatal("no spring")}
  if !inventoryRequest(t,r,peddlerRequest(r,"buy",item,p.Tray)){t.Fatal("ordinary purchase refused")}
- if !r.state.CalendarEncounter.Bought{t.Fatal("ordinary purchase did not establish persistent contact")}
- slot:=r.world.Config.SaveSlots[0];if err:=r.writeSave(slot,r.snapshotState());err!=nil{t.Fatal(err)};saved,_,err:=r.readSave(slot);if err!=nil{t.Fatal(err)};if !saved.CalendarEncounter.Bought{t.Fatal("purchase contact lost on load")}
+ met:=r.encounterMetFact();if rec,ok:=r.state.Memory.Facts[met];!ok||rec.Args["how"]!="bought"{t.Fatalf("ordinary purchase did not write the acquaintance: %+v",rec)}
+ slot:=r.world.Config.SaveSlots[0];if err:=r.writeSave(slot,r.snapshotState());err!=nil{t.Fatal(err)};saved,_,err:=r.readSave(slot);if err!=nil{t.Fatal(err)};if _,ok:=saved.Memory.Facts[met];!ok{t.Fatal("purchase contact lost on load")}
 }
 
 func TestCalendarEncounterActualGreetingPersistsContact(t *testing.T){
@@ -81,8 +81,10 @@ func TestCalendarEncounterActualGreetingPersistsContact(t *testing.T){
  for r.state.CalendarEncounter.Phase!="selling"&&r.state.Life.Seconds<e.Morning+7200{encounterAdvanceTo(t,r,r.state.Life.Seconds+30)}
  if r.state.CalendarEncounter.Phase!="selling"{t.Fatal("peddler never opened in the morning")}
  peddlerPlace(t,r,playerActorID,inv.Cell{X:e.Meet.At.X+1,Y:e.Meet.At.Y});r.state.Life.Actor(playerActorID).Body=nil
- if err:=r.encounterCommand(&pb.PocLifeCommand{Action:"encounter_greet"});err!=nil{t.Fatal(err)}
- slot:=r.world.Config.SaveSlots[0];if err:=r.writeSave(slot,r.snapshotState());err!=nil{t.Fatal(err)};saved,_,err:=r.readSave(slot);if err!=nil{t.Fatal(err)};if !saved.CalendarEncounter.Met{t.Fatal("greeting contact lost on load")}
+ // the first meeting: the sack talk opens by itself; the quiet greeting writes the acquaintance
+ r.calendarEncounterAfterFrame();if r.state.Memory.Open!=talkKey(e.Talk.Sack,e.Actor){t.Fatalf("the first meeting did not open the sack talk: %q",r.state.Memory.Open)}
+ if err:=r.conversationCommand(&pb.PocLifeCommand{Action:"conversation_choice",Destination:"greet"});err!=nil{t.Fatal(err)}
+ slot:=r.world.Config.SaveSlots[0];if err:=r.writeSave(slot,r.snapshotState());err!=nil{t.Fatal(err)};saved,_,err:=r.readSave(slot);if err!=nil{t.Fatal(err)};if rec,ok:=saved.Memory.Facts[r.encounterMetFact()];!ok||rec.Args["how"]!="greeted"{t.Fatal("greeting contact lost on load")}
 }
 
 func TestConversationScreenProjectionIsReadOnlyAndTyped(t *testing.T) {
@@ -90,10 +92,11 @@ func TestConversationScreenProjectionIsReadOnlyAndTyped(t *testing.T) {
  encounterAdvanceTo(t,r,e.Morning)
  for r.state.CalendarEncounter.Phase!="selling"&&r.state.Life.Seconds<e.Morning+7200{encounterAdvanceTo(t,r,r.state.Life.Seconds+30)}
  peddlerPlace(t,r,playerActorID,inv.Cell{X:e.Meet.At.X+1,Y:e.Meet.At.Y});r.state.Life.Actor(playerActorID).Body=nil
+ r.calendarEncounterAfterFrame()
  before,_:=json.Marshal(r.snapshotState())
  for _,locale:=range []string{"ru","en"}{
   msg:=&pb.PocGameState{};r.appendConversation(msg,locale);v:=msg.Conversation
-  if v==nil||v.SpeakerName==""||strings.HasPrefix(v.SpeakerName,"actor.")||v.Skin==""||v.Text==""||len(v.Choices)!=1||v.Choices[0].Action!="encounter_greet"{t.Fatalf("incomplete %s conversation: %+v",locale,v)}
+  if v==nil||v.SpeakerName==""||strings.HasPrefix(v.SpeakerName,"actor.")||v.Skin==""||v.Text==""||len(v.Choices)<2||v.Choices[0].Action!="conversation_choice"||v.Choices[0].Id!="greet"{t.Fatalf("incomplete %s conversation: %+v",locale,v)}
  }
  after,_:=json.Marshal(r.snapshotState());if string(before)!=string(after){t.Fatal("screen projection changed game rules/state")}
 }
@@ -117,7 +120,7 @@ func TestCalendarEncounterQuietPoseUsesCopperBark(t *testing.T){r:=encounterFixt
  if len(view.Barks)!=1||view.Barks[0].Caste!="copper"||view.Barks[0].Face!="chalk"||view.Barks[0].Text==""||a.Speech!=view.Barks[0].Text||view.Barks[0].UntilNs<=view.Barks[0].StartedNs{t.Fatal("authored quiet speech was not projected with its caste and clock")}
  peddlerPlace(t,r,playerActorID,inv.Cell{X:e.Meet.At.X+20,Y:e.Meet.At.Y});view=&pb.PocLifeView{};r.appendEncounterBark(view,msg,r.state.Life.Actor(playerActorID),"ru");if len(view.Barks)!=0{t.Fatal("quiet speech heard across the hall")}
 }
-func TestCalendarEncounterUnavailableGuardCannotCommand(t *testing.T){r:=encounterFixture(t);e:=r.world.CalendarEncounter;peddlerPlace(t,r,e.Guard,inv.Cell{X:e.GuardAt.At.X,Y:e.GuardAt.At.Y});peddlerPlace(t,r,playerActorID,inv.Cell{X:e.GuardAt.At.X+2,Y:e.GuardAt.At.Y});r.state.CalendarEncounter.Phase="conversation";r.state.Life.Actor(e.Guard).CombatHold=true;msg:=&pb.PocGameState{};r.appendConversation(msg,"ru");if msg.Conversation!=nil{t.Fatal("unavailable guard speaks")};if r.encounterCommand(&pb.PocLifeCommand{Action:"encounter_choice",Destination:"kind"})==nil{t.Fatal("unavailable guard accepted an assignment outcome")}}
+func TestCalendarEncounterUnavailableGuardCannotCommand(t *testing.T){r:=encounterFixture(t);e:=r.world.CalendarEncounter;peddlerPlace(t,r,e.Guard,inv.Cell{X:e.GuardAt.At.X,Y:e.GuardAt.At.Y});peddlerPlace(t,r,playerActorID,inv.Cell{X:e.GuardAt.At.X+2,Y:e.GuardAt.At.Y});r.state.CalendarEncounter.Phase="conversation";r.calendarEncounterAfterFrame();r.state.Life.Actor(e.Guard).CombatHold=true;msg:=&pb.PocGameState{};r.appendConversation(msg,"ru");if msg.Conversation!=nil{t.Fatal("unavailable guard speaks")};if r.conversationCommand(&pb.PocLifeCommand{Action:"encounter_choice",Destination:"kind"})==nil{t.Fatal("unavailable guard accepted an assignment outcome")}}
 
 func TestCalendarEncounterDebugResumesAfterBufferedOldWakeup(t *testing.T){r:=encounterFixture(t);r.world.Config.DebugPerception=true;if err:=r.encounterCommand(&pb.PocLifeCommand{Action:"debug_next_morning"});err!=nil{t.Fatal(err)};boundary:=r.lastAdvance;if boundary.IsZero(){t.Fatal("debug command did not establish its host-time boundary")};tick:=r.state.Tick;r.advance(boundary.Add(-time.Second));if !r.lastAdvance.Equal(boundary)||r.state.Paused||r.state.Tick!=tick{t.Fatal("buffered old wakeup rewound the host clock")};r.advance(boundary.Add(100*time.Millisecond));if r.state.Paused||r.state.Tick<=tick{t.Fatal("ordinary world did not continue after debug")}}
 

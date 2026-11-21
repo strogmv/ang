@@ -155,6 +155,10 @@ func migrateCheckSeed(s *state) {
 	s.CheckSeed = 1 + int64(h.Sum64()>>2)
 }
 
+// drawCheckSeed draws a new game's check value. A game is newCheckSeed's; the package's tests fix it (dialogue tests'
+// init), so two fresh worlds a test builds are the same world.
+var drawCheckSeed = newCheckSeed
+
 // newCheckSeed: a new game's own value for its conversation checks, drawn once like the game's epoch (crypto/rand, not
 // the simulation's random streams); never 0, which asks for a new one.
 func newCheckSeed() int64 {
