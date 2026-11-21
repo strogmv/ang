@@ -393,6 +393,9 @@ type Compiled struct {
 	// Combat pace (combat_pace.go, owner 20.11): how the client plays one turn-based fight, turn-based or fast
 	// turn-based; presentation only, never in the server's world, so no pace can change an outcome.
 	CombatPace *CombatPace `json:"-"`
+	// Combat look (combat_look.go, world.combat_look): how the Godot client draws a fight — clips, props, contact
+	// points, reactions, sounds; presentation only, never in the server's world.
+	CombatLook json.RawMessage `json:"-"`
 	// Crafting stage 1 (doc 93, world.crafting): the engine catalog completed from the compiled world; nil without it.
 	Crafting *craftingRuntime.Model `json:"crafting,omitempty"`
 	// Barks (doc 94, world.barks): the compiled catalog of the lines over the head (internal/barks/catalog.json); a world
@@ -679,6 +682,9 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 		return out, nil, err
 	}
 	if out.CombatPace, err = readCombatPace(world); err != nil {
+		return out, nil, err
+	}
+	if out.CombatLook, err = readCombatLook(world); err != nil {
 		return out, nil, err
 	}
 	if out.Hud, err = readChipHud(world); err != nil {
@@ -1209,6 +1215,10 @@ func generatePOC(project string, legacyUnity bool) error {
 	phases.mark("read: api CUE, normalize")
 	compiled.ViewDelivery = def.ViewSubscription != ""
 	compiled.WebSocket = def.WebSocket
+	// every take the fight's look names is on disk where its family's folder says (the game root is the server's parent)
+	if err := checkCombatLookTakes(filepath.Dir(filepath.Clean(project)), compiled.CombatLook); err != nil {
+		return err
+	}
 	if err := writeGodotScreens(project, compiled, def); err != nil {
 		return err
 	}

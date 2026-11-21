@@ -35,10 +35,13 @@ func (r *Runtime) appendCombatPanel(msg *pb.PocGameState, locale string) {
 			if item, _, ok := r.equippedCombatItem(r.state.Inventory, a.Id); ok {
 				a.HeldItem = item.Definition
 			}
-			// A lying body keeps the pose of its fall after the encounter is history (and after a load).
-			if c, ok := r.state.CombatRoster[a.Id]; ok && c.Prone {
-				a.FallStyle, a.FallDx, a.FallDy = c.FallStyle, int32(c.FallDirection.X), int32(c.FallDirection.Y)
-			}
+		}
+	}
+	// A lying body keeps the pose of its fall after the encounter is history (and after a load), in the ordinary world
+	// too: a look-up per seen body, no inventory pass.
+	for _, a := range msg.SceneAgents {
+		if c, ok := r.state.CombatRoster[a.Id]; ok && c.Prone {
+			a.FallStyle, a.FallDx, a.FallDy = c.FallStyle, int32(c.FallDirection.X), int32(c.FallDirection.Y)
 		}
 	}
 	view := msg.Combat

@@ -1596,7 +1596,8 @@ func (s *CombatState) Execute(space CombatSpace, r CombatRules, actorID string, 
 			s.event(e)
 		case "stand":
    if a.Prone{e.Mode="get_up"}
-   a.FallShifted=false
+   // up again: the fall is over (its style and direction drew the body lying; a later prone is his own choice)
+   a.FallShifted=false;a.FallStyle="";a.FallDirection=Cell{}
 			a.Prone = false
 			a.Crouched = false
 			s.event(e)

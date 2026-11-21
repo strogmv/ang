@@ -193,6 +193,10 @@ func clientResource(c Compiled) ([]byte, error) {
 	if c.CombatPace != nil {
 		view["combat_pace"] = c.CombatPace
 	}
+	// Combat look (moment 1 in Godot): how each blow is drawn; the server never reads it either.
+	if len(c.CombatLook) > 0 {
+		view["combat_look"] = c.CombatLook
+	}
 	// The sound of the hall (demo-hub v26-alive) only in worlds that have it.
 	if c.Soundscape != nil {
 		// JsonUtility reads no maps: the clip table goes as a list of key + files

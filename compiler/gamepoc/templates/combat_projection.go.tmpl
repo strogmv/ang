@@ -20,7 +20,9 @@ func(r *Runtime)capturePublicCombatEventsFrom(previous behavior.CombatState){
   // Apply the path's steps and stance changes in event order. Coming around
   // the corner later in this SAME command does not reveal an earlier attacker.
   if p,ok:=poses[raw.ActorID];ok{
-   switch raw.Type{case "move","move_stop","roll","fall_shift":p.Position=raw.To;case "prone":p.Prone=true;p.Crouched=false;case "crouch":p.Crouched=true;p.Prone=false;case "stand":p.Prone=false;p.Crouched=false}
+   switch raw.Type{case "move","move_stop","roll","fall_shift":p.Position=raw.To;case "prone":p.Prone=true;p.Crouched=false;case "crouch":p.Crouched=true;p.Prone=false;case "stand":p.Prone=false;p.Crouched=false
+   // the weapon readied in this command is in the hand from its event on (the event names the carried item)
+   case "equip":if it,ok:=r.state.Inventory.Items[raw.ItemID];ok{if w,known:=r.world.CombatRuntime.Weapons[it.Definition];known{p.Weapon=w}}}
    poses[p.ID]=p;if p.ID==playerActorID{observer=p}
   }
   if raw.Type=="down"||raw.Type=="dead"||raw.Type=="fall"{if p,ok:=poses[raw.TargetID];ok{p.Prone=true;p.Crouched=false;poses[p.ID]=p}}
@@ -30,6 +32,12 @@ func(r *Runtime)capturePublicCombatEventsFrom(previous behavior.CombatState){
   if raw.Type=="blast_hit"&&raw.TargetID!=playerActorID&&!seenTo{continue}
   if raw.ActorID!=playerActorID&&raw.TargetID!=playerActorID&&!seenFrom&&!seenTo{continue}
   event:=raw;event.Reason="";event.AmmoSpent=0;event.MedkitsSpent=0;event.WeaponUses=0;event.ItemsSpent=0;event.ArmorBlocked=0
+  // the weapon a blow is struck with is seen with the blow (the client draws the blow with it; the fight's state is
+  // unchanged): the one in the striker's hand at the blow's moment (his pose of this event), not after the command
+  if (raw.Type=="attack"||raw.Type=="reaction")&&event.ItemID==""{
+   weapon:="";if p,ok:=poses[raw.ActorID];ok{weapon=p.Weapon.ID}else if a:=r.state.Combat.Actor(raw.ActorID);a!=nil{weapon=a.Weapon.ID}
+   if weapon!=""{event.ItemID=weapon}
+  }
   if event.ActorID!=playerActorID&&!seenFrom{event.ActorID="";event.From=behavior.Cell{X:-1,Y:-1};event.ItemID=""}
   if event.TargetID!=playerActorID&&!seenTo{event.TargetID="";event.To=behavior.Cell{X:-1,Y:-1};event.Amount=0;event.Hit=false;event.BodyPart="";if event.Type=="wound"{event.Mode=""}}
   if event.TargetID!=playerActorID {switch event.Type{case "wound","condition","blocked","down","dead","weak","confused","care_done","stopped":event.ItemID=""}}

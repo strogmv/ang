@@ -27,6 +27,65 @@ type CombatPace struct {
 	CameraLagS   float64            `json:"camera_lag_s"`
 	CameraSettle float64            `json:"camera_settle_s"`
 	AfterFight   string             `json:"after_fight"`
+	Blow         CombatBlow         `json:"blow"`
+}
+
+// CombatBlow: which published events the client shows as one blow (moment 1 in Godot). The server publishes a blow's
+// consequences before the blow (the parry first, the wound and the fall while it resolves, the attack last), so a
+// strike gathers the events just before it about its target: his parry of this striker and his consequences. Every
+// name is a real event type; a body that is out, his fall strip and his wound are consequences; a strike never is.
+type CombatBlow struct {
+	Strikes      []string `json:"strikes"`
+	Consequences []string `json:"consequences"`
+	Parry        string   `json:"parry"`
+	Down         []string `json:"down"`
+	FallShift    string   `json:"fall_shift"`
+	Wound        string   `json:"wound"`
+}
+
+func (b CombatBlow) validate() error {
+	if len(b.Strikes) == 0 || len(b.Consequences) == 0 || len(b.Down) == 0 {
+		return fmt.Errorf("blow: strikes, consequences and down are required")
+	}
+	of := map[string]bool{}
+	for _, c := range b.Consequences {
+		of[c] = true
+	}
+	all := append(append(append([]string{}, b.Strikes...), b.Consequences...), b.Parry, b.FallShift, b.Wound)
+	for _, t := range append(all, b.Down...) {
+		if !combatEventTypes[t] {
+			return fmt.Errorf("blow: %q is no combat event", t)
+		}
+	}
+	for _, s := range b.Strikes {
+		if !combatStrikeEvents[s] {
+			return fmt.Errorf("blow: strike %q is not an event of a blow struck (%v)", s, sortedKeys(combatStrikeEvents))
+		}
+		if s == b.Parry {
+			return fmt.Errorf("blow: the parry %q is a strike", s)
+		}
+	}
+	for _, c := range b.Consequences {
+		if combatOwnActions[c] {
+			return fmt.Errorf("blow: %q is a fighter's own action, not a consequence of another's blow", c)
+		}
+	}
+	for _, s := range append(append([]string{}, b.Strikes...), b.Parry) {
+		if of[s] {
+			return fmt.Errorf("blow: %q is both a strike (or the parry) and a consequence", s)
+		}
+	}
+	down := map[string]bool{}
+	for _, d := range b.Down {
+		if !of[d] {
+			return fmt.Errorf("blow: down %q is not a consequence", d)
+		}
+		down[d] = true
+	}
+	if !down[b.FallShift] || !of[b.Wound] {
+		return fmt.Errorf("blow: fall_shift must be one of down and wound a consequence")
+	}
+	return nil
 }
 
 // CombatPaceMode: Move "walk" (cell by cell with the walk clip at WalkMPS) or "slide" (an actor's run of steps as one
@@ -49,8 +108,24 @@ var combatPaceModes = []string{"turn_based", "fast_turn_based"}
 // TestCombatEventTypesCoverTheServer scans the sources, so a new event type cannot slip past this list.
 var combatEventTypes = map[string]bool{}
 
+// combatStrikeEvents: the events of a blow struck (behavior combat's fireImpact publishes no other); the blow of the
+// client's playback is one of them. TestCombatStrikeEventsAreTheBlowsOfTheServer keeps it to the template.
+var combatStrikeEvents = map[string]bool{"attack": true, "reaction": true}
+
+// combatOwnActions: events a fighter publishes of his own choice (his action, behavior combat's ApplyAction): never a
+// consequence of another's blow. "surrender" is not here: the wound runtime publishes it when a wound breaks a man.
+var combatOwnActions = map[string]bool{}
+
 func init() {
-	for _, t := range []string{"aid", "aid_continue", "aid_failed", "care_start", "healed", "journal", "limb_lost", "wake", "assault", "attack", "bandage", "blast_hit", "blocked", "care_done",
+	for _, t := range []string{"move", "move_stop", "roll", "equip", "reload", "crouch", "prone", "stand", "guard", "overwatch",
+		"stop_pursuit", "disengage", "end", "report", "aid", "aid_continue", "bandage", "heal", "hold", "hold_break", "throw"} {
+		combatOwnActions[t] = true
+	}
+}
+
+func init() {
+	// "assault" is an action, never an event: its blow is published as "attack"
+	for _, t := range []string{"aid", "aid_continue", "aid_failed", "care_start", "healed", "journal", "limb_lost", "wake", "attack", "bandage", "blast_hit", "blocked", "care_done",
 		"ceasefire", "chip_alarm", "condition", "confused", "crouch", "dead", "disengage", "down", "end", "equip",
 		"explosion", "fall", "fall_shift", "fight_on", "flee", "guard", "heal", "hold", "hold_break", "invalid", "move",
 		"move_stop", "overwatch", "parry", "prone", "pursuit_end", "reaction", "reload", "report", "roll", "stand",
@@ -156,6 +231,9 @@ func (p CombatPace) validate() error {
 	}
 	if _, walked := p.Beats["move"]; walked {
 		return fmt.Errorf("beats: a move is walked or slid by its mode, never a beat")
+	}
+	if err := p.Blow.validate(); err != nil {
+		return err
 	}
 	if p.BeatDefaultS < 0 || p.BeatDefaultS > 2 || p.HandoverS <= 0 || p.HandoverS > 0.3 || p.CameraLagS < 0 || p.CameraLagS > 0.5 ||
 		p.CameraSettle < 0 || p.CameraSettle > 3 {

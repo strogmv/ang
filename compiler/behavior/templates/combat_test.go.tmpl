@@ -1429,6 +1429,15 @@ func TestCombatV4RollFullStripCostRiskAndWoundRefusal(t *testing.T){
  r.RollForbiddenEffects=[]string{"limp"};s.Actor("a").BodyEffects=[]string{"limp"};before:=s.Clone();if s.Execute(space,r,"a",CombatAction{Type:"roll",To:start})==nil||!reflect.DeepEqual(before,s){t.Fatal("injured roll accepted or changed state")}
 }
 
+// A body knocked down and up again carries no fall: the client draws a later prone of his own choice as a stance, not
+// as the knock-down (moment 1 in Godot, review N9).
+func TestCombatStandEndsTheFall(t *testing.T){
+ r,space,s:=combatV4Fixture(t);a:=s.Actor("a");a.Body=json.RawMessage(`[]`);a.BodyCanStand=true;a.BodyCanWalk=true;a.BodyCanHold=true;a.AP=r.APPerTurn
+ a.Prone=true;a.FallShifted=true;a.FallStyle="back";a.FallDirection=Cell{1,0}
+ combatDo(t,&s,space,r,"a",CombatAction{Type:"stand"})
+ if b:=s.Actor("a");b.Prone||b.FallShifted||b.FallStyle!=""||b.FallDirection!=(Cell{}){t.Fatalf("standing up kept the fall: %+v",*b)}
+}
+
 func TestCombatV4NPCDoesNotPlanUnaffordableOrWoundForbiddenStand(t *testing.T){
  r,space,s:=combatV4Fixture(t);a:=s.Actor("a");a.Body=json.RawMessage(`[]`);a.Prone=true;a.BodyCanStand=false;a.BodyCanWalk=false;a.BodyCanHold=true;r.GetUpAP=3
  for _,c:=range s.Decide(space,r).Candidates{if c.Action.Type=="stand"{t.Fatal("fractured body planned a forbidden stand")}}

@@ -4,6 +4,8 @@ package poc
 import (
 	"angelsdemons/server/internal/behavior"
  "angelsdemons/server/internal/wounds"
+	pb "angelsdemons/server/internal/transport/grpc/pb/game/v1"
+	inv "angelsdemons/server/internal/inventory"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -479,4 +481,249 @@ func TestCombatMoment1Probes(t *testing.T){
   if !found{t.Errorf("no real %s strike in 5000 seeds",c.Name)}
  }
  raw,_:=json.MarshalIndent(index,"","  ");if err:=os.WriteFile(filepath.Join(*combatM1Report,"index.json"),raw,0644);err!=nil{t.Fatal(err)}
+}
+
+// Moment 1 in Godot: the blow that ends a fight and the fall it causes reach the client with the finished view (the
+// combat panel republishes the encounter's public events once it is over). The server resolves the last blow and closes
+// the encounter in one command; the client draws only what it is sent.
+func TestCombatFinalBlowReachesTheClient(t *testing.T){
+ r,cc,scene:=combatEpisodeFixture(t,"combat_knife","ru");combatEpisodeEngage(t,r,cc,scene)
+ if hero:=r.state.Combat.Actor(playerActorID);hero.Weapon.ID=="unarmed"{for _,gear:=range r.combatEquipmentOptions(playerActorID){if gear.Weapon.ID=="item.knife_simple"{act:=behavior.CombatAction{Type:"equip",ItemID:gear.ID};if err:=r.performCombatAction(playerActorID,&act);err!=nil{t.Fatal(err)};break}}}
+ actors:=[]behavior.Combatant{r.combatant(playerActorID,"player"),r.combatant(scene.Guard,"opposition")};actors[0].Position=behavior.Cell{X:21,Y:11};actors[1].Position=behavior.Cell{X:20,Y:12}
+ for i:=range actors{b:=combatWounds.NewBody(actors[i].ID,r.bodyChip(actors[i].ID));projectWoundBody(&actors[i],b);actors[i].FightResponse="";actors[i].Surrendered=false;actors[i].Withdrawn=false;actors[i].Prone=false;actors[i].Crouched=false;actors[i].Suppression=0}
+ proposed:=behavior.CombatState{LevelID:scene.Level,Actors:actors};s,err:=behavior.NewCombat("encounter.final.blow",scene.Level,1,actors,r.world.CombatRuntime.Rules,r.combatSpace(proposed));if err!=nil{t.Fatal(err)}
+ r.state.Combat=s;r.state.CombatPublicEvents=nil;r.state.CombatPublicSeq=0;r.state.CombatPublicSerial=0;r.state.CombatLifeSync=combatLifeSync{};r.combatLifeStarted(scene.Guard,playerActorID);r.syncCombatLife()
+ initial:=r.snapshotState()
+ for seed:=int64(1);seed<=300;seed++{
+  r.state=initial;r.state=r.snapshotState();r.state.Seed=seed;r.state.Combat.Seed=seed
+  before:=&pb.PocGameState{};r.appendCombat(before);r.appendCombatPanel(before,"ru")
+  if before.Combat==nil||!before.Combat.Active{t.Fatal("the probe fight is not running before the blow")}
+  seen:=uint64(0);for _,e:=range before.Combat.Events{if e.Sequence>seen{seen=e.Sequence}}
+  action:=behavior.CombatAction{Type:"attack",TargetID:scene.Guard,Mode:"heavy",BodyPart:"chest"}
+  if err:=r.performCombatAction(playerActorID,&action);err!=nil{t.Fatal(err)}
+  if r.state.Combat.Active{continue}
+  fell:=false;for _,e:=range r.state.Combat.Events{if e.Type=="fall_shift"&&e.ActorID==scene.Guard{fell=true}}
+  if !fell{continue}
+  after:=&pb.PocGameState{};r.appendCombat(after);r.appendCombatPanel(after,"ru")
+  if after.Combat==nil||after.Combat.Active{t.Fatal("the finished fight has no finished view")}
+  blow,fall:=false,false
+  for _,e:=range after.Combat.Events{
+   if e.Sequence<=seen{continue}
+   if e.Type=="attack"&&e.ActorId==playerActorID&&e.TargetId==scene.Guard&&e.Hit&&e.BodyPart!=""{blow=true
+    if e.ItemId!="item.knife_simple"{t.Fatalf("the blow does not name the knife it was struck with: %q",e.ItemId)}}
+   if (e.Type=="fall_shift"||e.Type=="fall"||e.Type=="down")&&e.ActorId==scene.Guard{fall=true}
+  }
+  if !blow||!fall{t.Fatalf("seed %d: the finished view lost the last blow (%v) or the fall (%v): %v",seed,blow,fall,after.Combat.Events)}
+  return
+ }
+ t.Fatal("no seed of 300 ends the probe fight with one blow and a fall")
+}
+
+// Moment 1 in Godot: the same probes on the ordinary market (the game's own lit level and people), one real save and
+// seed per outcome. The hero stands a diagonal cell from a resident on open floor; his own knife from the backpack is
+// equipped in the fight (a paid action). For the resident's blows the hero's knife is handed to him through an ordinary
+// inventory move before the fight (a test arrangement, saved with the state, like the episodes' stock).
+var combatM1Market = flag.String("combat-m1-market", "", "write real market saves for each outcome of the knife strike (moment 1 in Godot)")
+
+func knifeMarketFixture(t *testing.T) (*Runtime, *connection, string) {
+ return knifeFixture(t, "char.roommate_senya")
+}
+
+// The resident's blows need one who fights back: the guard at the silver lift of the transport hub (the only person of
+// the ordinary world with the guard's combat profile). He and the hero are put on the open floor of his level a few
+// cells from his post, outside the silver zone (inside it the turrets would join the fight).
+func knifeGuardFixture(t *testing.T) (*Runtime, *connection, string) {
+ r, c, id := knifeFixture(t, "char.poc_hub_guard")
+ guard := r.state.Life.Actor(id)
+ hero := r.state.Life.Actor(playerActorID)
+ model := r.state.Life.GateModel(r.world.Life)
+ unit := int64(r.world.Life.Locations[guard.Level].CellMM)
+ if unit < 1 { unit = 500 }
+ inZone := func(at behavior.Cell) bool {
+  for _, z := range r.world.AccessZones { if z.LevelID == guard.Level && accessZoneInside(z, int64(at.X)*unit+unit/2, int64(at.Y)*unit+unit/2) { return true } }
+  return false
+ }
+ post := guard.Position
+ for _, dx := range []int{8, 10, 6, 12, 14} {
+  for _, dy := range []int{0, 2, -2, 4, -4} {
+   at := behavior.Cell{X: post.X + dx, Y: post.Y + dy}
+   beside := behavior.Cell{X: at.X - 1, Y: at.Y + 1}
+   space := model.Space(guard.Level, r.state.Life.BlockedCells(guard.Level, hero.ID))
+   ok := func(p behavior.Cell) bool { return p.X >= 0 && p.Y >= 0 && p.X < space.Width && p.Y < space.Height && space.Walkable(p) && !space.Blocked[p] && !inZone(p) }
+   if !ok(at) || !ok(beside) { continue }
+   guard.Position, guard.Goal = at, at
+   guard.Path, guard.PendingPath, guard.Body = nil, nil, nil
+   guard.MoveStartTick = r.lifeMotionTick()
+   hero.Position, hero.Goal = beside, beside
+   hero.Path, hero.PendingPath, hero.Body = nil, nil, nil
+   r.state.Life.EnsureHeroBody(model)
+   r.syncLifeHero()
+   r.updateLifeExploration()
+   return r, c, id
+  }
+ }
+ t.Skip("no open floor beside the guard's post outside the silver zone")
+ return nil, nil, ""
+}
+
+func knifeFixture(t *testing.T, opponent string) (*Runtime, *connection, string) {
+ t.Helper()
+ r, err := New(t.TempDir(), "token")
+ if err != nil { t.Fatal(err) }
+ c := &connection{locale: "ru", out: make(chan *pb.ServerMessage, 4096), stop: make(chan struct{})}
+ r.command(input{client: c, msg: &pb.ClientMessage{Msg: &pb.ClientMessage_NewGame{NewGame: &pb.PocNewGameRequest{Epoch: r.state.Epoch, RequestId: "knife.market.new", Scenario: "life", Seed: 777}}}})
+ for len(c.out) > 0 { if m := <-c.out; m.GetActionResult() != nil && !m.GetActionResult().Ok { t.Fatal(m.GetActionResult().Message) } }
+ r.state.Life.SecondsPerTick = 1
+ hero := r.state.Life.Actor(playerActorID)
+ target := r.state.Life.Actor(opponent)
+ if hero == nil || target == nil || !target.OnFloor() { t.Skip("no " + opponent + " in the ordinary world") }
+ hero.Level = target.Level
+ model := r.state.Life.GateModel(r.world.Life)
+ space := model.Space(hero.Level, r.state.Life.BlockedCells(hero.Level, hero.ID))
+ // the line between them across the game camera's view (cells x east, y south; the camera looks north-west), so the
+ // blade is not hidden behind the striker's back
+ for _, d := range []behavior.Cell{{X: -1, Y: 1}, {X: 1, Y: -1}, {X: 1, Y: 1}, {X: -1, Y: -1}} {
+  at := behavior.Cell{X: target.Position.X + d.X, Y: target.Position.Y + d.Y}
+  if at.X < 0 || at.Y < 0 || at.X >= space.Width || at.Y >= space.Height || !space.Walkable(at) || space.Blocked[at] { continue }
+  hero.Position, hero.Goal = at, at
+  hero.Path, hero.PendingPath, hero.Body = nil, nil, nil
+  hero.Manual, hero.Arrived = true, true
+  hero.OverrideLevel, hero.OverrideEdge = "", ""
+  hero.MoveStartTick = r.lifeMotionTick()
+  r.state.Life.EnsureHeroBody(model)
+  r.syncLifeHero()
+  r.updateLifeExploration()
+  return r, c, target.ID
+ }
+ t.Skip("no open diagonal cell beside the resident")
+ return nil, nil, ""
+}
+
+// The hero's knife into another's hand: an ordinary inventory move (a test arrangement, saved with the state).
+func knifeHand(t *testing.T, r *Runtime, knife, to string) {
+ t.Helper()
+ s:=&r.state.Inventory;item:=s.Items[knife]
+ _,err:=s.Apply(r.inventoryModelFor(true),inv.Transaction{Actor:playerActorID,Sequence:s.Cursors[playerActorID].Sequence+1,RequestTag:"knife.hand",Moves:[]inv.Move{{Item:knife,Quantity:item.Quantity,ExpectedRevision:item.Revision,To:inv.Location{Kind:"store",Store:inv.ActorStore(to),Slot:"hand.main"}}}})
+ if err!=nil{t.Fatalf("%s cannot take the knife: %v",to,err)}
+}
+
+func knifeOption(t *testing.T, r *Runtime) string {
+ t.Helper()
+ for _,o:=range r.combatEquipmentOptions(playerActorID){if o.Weapon.ID=="item.knife_simple"{return o.ID}}
+ t.Fatal("the hero's backpack knife is not offered")
+ return ""
+}
+
+// What a seen body shows reaches the client through the ordinary perception filter (moment 1 in Godot): the weapon in a
+// fighter's hand (combat_panel publishes it) and how a lying body fell. Before, the filter dropped both.
+func TestCombatSeenWeaponAndFallReachTheClient(t *testing.T){
+ r,c,guard:=knifeGuardFixture(t)
+ knifeHand(t,r,knifeOption(t,r),guard)
+ combatStart(t,r,c,guard)
+ r.world.Config.DebugPerception=false
+ seen:=func(r *Runtime,c *connection,id string)*pb.PocAgentState{
+  for len(c.out)>0{<-c.out}
+  r.sendState(c)
+  for len(c.out)>0{if msg:=(<-c.out).GetGameState();msg!=nil{for _,a:=range msg.SceneAgents{if a.Id==id{return a}}}}
+  return nil
+ }
+ if a:=seen(r,c,guard);a==nil||a.HeldItem!="item.knife_simple"{t.Fatalf("the knife in the guard's seen hand did not reach the client: %+v",a)}
+ m,mc,foe:=knifeMarketFixture(t)
+ knife:=knifeOption(t,m)
+ combatStart(t,m,mc,foe)
+ if err:=m.performCombatAction(playerActorID,&behavior.CombatAction{Type:"equip",ItemID:knife});err!=nil{t.Fatal(err)}
+ m.world.Config.DebugPerception=false
+ initial:=m.snapshotState()
+ for seed:=int64(1);seed<=300;seed++{
+  m.state=initial;m.state=m.snapshotState();m.state.Seed=seed;m.state.Combat.Seed=seed
+  if err:=m.performCombatAction(playerActorID,&behavior.CombatAction{Type:"attack",TargetID:foe,Mode:"heavy",BodyPart:"chest"});err!=nil{t.Fatal(err)}
+  style:="";for _,e:=range m.state.Combat.Events{if e.Type=="fall_shift"&&e.ActorID==foe{style=e.Mode}}
+  if style==""{continue}
+  if a:=seen(m,mc,foe);a==nil||a.FallStyle!=style||a.Activity!="down"{t.Fatalf("seed %d: the fall (%s) of the seen body did not reach the client: %+v",seed,style,a)}
+  return
+ }
+ t.Fatal("no seed of 300 puts the resident down with one blow")
+}
+
+// The weapon a published blow names is the one in the striker's hand when he struck (moment 1 in Godot, review S1):
+// one command's events (a bare blow, the knife readied, a stab) publish from the poses of their moment, not from the
+// fight after the command, where both blows would carry the knife.
+func TestCombatBlowWeaponIsTheOneOfItsMoment(t *testing.T){
+ m,mc,foe:=knifeMarketFixture(t)
+ knife:=knifeOption(t,m)
+ combatStart(t,m,mc,foe)
+ if hero:=m.state.Combat.Actor(playerActorID);hero==nil||hero.Weapon.ID=="item.knife_simple"{t.Fatal("the hero must start the probe bare-handed")}
+ initial:=m.snapshotState()
+ for seed:=int64(1);seed<=300;seed++{
+  m.state=initial;m.state=m.snapshotState();m.state.Seed=seed;m.state.Combat.Seed=seed
+  previous:=m.state.Combat.Clone();from:=m.state.CombatPublicSeq;serial:=m.state.CombatPublicSerial;published:=len(m.state.CombatPublicEvents)
+  done:=true
+  for _,act:=range []behavior.CombatAction{{Type:"attack",TargetID:foe,Mode:"quick",BodyPart:"chest"},{Type:"equip",ItemID:knife},{Type:"attack",TargetID:foe,Mode:"quick",BodyPart:"chest"}}{
+   if !m.state.Combat.Active||m.state.Combat.Current()==nil||m.state.Combat.Current().ID!=playerActorID{done=false;break}
+   a:=act;if err:=m.performCombatAction(playerActorID,&a);err!=nil{done=false;break}
+  }
+  if !done{continue}
+  // the three commands' events published again as one command's, from the poses before the first
+  m.state.CombatPublicSeq=from;m.state.CombatPublicSerial=serial;m.state.CombatPublicEvents=m.state.CombatPublicEvents[:published]
+  m.capturePublicCombatEventsFrom(previous)
+  var blows []string
+  for _,e:=range m.state.CombatPublicEvents[published:]{if e.Type=="attack"&&e.ActorID==playerActorID{blows=append(blows,e.ItemID)}}
+  if len(blows)!=2||blows[0]=="item.knife_simple"||blows[1]!="item.knife_simple"{t.Fatalf("seed %d: the blows name %q; want the bare hand, then the knife",seed,blows)}
+  return
+ }
+ t.Fatal("no seed of 300 lets the hero strike, ready the knife and strike again in one turn")
+}
+
+func TestCombatMoment1MarketProbes(t *testing.T){
+ if *combatM1Market==""{t.Skip("opt-in moment 1 market fixtures")}
+ type want struct{Name,Probe,Mode,Part,Outcome,Zone,Side,Sign string;Fall bool}
+ cases:=[]want{}
+ for _,zone:=range []string{"chest","abdomen","groin","neck","axilla"}{for _,side:=range []string{"left","right"}{cases=append(cases,want{Name:"hit_"+zone+"_"+side,Probe:"knife",Mode:"heavy",Part:zone,Outcome:"hit",Zone:zone,Side:side})}}
+ cases=append(cases,want{Name:"hit_skin",Probe:"knife",Mode:"quick",Part:"chest",Outcome:"hit",Zone:"chest",Sign:"blood"},want{Name:"hit_artery",Probe:"knife",Mode:"heavy",Part:"neck",Outcome:"hit",Zone:"neck",Sign:"blood_spurt"},
+  want{Name:"miss_hero",Probe:"knife",Mode:"heavy",Part:"torso",Outcome:"miss"},want{Name:"fall_hero",Probe:"knife",Mode:"heavy",Part:"chest",Outcome:"hit",Fall:true},
+  want{Name:"parried_npc",Probe:"npc",Outcome:"parried"},want{Name:"miss_npc",Probe:"npc",Outcome:"miss"},want{Name:"hit_npc",Probe:"npc",Outcome:"hit"},want{Name:"fall_npc",Probe:"npc",Outcome:"hit",Fall:true})
+ index:=[]map[string]any{}
+ for _,c:=range cases{
+  r,cc,foe:=knifeMarketFixture(t)
+  if c.Probe=="npc"{r,cc,foe=knifeGuardFixture(t)}
+  knife:=knifeOption(t,r)
+  if c.Probe=="npc"{knifeHand(t,r,knife,foe)}
+  combatStart(t,r,cc,foe)
+  if c.Probe=="knife"{act:=behavior.CombatAction{Type:"equip",ItemID:knife};if err:=r.performCombatAction(playerActorID,&act);err!=nil{t.Fatal(c.Name,err)}}
+  initial:=r.snapshotState();found:=false
+  seeds:=int64(3000);if c.Probe=="npc"{seeds=600}
+  for seed:=int64(1);seed<=seeds&&!found;seed++{
+   r.state=initial;r.state=r.snapshotState();r.state.Seed=seed;r.state.Combat.Seed=seed;base:=r.snapshotState()
+   command:="end";action:=behavior.CombatAction{Type:"end"}
+   if c.Probe=="knife"{command="attack:"+c.Mode+":"+c.Part;action=behavior.CombatAction{Type:"attack",TargetID:foe,Mode:c.Mode,BodyPart:c.Part}}
+   if err:=r.performCombatAction(playerActorID,&action);err!=nil{t.Fatal(c.Name,err)}
+   // the hero's own blow is decided in his action; only the resident's blows need his turn (the crowded market's AI is slow)
+   if c.Probe=="npc"{for n:=0;n<8&&r.state.Combat.Active;n++{a:=r.state.Combat.Current();if a==nil||a.ID==playerActorID{break};if err:=r.performCombatAction(a.ID,nil);err!=nil{t.Fatal(c.Name,err)}}}
+   knifeBy:=playerActorID;victim:=foe;if c.Probe=="npc"{knifeBy=foe;victim=playerActorID}
+   var strike *behavior.CombatEvent;parried:=false;zone,mark:="",""
+   for i:=range r.state.Combat.Events{e:=&r.state.Combat.Events[i]
+    if e.Type=="parry"&&e.TargetID==knifeBy{parried=e.Hit}
+    if e.Type=="wound"&&e.ActorID==victim{zone=e.BodyPart;mark=e.Mode}
+    if (e.Type=="attack"||e.Type=="reaction")&&e.ActorID==knifeBy{strike=e;break}
+   }
+   if strike==nil||r.state.Combat.Actor(knifeBy)==nil&&c.Probe=="npc"{continue}
+   outcome:="miss";if strike.Hit{outcome="hit"}else if parried{outcome="parried"}
+   if c.Outcome!=""&&outcome!=c.Outcome{continue}
+   side,sign:="","";if outcome=="hit"{p:=strings.Split(mark,":");if len(p)!=3{continue};side,sign=p[0],p[1]}
+   if c.Zone!=""&&zone!=c.Zone||c.Side!=""&&side!=c.Side||c.Sign!=""&&sign!=c.Sign{continue}
+   if outcome=="hit"&&zone==""{continue}
+   if c.Fall{fell:=false;for _,e:=range r.state.Combat.Events{if e.Type=="fall_shift"&&e.ActorID==victim{fell=true}};if !fell{continue}}
+   events:=append([]behavior.CombatEvent(nil),r.state.Combat.Events...)
+   r.state=base
+   out:=filepath.Join(*combatM1Market,c.Name);if err:=os.MkdirAll(out,0755);err!=nil{t.Fatal(err)}
+   r.data=out;if err:=r.writeSave("slot3",base);err!=nil{t.Fatal(err)}
+   if _,_,err:=r.readSave("slot3");err!=nil{t.Fatal(c.Name,"strict load",err)}
+   meta:=map[string]any{"name":c.Name,"seed":seed,"level":r.currentLevel(),"foe":foe,"command":command,"outcome":outcome,"zone":zone,"side":side,"sign":sign,"mode":strike.Mode,"events":events}
+   raw,_:=json.MarshalIndent(meta,"","  ");if err:=os.WriteFile(filepath.Join(out,"setup.json"),raw,0644);err!=nil{t.Fatal(err)}
+   index=append(index,map[string]any{"name":c.Name,"seed":seed,"foe":foe,"command":command,"outcome":outcome,"zone":zone,"side":side,"sign":sign,"mode":strike.Mode})
+   found=true
+  }
+  if !found{t.Logf("no real %s strike on the market in %d seeds",c.Name,seeds)}
+ }
+ raw,_:=json.MarshalIndent(index,"","  ");if err:=os.WriteFile(filepath.Join(*combatM1Market,"index.json"),raw,0644);err!=nil{t.Fatal(err)}
 }

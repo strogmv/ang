@@ -20,6 +20,35 @@ func paceOK() CombatPace {
 		Beats: map[string]float64{"attack": .7, "wound": 0}, BeatDefaultS: .45,
 		Shifts:    map[string]float64{"roll": .5},
 		HandoverS: .12, CameraLagS: .18, CameraSettle: 1.2, AfterFight: "fast_turn_based",
+		Blow: CombatBlow{Strikes: []string{"attack", "reaction"}, Consequences: []string{"wound", "fall", "fall_shift", "down"},
+			Parry: "parry", Down: []string{"fall", "fall_shift", "down"}, FallShift: "fall_shift", Wound: "wound"},
+	}
+}
+
+// One blow's events are real event types; the parts of a body that is out are consequences, a strike never is.
+func TestCombatBlowGathersRealConsequences(t *testing.T) {
+	if err := paceOK().validate(); err != nil {
+		t.Fatal(err)
+	}
+	for name, change := range map[string]func(*CombatBlow){
+		"unknown type":            func(b *CombatBlow) { b.Consequences = append(b.Consequences, "bleed_out") },
+		"strike as consequence":   func(b *CombatBlow) { b.Consequences = append(b.Consequences, "attack") },
+		"parry as consequence":    func(b *CombatBlow) { b.Consequences = append(b.Consequences, "parry") },
+		"down not a consequence":  func(b *CombatBlow) { b.Down = append(b.Down, "dead") },
+		"fall shift not down":     func(b *CombatBlow) { b.FallShift = "wound" },
+		"wound not a consequence": func(b *CombatBlow) { b.Wound = "condition" },
+		"no strikes":              func(b *CombatBlow) { b.Strikes = nil },
+		"parry as a strike":       func(b *CombatBlow) { b.Strikes = append(b.Strikes, "parry") },
+		"action as a strike":      func(b *CombatBlow) { b.Strikes = append(b.Strikes, "guard") },
+		"assault as a strike":     func(b *CombatBlow) { b.Strikes = append(b.Strikes, "assault") },
+		"own action consequence":  func(b *CombatBlow) { b.Consequences = append(b.Consequences, "overwatch") },
+		"stance as consequence":   func(b *CombatBlow) { b.Consequences = append(b.Consequences, "prone") },
+	} {
+		p := paceOK()
+		change(&p.Blow)
+		if err := p.validate(); err == nil {
+			t.Fatalf("%s: accepted", name)
+		}
 	}
 }
 
@@ -153,14 +182,46 @@ func TestCombatEventTypesCoverTheServer(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, m := range typed.FindAllStringSubmatch(string(raw), -1) {
+		text := string(raw)
+		for _, m := range typed.FindAllStringSubmatchIndex(text, -1) {
+			// an action a fighter is given (behavior.CombatAction{Type: ...}) is not an event: "assault" is an action
+			// whose blow is published as "attack"
+			if open := strings.LastIndex(text[:m[0]], "{"); open >= 0 && strings.HasSuffix(text[:open], "CombatAction") {
+				continue
+			}
 			seen++
-			if !combatEventTypes[m[1]] {
-				t.Errorf("%s publishes event type %q unknown to combatEventTypes", f, m[1])
+			if name := text[m[2]:m[3]]; !combatEventTypes[name] {
+				t.Errorf("%s publishes event type %q unknown to combatEventTypes", f, name)
 			}
 		}
 	}
 	if seen < 20 {
 		t.Fatalf("only %d event types found in %d sources", seen, len(sources))
+	}
+}
+
+// The events of a blow struck are the ones behavior combat's fireImpact publishes: the blow check's list follows the
+// template (a new kind of strike there must be added, or its blow would be refused by the client's grouping rule).
+func TestCombatStrikeEventsAreTheBlowsOfTheServer(t *testing.T) {
+	raw, err := os.ReadFile("../behavior/templates/combat.go.tmpl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := map[string]bool{}
+	for _, m := range regexp.MustCompile(`s\.fireImpact\([^\n]*?"([a-z_]+)"`).FindAllStringSubmatch(string(raw), -1) {
+		found[m[1]] = true
+	}
+	if len(found) == 0 {
+		t.Fatal("no fireImpact call found in the behavior combat template")
+	}
+	for k := range found {
+		if !combatStrikeEvents[k] {
+			t.Errorf("fireImpact publishes %q, unknown to combatStrikeEvents", k)
+		}
+	}
+	for k := range combatStrikeEvents {
+		if !found[k] {
+			t.Errorf("combatStrikeEvents names %q, which fireImpact never publishes", k)
+		}
 	}
 }
