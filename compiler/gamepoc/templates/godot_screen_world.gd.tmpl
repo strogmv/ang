@@ -14,6 +14,8 @@ var epoch := ""
 var pointer_active := false
 var pointer := Vector2.ZERO
 var visual
+## A target the HUD's «inspect» pointed at (host.world inspect): highlighted instead of the nearest until the pointer moves.
+var pinned := ""
 
 func _init(context) -> void:
 	host = context
@@ -116,7 +118,9 @@ func process() -> void:
 	if not host.playing or host.screen_open or not host.link.input_enabled:
 		visual.show_target({})
 		return
-	var selected := pointed(pointer) if pointer_active else nearest()
+	var selected := pointed(pointer) if pointer_active else find(pinned)
+	if selected.is_empty() and not pointer_active:
+		selected = nearest()
 	highlighted = selected.get("uid", "")
 	visual.show_target(selected)
 
@@ -185,6 +189,7 @@ func input(event: InputEvent) -> bool:
 			pointer_active = false
 			return false
 	if event is InputEventMouseMotion:
+		pinned = ""
 		pointer_active = true
 		pointer = event.position
 		process()
@@ -208,6 +213,60 @@ func input(event: InputEvent) -> bool:
 			host.game_ui.select_key(config.engage_list, config.engage_key, target.get("actor", target.id))
 		return true
 	return false
+
+## The HUD's touches of the world (host.world, doc 09 «Касание мира»), through the same targets as the pointer and E/X:
+## use and talk are the peaceful action (on the pointed or nearest target; on the nearest person), approach walks to the
+## target without using it, inspect points at the next target near the hero so its server text shows, hostile is the
+## choice of whom to engage (as F/R1). Nothing here decides a rule: the server answers every command.
+func verb(name: String) -> void:
+	var config: Dictionary = Catalog.specification().get("world_input", {})
+	process()
+	match name:
+		"use":
+			if not peaceful(find(highlighted)) and not config.is_empty():
+				host.open_game_screen(config.fallback)
+		"talk":
+			var person := _nearest_where(func(t): return t.kind.get("person", false))
+			if not peaceful(person) and not config.is_empty():
+				host.open_game_screen(config.fallback)
+		"approach":
+			var target := find(highlighted)
+			if target.is_empty():
+				target = _nearest_where(func(t): return t.kind.get("position", "") != "zone")
+			if not target.is_empty() and not target.reachable:
+				pending = ""
+				route(target)
+		"inspect":
+			var near: Array = targets.filter(func(t): return t.kind.get("position", "") != "zone")
+			near.sort_custom(func(a, b): return visual.hero_distance(a) < visual.hero_distance(b))
+			near = near.slice(0, 6)
+			if near.is_empty():
+				return
+			var at := -1
+			for i in range(near.size()):
+				if near[i].uid == pinned:
+					at = i
+			pinned = near[(at + 1) % near.size()].uid
+			pointer_active = false
+			process()
+		"hostile":
+			if not config.is_empty():
+				var target := find(highlighted)
+				host.open_game_screen(config.engage_screen)
+				if not target.is_empty() and target.kind.get("person", false):
+					host.game_ui.select_key(config.engage_list, config.engage_key, target.get("actor", target.id))
+
+func _nearest_where(keep: Callable) -> Dictionary:
+	var selected: Dictionary = {}
+	var score := INF
+	for target in targets:
+		if not keep.call(target):
+			continue
+		var distance: float = visual.hero_distance(target)
+		if distance < score:
+			score = distance
+			selected = target
+	return selected
 
 func move_result(result: C.PocMoveResult) -> void:
 	if not pending.is_empty() and result.input_seq == pending_sequence and not result.ok:

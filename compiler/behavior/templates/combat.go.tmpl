@@ -1095,6 +1095,30 @@ func (s CombatState) shotChance(space CombatSpace, r CombatRules, a, b Combatant
 	}
 	return math.Max(r.MinHit, math.Min(r.MaxHit, chance))
 }
+// AttackChance is what the HUD shows the hero of a blow (owner 20.11, combat mockup), by the rule the blow is resolved
+// with: a held or unnoticed blow always lands (fireImpact: Hit = … q.Held || q.Unnoticed …), any other the same
+// shotChance its first shot rolls against, taken from the cell the blow would strike from (the caller's: here when in
+// reach, else where the approach ends). mayParry: the rule could let the defender deflect it (fireImpact's parry: hand
+// weapons both, he sees the attacker) and he visibly stands ready — guarding, or the readiness sign the hero is shown
+// (able, not stunned, a reserve held) — never how much reserve he holds. Nothing is drawn and nothing changes.
+func (s CombatState) AttackChance(space CombatSpace, r CombatRules, actorID string, action CombatAction, from Cell) (chance float64, mayParry bool) {
+	a, b := s.Actor(actorID), s.Actor(action.TargetID)
+	if a == nil || b == nil {
+		return 0, false
+	}
+	q, err := combatShot(*a, action, r)
+	if err != nil {
+		return 0, false
+	}
+	if q.Held || q.Unnoticed {
+		return 1, false
+	}
+	at := *a
+	at.Position = from
+	mayParry = r.GuardAP > 0 && combatWeaponKind(a.Weapon) != "firearm" && combatWeaponKind(b.Weapon) != "firearm" && b.Able() &&
+		b.StunTurns == 0 && (b.Guarding || b.ReservedAP > 0) && space.ActorVisible(*b, at, r) && (len(b.Body) == 0 || b.BodyCanHold)
+	return s.shotChance(space, r, *a, *b, from, q, 0), mayParry
+}
 func (s CombatState) hitChance(space CombatSpace, r CombatRules, a, b Combatant, from Cell) float64 {
 	return s.shotChance(space, r, a, b, from, combatShotSpec{Mode: "single", BodyPart: "torso", Shots: 1, DamagePercent: 100}, 0)
 }

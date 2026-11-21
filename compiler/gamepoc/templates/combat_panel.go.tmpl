@@ -23,6 +23,8 @@ type combatPanelCache struct {
 }
 
 func (r *Runtime) appendCombatPanel(msg *pb.PocGameState, locale string) {
+	// the chip HUD reads the fight's view and the hero's state after both are built (deferred: runs last)
+	defer r.appendChipHud(msg, locale)
 <<ANG if .GodotScreens ANG>> defer r.appendScreenCombat(msg,locale) <<ANG end ANG>>
 	r.appendWoundViews(msg,locale)
  r.appendGroundWeapons(msg)
@@ -261,7 +263,37 @@ for _,d:=range []behavior.Cell{{X:1,Y:0},{X:0,Y:1},{X:-1,Y:0},{X:0,Y:-1}}{at:=be
 	}
 	add("move","disengage",text("ui.combat.leave"),behavior.CombatAction{Type:"disengage"},0,func(error)string{return text("error.combat.break_distance")})
  add("turn", "end", text("ui.combat.end_turn"), behavior.CombatAction{Type: "end"}, 0, other)
+	r.combatOptionChances(out, hero.Position)
 	return out
+}
+
+// combatOptionChances: the chip HUD's chance of every blow (its zone card and tip), by the rule the blow is resolved
+// with (behavior AttackChance): from the hero's cell when the blow can strike from it, else from the cell the panel's
+// own «Сблизиться» for that target walks to (only an approach the hero can make: «цель уже рядом» moves nowhere); held and unnoticed blows land for certain (1000); a blow the target
+// visibly stands ready to deflect is marked may_parry.
+func (r *Runtime) combatOptionChances(out []*pb.PocCombatOption, here behavior.Cell) {
+	s := &r.state.Combat
+	rules := r.world.CombatRuntime.Rules
+	approach := map[string]behavior.Cell{}
+	for _, o := range out {
+		if o.Action == "move" && o.Enabled && strings.HasPrefix(o.Id, "move.approach.") {
+			approach[strings.TrimPrefix(o.Id, "move.approach.")] = behavior.Cell{X: int(o.X), Y: int(o.Y)}
+		}
+	}
+	space := r.combatSpace(*s)
+	for _, o := range out {
+		if o.Action != "attack" {
+			continue
+		}
+		from := here
+		if at, ok := approach[o.TargetId]; ok && !o.Enabled {
+			from = at
+		}
+		action := behavior.CombatAction{Type: "attack", TargetID: o.TargetId, Mode: o.Mode, BodyPart: o.BodyPart, Aim: int(o.Aim)}
+		chance, parry := s.AttackChance(space, rules, playerActorID, action, from)
+		o.ChancePermille = int32(math.Round(chance * 1000))
+		o.MayParry = parry
+	}
 }
 
 // Body spacing (doc 96 v2, owner 02.11 «модели не держат дистанцию»; world.combat_spacing). A combat step never ENDS

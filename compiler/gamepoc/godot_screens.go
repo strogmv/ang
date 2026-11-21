@@ -112,6 +112,10 @@ type ScreenShortcut struct {
 	Pad string `json:"pad,omitempty"`
 }
 type GodotScreen struct {
+	// The HUD (routes.hud): its own runtime shows it under every other screen while the game is played; the world keeps
+	// its input (only the HUD's buttons take the mouse), its hotkeys act while nothing else is open, Esc and B stay the
+	// game's. At most one, layout hud, never opened by the server.
+	Persistent      bool            `json:"persistent,omitempty"`
 	HideWorldStatus bool            `json:"hide_world_status,omitempty"`
 	ClearRect       []float64       `json:"clear_rect,omitempty"`
 	Hotkeys         []ScreenHotkey  `json:"hotkeys,omitempty"`
@@ -137,46 +141,49 @@ type GodotScreen struct {
 	Controls        []ScreenControl `json:"controls"`
 }
 type ScreenControl struct {
-	LineSpacingPX *int                   `json:"line_spacing_px,omitempty"`
-	InsetPX       []int                  `json:"inset_px,omitempty"`
-	Order         []string               `json:"order,omitempty"`
-	PaddingPX     int                    `json:"padding_px,omitempty"`
-	Columns       int                    `json:"columns,omitempty"`
-	VisibleRows   int                    `json:"visible_rows,omitempty"`
-	MinHeight     int                    `json:"min_height_px,omitempty"`
-	Collapsed     bool                   `json:"collapsed,omitempty"`
-	Filters       []ScreenFilter         `json:"filters,omitempty"`
-	RowTitle      bool                   `json:"row_title,omitempty"`
-	GapPX         int                    `json:"gap_px,omitempty"`
-	Ordinal       int                    `json:"ordinal,omitempty"`
-	Align         string                 `json:"align,omitempty"`
-	ListWidthPX   int                    `json:"list_width_px,omitempty"`
-	RowKeys       []string               `json:"row_keys,omitempty"`
-	Where         *ScreenValue           `json:"where,omitempty"`
-	Style         string                 `json:"style,omitempty"`
-	Formatter     string                 `json:"formatter,omitempty"`
-	FormatKey     string                 `json:"format_key,omitempty"`
-	HeightPX      int                    `json:"height_px,omitempty"`
-	Weight        float64                `json:"weight,omitempty"`
-	Passive       bool                   `json:"passive,omitempty"`
-	ActionSource  string                 `json:"action_source,omitempty"`
-	Focusable     bool                   `json:"focusable,omitempty"`
-	Rect          []float64              `json:"rect,omitempty"`
-	RowKey        string                 `json:"row_key,omitempty"`
-	Dock          string                 `json:"dock,omitempty"`
-	EmptyKey      string                 `json:"empty_key,omitempty"`
-	Mode          string                 `json:"mode,omitempty"`
-	Join          string                 `json:"join,omitempty"`
-	ID            string                 `json:"id"`
-	Kind          string                 `json:"kind"`
-	Key           string                 `json:"text_key,omitempty"`
-	Widget        string                 `json:"widget,omitempty"`
-	FontPX        int                    `json:"font_px"`
-	WidthPX       int                    `json:"width_px"`
-	Lines         int                    `json:"lines"`
-	LinePX        []int                  `json:"line_px,omitempty"`
-	Bind          map[string]ScreenValue `json:"bind,omitempty"`
-	Action        *ScreenAction          `json:"action,omitempty"`
+	LineSpacingPX *int           `json:"line_spacing_px,omitempty"`
+	InsetPX       []int          `json:"inset_px,omitempty"`
+	Order         []string       `json:"order,omitempty"`
+	PaddingPX     int            `json:"padding_px,omitempty"`
+	Columns       int            `json:"columns,omitempty"`
+	VisibleRows   int            `json:"visible_rows,omitempty"`
+	MinHeight     int            `json:"min_height_px,omitempty"`
+	Collapsed     bool           `json:"collapsed,omitempty"`
+	Filters       []ScreenFilter `json:"filters,omitempty"`
+	RowTitle      bool           `json:"row_title,omitempty"`
+	GapPX         int            `json:"gap_px,omitempty"`
+	Ordinal       int            `json:"ordinal,omitempty"`
+	Align         string         `json:"align,omitempty"`
+	ListWidthPX   int            `json:"list_width_px,omitempty"`
+	RowKeys       []string       `json:"row_keys,omitempty"`
+	Where         *ScreenValue   `json:"where,omitempty"`
+	Style         string         `json:"style,omitempty"`
+	Formatter     string         `json:"formatter,omitempty"`
+	FormatKey     string         `json:"format_key,omitempty"`
+	HeightPX      int            `json:"height_px,omitempty"`
+	Weight        float64        `json:"weight,omitempty"`
+	Passive       bool           `json:"passive,omitempty"`
+	// A custom widget whose values change often (a clock, the blood): they stay out of the screen's rebuild signature,
+	// and the widget gets them in update_screen(values) on every state instead of being rebuilt.
+	Live         bool                   `json:"live,omitempty"`
+	ActionSource string                 `json:"action_source,omitempty"`
+	Focusable    bool                   `json:"focusable,omitempty"`
+	Rect         []float64              `json:"rect,omitempty"`
+	RowKey       string                 `json:"row_key,omitempty"`
+	Dock         string                 `json:"dock,omitempty"`
+	EmptyKey     string                 `json:"empty_key,omitempty"`
+	Mode         string                 `json:"mode,omitempty"`
+	Join         string                 `json:"join,omitempty"`
+	ID           string                 `json:"id"`
+	Kind         string                 `json:"kind"`
+	Key          string                 `json:"text_key,omitempty"`
+	Widget       string                 `json:"widget,omitempty"`
+	FontPX       int                    `json:"font_px"`
+	WidthPX      int                    `json:"width_px"`
+	Lines        int                    `json:"lines"`
+	LinePX       []int                  `json:"line_px,omitempty"`
+	Bind         map[string]ScreenValue `json:"bind,omitempty"`
+	Action       *ScreenAction          `json:"action,omitempty"`
 	// A custom widget's further actions by name (a save card's held delete beside its load): each declared and checked
 	// like action, on the same row; the widget runs one through the context's act(name, row).
 	Actions  map[string]*ScreenAction `json:"actions,omitempty"`
@@ -229,12 +236,18 @@ func (g *screenCompiler) path(path, row string) (screenPath, error) {
 	r := screenPath{}
 	switch p[0] {
 	case "settings":
-		if len(p) != 2 || g.settings == nil {
+		// settings.<id>: the setting's words as the settings screen shows them; settings.<id>.value: its value (a
+		// widget's short word for it, the HUD's pace plate)
+		if (len(p) != 2 && !(len(p) == 3 && p[2] == "value")) || g.settings == nil {
 			return r, fmt.Errorf("unknown settings path %q", path)
 		}
 		for _, s := range g.settings.Entries {
 			if s.ID == p[1] {
-				return screenPath{typ: "string", expression: "(selected.get(\"__settings\") as Settings).display(" + strconv.Quote(s.ID) + ")", guards: []string{"selected.get(\"__settings\") == null"}}, nil
+				read := "display"
+				if len(p) == 3 {
+					read = "value"
+				}
+				return screenPath{typ: "string", expression: "str((selected.get(\"__settings\") as Settings)." + read + "(" + strconv.Quote(s.ID) + "))", guards: []string{"selected.get(\"__settings\") == null"}}, nil
 			}
 		}
 		return r, fmt.Errorf("unknown settings path %q", path)
@@ -302,7 +315,13 @@ static func _read_%s(
 
 // Host commands are presentation/lifecycle operations, deliberately closed. host.delete_save deletes the save the
 // action's row names (its slot id): the host sends it to the server, which answers with the new list.
-var screenHostCommands = map[string]bool{"host.close": true, "host.open": true, "host.back": true, "host.main": true, "host.quit": true, "host.setting": true, "host.toggle": true, "host.delete_save": true}
+var screenHostCommands = map[string]bool{"host.close": true, "host.open": true, "host.back": true, "host.main": true, "host.quit": true, "host.setting": true, "host.toggle": true, "host.delete_save": true, "host.world": true}
+
+// The verbs of host.world: the HUD's touches of the world, through the world targets the client already has (doc 09,
+// «Касание мира»): use = the peaceful action on the pointed or nearest target (E/X), talk = the nearest person's,
+// approach = walk to the pointed or nearest target without using it, inspect = point at the next target near the hero
+// (its server inspection text shows), hostile = the choice of whom to engage (F/R1; never an ordinary click).
+var screenWorldVerbs = map[string]bool{"use": true, "talk": true, "approach": true, "inspect": true, "hostile": true}
 
 func (g *screenCompiler) action(a *ScreenAction, row, field string) error {
 	if a.Command == "" {
@@ -321,6 +340,8 @@ func (g *screenCompiler) action(a *ScreenAction, row, field string) error {
 			allowed["control"] = "control"
 		case "host.delete_save":
 			allowed["slot"] = "row string"
+		case "host.world":
+			allowed["verb"] = "verb"
 		}
 		for _, key := range sortedScreenKeys(a.Params) {
 			if _, ok := allowed[key]; !ok {
@@ -359,6 +380,8 @@ func (g *screenCompiler) action(a *ScreenAction, row, field string) error {
 			}
 			found := false
 			switch kind {
+			case "verb":
+				found = screenWorldVerbs[id]
 			case "screen":
 				for _, screen := range g.screens.Screens {
 					if screen.ID == id {
@@ -424,6 +447,32 @@ func (g *screenCompiler) action(a *ScreenAction, row, field string) error {
 	fmt.Fprintf(&g.actions, "\t\t\tmessage.%s = q\n", emitter.GDScriptFieldName(a.Command))
 	return nil
 }
+
+// screenValueKeys walks literal data handed to a custom widget: a string under a key named text_key or ending in _key is
+// a UI text key and must exist in every locale (its fit is the widget's, measured by the real Godot proofs).
+func screenValueKeys(c Compiled, v any, root string) error {
+	switch x := v.(type) {
+	case map[string]any:
+		for _, k := range sortedScreenKeys(x) {
+			if key, ok := x[k].(string); ok && (k == "text_key" || strings.HasSuffix(k, "_key")) && key != "" {
+				if err := screenText(c, key, 12, 1280, 8, root); err != nil {
+					return fmt.Errorf("%s: %w", k, err)
+				}
+				continue
+			}
+			if err := screenValueKeys(c, x[k], root); err != nil {
+				return fmt.Errorf("%s.%w", k, err)
+			}
+		}
+	case []any:
+		for i, item := range x {
+			if err := screenValueKeys(c, item, root); err != nil {
+				return fmt.Errorf("%d.%w", i, err)
+			}
+		}
+	}
+	return nil
+}
 func screenNumber(t string) bool {
 	return strings.Contains(" int32 int64 uint32 uint64 float double ", " "+t+" ")
 }
@@ -445,6 +494,32 @@ func sortedScreenKeys[V any](m map[string]V) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// preselect learns the row type of every list (and every custom widget choosing among rows) of a screen before its
+// controls are checked; a source that reads another list's choice resolves on a later round.
+func (g *screenCompiler) preselect(nodes []ScreenControl, row string) {
+	for round := 0; round < 4; round++ {
+		var walk func([]ScreenControl, string)
+		walk = func(nodes []ScreenControl, row string) {
+			for i := range nodes {
+				n := &nodes[i]
+				childRow := row
+				if n.Kind == "list" || (n.Kind == "custom" && n.ActionSource == "source") {
+					if v, ok := n.Bind["source"]; ok && g.selected[n.ID] == "" {
+						if p, err := g.path(v.Path, row); err == nil && p.repeated {
+							g.selected[n.ID] = p.typ
+						}
+					}
+					if n.Kind == "list" {
+						childRow = g.selected[n.ID]
+					}
+				}
+				walk(n.Children, childRow)
+			}
+		}
+		walk(nodes, row)
+	}
 }
 
 func (g *screenCompiler) controls(nodes []ScreenControl, row string, ids, interactive map[string]bool, c Compiled, root string) error {
@@ -508,7 +583,22 @@ func (g *screenCompiler) controls(nodes []ScreenControl, row string, ids, intera
 				}
 			}
 		}
+		if n.Live && n.Kind != "custom" {
+			return fmt.Errorf("screen %s field %s.live: only a custom widget updates in place", g.id, field)
+		}
 		if n.Kind == "custom" {
+			// the text keys a custom widget is handed in literal data (its look, a HUD deck's slots): every key named
+			// text_key or ending in _key must be a public UI text in every locale, as a control's own text_key
+			for _, k := range sortedScreenKeys(n.Bind) {
+				value := n.Bind[k].Value
+				if key, ok := value.(string); ok && strings.HasSuffix(k, "_key") && key != "" {
+					// a bound key itself (hint_key: value: "ui.…")
+					value = map[string]any{k: key}
+				}
+				if err := screenValueKeys(c, value, root); err != nil {
+					return fmt.Errorf("screen %s field %s.bind.%s: %w", g.id, field, k, err)
+				}
+			}
 			path := c.GodotScreens.Widgets[n.Widget]
 			if !godotScenePath(path) && (!strings.HasPrefix(path, "res://") || !strings.HasSuffix(path, ".gd") || strings.Contains(path, "..")) {
 				return fmt.Errorf("screen %s field %s.widget: unregistered custom widget %q", g.id, field, n.Widget)
@@ -573,7 +663,7 @@ func (g *screenCompiler) controls(nodes []ScreenControl, row string, ids, intera
 		for index := range n.Filters {
 			filter := &n.Filters[index]
 			filterRow := row
-			if n.Kind == "list" {
+			if n.Kind == "list" || (n.Kind == "custom" && n.ActionSource == "source") {
 				filterRow = g.selected[n.ID]
 			}
 			field := fmt.Sprintf("%s.filters.%d", field, index)
@@ -669,6 +759,7 @@ func compileGodotScreens(project string, c Compiled, def *normalizer.GRPCDef) ([
 		}
 	}
 	seen := map[string]bool{}
+	persistent := ""
 	skins := map[string]bool{}
 	if c.GodotTheme != nil {
 		for _, s := range c.GodotTheme.Skins {
@@ -756,6 +847,15 @@ func compileGodotScreens(project string, c Compiled, def *normalizer.GRPCDef) ([
 				return nil, err
 			}
 		}
+		if s.Persistent {
+			if s.Layout != "hud" || s.Opening != nil || s.Shortcut != nil || persistent != "" {
+				return nil, fmt.Errorf("screen %s field persistent: one HUD, layout hud, never opened by the server or a shortcut", s.ID)
+			}
+			persistent = s.ID
+		}
+		// a control may read the chosen row of any list of its screen (selected.<id>), wherever that list stands: the
+		// HUD's body-zone card shows the chance of the command chosen below it, whose cells are filtered by the zone
+		g.preselect(s.Controls, "")
 		ids, interactive := map[string]bool{}, map[string]bool{}
 		if err := g.controls(s.Controls, "", ids, interactive, c, root); err != nil {
 			return nil, err
@@ -829,6 +929,9 @@ func compileGodotScreens(project string, c Compiled, def *normalizer.GRPCDef) ([
 		if !seen[id] {
 			return nil, fmt.Errorf("screen %s field routes.%s: unknown screen", id, route)
 		}
+	}
+	if c.GodotScreens.Routes["hud"] != persistent {
+		return nil, fmt.Errorf("screen %s field routes.hud: the route names the one persistent screen (%q)", c.GodotScreens.Routes["hud"], persistent)
 	}
 	for name, key := range c.GodotScreens.Text {
 		if err := screenText(c, key, 19, 300, 2, root); err != nil {

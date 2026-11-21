@@ -37,9 +37,14 @@ var backdrop: Control
 var chrome = preload("res://generated/screens/chrome.gd").new(self)
 var elements = preload("res://generated/screens/elements.gd").new(self)
 var navigation = preload("res://generated/screens/navigation.gd").new(self)
+## The HUD (a persistent screen, routes.hud): shown on its own under the other screens while the game is played. The world
+## keeps its input: only buttons take the mouse, a button clicked gives its focus back, nothing grabs the focus on a build.
+var persistent := false
+## Live custom widgets of this build (control live): {widget, node, row}; they get update_screen(values) on every state.
+var live_widgets: Array = []
 
 func _ready() -> void:
-	mouse_filter = Control.MOUSE_FILTER_STOP
+	mouse_filter = Control.MOUSE_FILTER_IGNORE if persistent else Control.MOUSE_FILTER_STOP
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	resized.connect(_layout)
 	get_viewport().gui_focus_changed.connect(_focus_changed)
@@ -121,6 +126,9 @@ func _snapshot(v: Variant) -> Variant:
 func _signature(nodes: Array, row: C.ProtoMessage = null) -> Array:
 	var result: Array = [TranslationServer.get_locale(), _large()]
 	for n in nodes:
+		# a live widget's values update it in place (update_screen), they never rebuild the screen
+		if n.get("live", false):
+			continue
 		for b in n.get("bind", {}).values():
 			result.append(_snapshot(value(b, row)))
 		if n.kind == "list":
@@ -142,6 +150,7 @@ func _refresh() -> void:
 	_resolve_lists(spec.controls)
 	var signature := JSON.stringify(_signature(spec.controls))
 	if signature == last_signature:
+		_update_live()
 		return
 	last_signature = signature
 	var focused := ""
@@ -159,6 +168,7 @@ func _refresh() -> void:
 		remove_child(content)
 		content.queue_free()
 	scroll_targets.clear()
+	live_widgets.clear()
 	rail.clear()
 	focus_ids.clear()
 	var skin: String = spec.skin
@@ -212,6 +222,8 @@ func _refresh() -> void:
 		status = _label(column, last_refusal, 18)
 		status.visible = not last_refusal.is_empty()
 	_order_focus()
+	if persistent:
+		_leave_the_world_its_input()
 	_layout()
 	# a way back: the control that had the focus when this screen was left, once
 	var wanted := focused
@@ -220,7 +232,8 @@ func _refresh() -> void:
 		wanted = resume_focus
 		resume_focus = ""
 	var fallback_focus := false
-	if not rail.is_empty():
+	# the HUD takes the focus back only when it had it (the gamepad walked onto it): never on its own builds
+	if not rail.is_empty() and (not persistent or not focused.is_empty()):
 		var index := -1
 		for i in range(rail.size()):
 			if rail[i].get_meta("focus_uid", "") == wanted:
@@ -282,6 +295,34 @@ func _painted(opening: int, refreshed: int, measurement: Dictionary) -> void:
 	if opening == open_us and opening_latency.is_empty():
 		opening_latency = measurement.duplicate()
 		opening_latency["response_to_draw_us"] = Time.get_ticks_usec()-opening
+
+## The values of every live widget of this build, read again from the current state; each widget redraws itself.
+func _update_live() -> void:
+	for entry in live_widgets:
+		if not is_instance_valid(entry.widget):
+			continue
+		var values := {}
+		var bindings: Dictionary = entry.node.get("bind", {})
+		for key in bindings:
+			values[key] = value(bindings[key], entry.row)
+		values["selected"] = selected.get(entry.node.id)
+		entry.widget.update_screen(values)
+
+## The HUD over the world: every node but a button lets the mouse through to the world, and a button clicked gives the
+## focus back at once (Enter and Space stay the world's; the gamepad still walks the HUD's rail).
+func _leave_the_world_its_input() -> void:
+	if not is_instance_valid(content):
+		return
+	for node in [content] + content.find_children("*", "Control", true, false):
+		if node is BaseButton:
+			if not node.has_meta("hud_gives_focus_back"):
+				node.set_meta("hud_gives_focus_back", true)
+				node.pressed.connect(func():
+					if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+						get_viewport().gui_release_focus.call_deferred()
+				)
+		elif node.mouse_filter != Control.MOUSE_FILTER_IGNORE and not node.has_meta("hud_takes_mouse"):
+			node.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 func _layout() -> void:
 	chrome.layout()

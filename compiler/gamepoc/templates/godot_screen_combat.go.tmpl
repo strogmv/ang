@@ -182,6 +182,11 @@ func (r *Runtime) screenCombatTarget(v *pb.PocCombatView, actor *pb.PocCombatAct
 			"\u00a0м",
 		)
 		target.Summary = append([]string{r.screenCombatWeapon(locale, actor)}, actor.Signs...)
+		// the chip HUD's card: what the hero sees of the body, in the wound model's own words
+		target.Condition = strings.Join(actor.Signs, ", ")
+		if target.Condition == "" {
+			target.Condition = r.screenText(locale, "ui.hud.target.whole")
+		}
 	}
 	for _, category := range screenCombatCategories {
 		group := &pb.PocCombatGroup{

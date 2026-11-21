@@ -87,6 +87,7 @@ type worldData struct {
  LiftingDecks *liftingDeckCatalog `json:"lifting_decks,omitempty"`
  TurretWatch *turretWatchCatalog `json:"turret_watch,omitempty"`
  Biomonitor *biomonitorCatalog `json:"biomonitor,omitempty"`
+ Hud *chipHudCatalog `json:"hud,omitempty"`
  AccessZones []accessZone `json:"access_zones,omitempty"`
  MedicalCapsules *medicalCatalog `json:"medical_capsules"`
  SanitaryServices *sanitaryCatalog `json:"sanitary_services"`
@@ -158,6 +159,8 @@ type state struct {
  CombatSerial       uint64
 	WoundCrimes []wounds.Event `json:"wound_crimes,omitempty"`
  Wounds wounds.Save `json:"wounds"`
+ // the chip HUD's ПРЕДМЕТЫ slots: item ids by slot, "" empty (chip_hud.go.tmpl advanceChipHudSlots)
+ HudSlots []string `json:"hud_slots,omitempty"`
  CombatRoster       map[string]behavior.Combatant
 	CombatPublicEvents []behavior.CombatEvent
 	CombatPublicSeq    uint64
@@ -290,6 +293,10 @@ type Runtime struct {
 	// Doc 96: combat panel options of the last decision point, and the barks cursor over combat events (memory only).
 	combatPanel combatPanelCache
 	barkCombat  barkCombatCursor
+	// the hero's own view of his body this publish (appendWoundViews), read again by the chip HUD (memory only)
+	chipHudSelf *wounds.SelfView
+	// the inventory revision and game the saved HUD item slots were last written for (memory only)
+	chipHudSlotsAt chipHudSlotsKey
 	// demo-hub v26-alive: the sound of the hall (memory only, soundscape.go.tmpl)
 	sound soundRuntime
 	// hall visitors (memory only, visitors.go.tmpl): the day's arrivals and the walked paths
@@ -591,6 +598,7 @@ func (r *Runtime) step() {
 	if err := r.state.Inventory.Advance(r.state.Tick); err != nil {
 		panic(err)
 	}
+	r.advanceChipHudSlots()
 	if r.state.Life.Enabled {
 		if err := r.lifeStep(); err != nil {
 			r.stopPopulation(err)
@@ -1155,6 +1163,7 @@ func (r *Runtime) readSaveFile(slot string) (state, int64, error) {
   for id,c:=range s.CombatRoster{c.BodyEffects=append([]string(nil),combatWounds.Status(combatBody(c)).Effects...);s.CombatRoster[id]=c};for i:=range s.Combat.Actors{c:=&s.Combat.Actors[i];c.BodyEffects=append([]string(nil),combatWounds.Status(combatBody(*c)).Effects...)}
  }
  if err:=r.validateWounds(s);err!=nil{return s,0,err}
+ loadChipHudSlots(&s)
  // owner 02.11: the origin "prewar" is "heirloom" now; an older save loads with the new name
 	migrateSavedOrigins(&s)
 	// conversation like Disco Elysium: a save from before the game's own check value gets one from its epoch (dialogue.go)

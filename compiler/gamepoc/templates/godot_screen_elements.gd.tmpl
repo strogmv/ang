@@ -397,6 +397,9 @@ func _node(n: Dictionary, parent: Node, row: C.ProtoMessage) -> void:
 			var values := {}
 			for key in bindings:
 				values[key] = ui.value(bindings[key], row)
+			# a widget that chooses among rows sees them as a list would: where, filters and order applied
+			if n.get("action_source", "") == "source" and bindings.has("source"):
+				values["source"] = rows_for(n, row)
 			# a named action of the widget's (CUE actions, checked by the generator) on a row: act.call(name, row)
 			var act := func(name: String, item):
 				if n.has("actions") and n.actions.has(name):
@@ -412,12 +415,20 @@ func _node(n: Dictionary, parent: Node, row: C.ProtoMessage) -> void:
 					ui._act(n.action, item)
 			values["selected"] = ui.selected.get(n.id)
 			var focus: Array = widget.configure_screen(values, context, selected_row)
+			if n.get("live", false):
+				ui.live_widgets.append({"widget": widget, "node": n, "row": row})
 			if not n.get("passive", false):
 				for b in focus:
 					if b is Button:
 						b.action_mode = BaseButton.ACTION_MODE_BUTTON_PRESS
 					b.set_meta("focus_id", n.id)
-					b.set_meta("focus_uid", n.id+"#"+str(ui.focus_ids.count(n.id)))
+					# a button that stands for a row (meta row) is known by the row, as a list's: the focus comes back to
+					# it after a rebuild and a hotkey's direction steps from the selected one
+					if b.has_meta("row") and b.get_meta("row") is C.ProtoMessage:
+						b.set_meta("row_identity", identity(n, b.get_meta("row")))
+						b.set_meta("focus_uid", n.id+"="+str(b.get_meta("row_identity")))
+					else:
+						b.set_meta("focus_uid", n.id+"#"+str(ui.focus_ids.count(n.id)))
 					ui.rail.append(b)
 					ui.focus_ids.append(n.id)
 

@@ -13,6 +13,7 @@ import (
 
 func (r *Runtime) appendWoundViews(msg *pb.PocGameState, locale string) {
 	text := func(key string) string { return r.localText(r.validLocale(locale), key, key) }
+	r.chipHudSelf = nil
  // Seat activity is a separate channel. Publish an observable fallen pose
  // for ordinary Life bodies too, so the client can play combat_look.down after combat.
  for _,agent:=range msg.SceneAgents{if actor,ok:=r.state.CombatRoster[agent.Id];ok&&len(actor.Body)>0{
@@ -24,6 +25,9 @@ func (r *Runtime) appendWoundViews(msg *pb.PocGameState, locale string) {
 		}
 		body := combatBody(c)
 		view := combatWounds.ViewSelf(body, 7*86400)
+		if c.ID == playerActorID {
+			r.chipHudSelf = &view
+		}
 		forecast := strings.NewReplacer("{minutes}", fmt.Sprint(view.Minutes), "{hours}", fmt.Sprint(view.Hours)).Replace(text(view.ForecastKey))
 		v.BodyLines = append(v.BodyLines, text(view.State))
 		effects:=map[string]bool{}

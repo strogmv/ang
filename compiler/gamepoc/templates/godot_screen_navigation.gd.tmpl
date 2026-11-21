@@ -3,6 +3,8 @@ extends RefCounted
 const C = preload("res://generated/game_contract.gd")
 const Catalog = preload("res://generated/screens/catalog.gd")
 var ui
+## the HUD's rail is being walked with the gamepad: its hotkeys then leave the focus where it is
+var pad_rail := false
 func _init(screen):
 	ui = screen
 func _input(event: InputEvent) -> void:
@@ -12,6 +14,17 @@ func _input(event: InputEvent) -> void:
 		return
 	if event is InputEventKey and event.pressed and not event.echo and _hotkey(event):
 		ui.get_viewport().set_input_as_handled()
+		return
+	# the HUD (a persistent screen) takes only its hotkeys and the D-pad's left and right along its rail (A or Enter
+	# presses the focused button through the game's foreground control); everything else stays the game's and the world's
+	if ui.persistent:
+		if event is InputEventJoypadButton and event.pressed and event.button_index in [JOY_BUTTON_DPAD_LEFT,
+				JOY_BUTTON_DPAD_RIGHT]:
+			pad_rail = true
+			_navigate(-1 if event.button_index == JOY_BUTTON_DPAD_LEFT else 1)
+			ui.get_viewport().set_input_as_handled()
+		elif event is InputEventMouseButton and event.pressed:
+			pad_rail = false
 		return
 	if event is InputEventKey and (event.keycode in [KEY_ENTER, KEY_KP_ENTER] or
 		event.physical_keycode in [KEY_ENTER, KEY_KP_ENTER]):
@@ -120,5 +133,9 @@ func _hotkey(event: InputEventKey) -> bool:
 		if index < buttons.size():
 			buttons[index].grab_focus()
 			buttons[index].pressed.emit()
+			# the HUD's key hands the focus back to the world (Enter or Space must not fire it again), unless the
+			# gamepad is walking its rail
+			if ui.persistent and not pad_rail and is_instance_valid(ui) and ui.is_inside_tree():
+				ui.get_viewport().gui_release_focus()
 		return true
 	return false
