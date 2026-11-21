@@ -51,9 +51,11 @@ type MemoryFact struct {
 
 // MemoryTopic is a piece of knowledge the hero heard in talk; it opens answers elsewhere (doc 103 §2).
 type MemoryTopic struct {
-	Journal         string   `json:"journal"`
-	FromBarks       []string `json:"from_barks"`
-	HearingCells    int      `json:"hearing_cells"`
+	Journal      string   `json:"journal"`
+	FromBarks    []string `json:"from_barks"`
+	HearingCells int      `json:"hearing_cells"`
+	// who gives the topic outside conversations and barks (the hero's personal file: his past at a new game), with why
+	ExternalWriters []string `json:"external_writers"`
 	ExternalReaders []string `json:"external_readers"`
 }
 
@@ -1015,6 +1017,9 @@ func checkMemory(c *Compiled) error {
 		}
 		if t.HearingCells < 1 {
 			return fmt.Errorf("%s: hearing cells", where)
+		}
+		for _, w := range t.ExternalWriters {
+			k.links.add(k.links.topicWriters, id, "вне: "+w)
 		}
 		for _, r := range t.ExternalReaders {
 			k.links.add(k.links.topicReaders, id, "вне: "+r)

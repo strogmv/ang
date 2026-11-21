@@ -260,6 +260,8 @@ func (r *Runtime) advanceStealth() error {
 	}
 	now := r.state.Life.Seconds
 	activities := r.lifeActivityBodies(h.Level)
+	// the hero's personal file: a hero who stands long draws the eye sooner (hero_file.go), once for every watcher
+	conspicuous := r.heroConspicuous()
 	for _, id := range ids {
 		profile := r.world.Stealth.Watchers[id]
 		a := r.state.Life.Actor(id)
@@ -291,7 +293,9 @@ func (r *Runtime) advanceStealth() error {
 		o.FaceY /= norm
 		o.At = a.Position
 		observer := combatLifeObserver{ID: id, Level: a.Level, At: a.Position}
-		o.Contact.Advance(r.world.Stealth.StealthPolicy, r.stealthEvidence(h, observer, o, moving, light), h.Position, now)
+		evidence := r.stealthEvidence(h, observer, o, moving, light)
+		evidence.Conspicuous = conspicuous
+		o.Contact.Advance(r.world.Stealth.StealthPolicy, evidence, h.Position, now)
 		if step && profile.InvestigateSteps && noiseListeners[id] {
 			loudness := r.heroStepLoudness(h, running)
 			if heard, ok := r.combatWorldHeard(observer, h.Position, loudness); ok {
@@ -340,7 +344,8 @@ func (r *Runtime) heroStepLoudness(h *behavior.LifeActor, running bool) float64 
 	if running && !h.Sneaking {
 		loudness = math.Min(1, loudness*r.world.Life.HeroBody.RunFactor)
 	}
-	return loudness
+	// the hero's personal file: a cautious hero's steps are quieter (hero_file.go)
+	return math.Min(1, loudness*float64(r.heroStepLoudnessPermille())/1000)
 }
 func (r *Runtime) clearStealthSearch(id string) {
 	if a := r.state.Life.Actor(id); a != nil && a.Safety != nil && a.Safety.Reason == "stealth observation" {

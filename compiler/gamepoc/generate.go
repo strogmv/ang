@@ -361,6 +361,9 @@ type Compiled struct {
 	Conversations map[string]*Conversation `json:"conversations,omitempty"`
 	memoryLinks   *memoryLinks
 	linksPage     []byte
+	// The hero's personal file before the lineup (doc 104 v2, world.hero_file, hero_file.go): profiles, strengths, past,
+	// traits and the words of the screen; the server builds the hero's start from the new game's choice. nil without it.
+	HeroFile *HeroFile `json:"hero_file,omitempty"`
 	// Craft places of the hub islands (demo-hub v16-goods, world.market_goods); nil in worlds without them.
 	Craft *CraftCatalog `json:"craft,omitempty"`
 	// The sound of the hall (demo-hub v26-alive, world.soundscape); nil in worlds without it.
@@ -616,6 +619,9 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 		return out, nil, err
 	}
 	if out.Memory, out.Conversations, err = readMemory(world); err != nil {
+		return out, nil, err
+	}
+	if out.HeroFile, err = readHeroFile(world); err != nil {
 		return out, nil, err
 	}
 	if err = rejectUnrunDialogueFields(world); err != nil {
@@ -1101,6 +1107,9 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	if err := out.DialogueRules.check(&out); err != nil {
 		return out, nil, err
 	}
+	if err := out.HeroFile.check(&out); err != nil {
+		return out, nil, err
+	}
 	if err := checkCalendarEncounter(&out); err != nil {
 		return out, nil, err
 	}
@@ -1346,6 +1355,9 @@ func generatePOC(project string, legacyUnity bool) error {
 	if len(compiled.linksPage) > 0 {
 		files[filepath.Join(project, "..", "design/dialogue/links.html")] = compiled.linksPage
 	}
+	if compiled.HeroFile != nil && len(compiled.HeroFile.report) > 0 {
+		files[filepath.Join(project, "..", "design/hero-creation/v1/skill-uses.md")] = compiled.HeroFile.report
+	}
 	if compiled.Wounds != nil {
 		woundFiles, err := wounds.Render(*compiled.Wounds)
 		if err != nil {
@@ -1554,6 +1566,8 @@ func generatePOC(project string, legacyUnity bool) error {
 		"conversation.go.tmpl":                  filepath.Join(project, "internal/poc/conversation.gen.go"),
 		"conversation_test.go.tmpl":             filepath.Join(project, "internal/poc/conversation_generated_test.go"),
 		"dialogue.go.tmpl":                      filepath.Join(project, "internal/poc/dialogue.gen.go"),
+		"hero_file.go.tmpl":                     filepath.Join(project, "internal/poc/hero_file.gen.go"),
+		"hero_file_test.go.tmpl":                filepath.Join(project, "internal/poc/hero_file_generated_test.go"),
 		"dialogue_test.go.tmpl":                 filepath.Join(project, "internal/poc/dialogue_generated_test.go"),
 		"calendar_encounter_test.go.tmpl":       filepath.Join(project, "internal/poc/calendar_encounter_generated_test.go"),
 		"conversation.cs.tmpl":                  filepath.Join(unity, "Assets/Generated/Poc/PocConversation.cs"),

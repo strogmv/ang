@@ -107,10 +107,39 @@ func (r *Runtime) refreshCombatEquipment(s inv.State,a *behavior.Combatant) {
 
 	riskID:=a.Weapon.ID;if a.Weapon.WoundProfile!=""{riskID=a.Weapon.WoundProfile};a.BodyRisk=r.world.CombatRuntime.WeaponRisk[riskID];if a.BodyRisk<1{a.BodyRisk=r.world.CombatRuntime.WeaponRisk["unarmed"]}
  if len(a.Body)>0&&!a.BodyCanHold{a.WeaponUsesLimited=true;a.WeaponUsesRemaining=0}
+ // the hero's personal file (part 1b): a profile that develops a skill fights with it — with the weapon now in hand
+ if profile.Develops!=nil{a.Skill=r.developedCombatSkill(profile,a.ID,a.Weapon)}
  ids:=make([]string,0,len(r.world.CombatRuntime.Explosives));for id:=range r.world.CombatRuntime.Explosives{ids=append(ids,id)};sort.Strings(ids)
 	for _,id:=range ids{n:=r.combatCount(s,a.ID,id,nil);if n>1000{n=1000};if n>0{a.Explosives=append(a.Explosives,behavior.CombatExplosiveStock{Explosive:r.world.CombatRuntime.Explosives[id],Count:n})}}
 }
 
+// developedCombatSkill: a fighter's skill with a weapon — his profile's, moved point for point by his developed skill
+// against the base it was tuned for (the hero: 45 + melee − the hero of the book's melee), within 0..100; with a
+// weapon of an excepted kind (a firearm) or without that developed skill, the profile's.
+func (r *Runtime) developedCombatSkill(profile combatProfile, actor string, weapon behavior.CombatWeapon) int {
+	return developedCombatSkillOf(profile, r.state.Life.Development, actor, weapon)
+}
+func developedCombatSkillOf(profile combatProfile, development behavior.PracticeState, actor string, weapon behavior.CombatWeapon) int {
+	d := profile.Develops
+	if d == nil {
+		return profile.Skill
+	}
+	kind := behavior.CombatWeaponKind(weapon)
+	for _, k := range d.Except {
+		if k == kind {
+			return profile.Skill
+		}
+	}
+	a, ok := development.Actors[actor]
+	if !ok {
+		return profile.Skill
+	}
+	v, ok := a.Skills[d.Skill]
+	if !ok {
+		return profile.Skill
+	}
+	return min(100, max(0, profile.Skill+int(v.ValueMilli/1000)-d.Base))
+}
 func (r *Runtime) consumeCombatStock(s *inv.State,actor,definition string,quantity int,filter func(inv.Item)bool) error {
 	if quantity<0{return errors.New("negative combat consumption")};left:=int64(quantity)
 	for _,id:=range combatItemKeys(*s) {

@@ -270,20 +270,7 @@ func (r *Runtime) autosaveHeld() bool {
 	if !s.Active || s.Paused || s.Life.PopulationFailure != "" {
 		return true
 	}
-	if s.Combat.Active && (r.heroInCombat() || s.Combat.LevelID == r.currentLevel()) {
-		return true
-	}
-	if s.Life.Enabled && s.Life.LocationLockdown[r.currentLevel()] {
-		return true
-	}
-	if s.AccessZones != nil {
-		for _, record := range s.AccessZones.Records {
-			if record.Person == playerActorID && (record.Phase == "countdown" || record.Phase == "fire") {
-				return true
-			}
-		}
-	}
-	return false
+	return r.heroInDanger()
 }
 
 // autosaveWhenDue: after every_play_minutes of play since the last save of any kind, the start of a game or a load, the

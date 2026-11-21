@@ -46,6 +46,65 @@ type PracticeActor struct {
 	LastEvent   PracticeEvent             `json:"last_event"`
 	LastResult  PracticeResult            `json:"last_result"`
 	Repetitions map[string]PracticeRepeat `json:"repetitions"`
+	// The actor's own start and learning, set by the host (the hero's personal file); nil = the profile's.
+	Own *PracticeOwn `json:"own,omitempty"`
+}
+
+// PracticeOwn: an actor's own start of some of its profile's skills (within the skill's cap) and its own learning of
+// some (permille of the profile's: 1500 = half again as fast), set by the host with SetOwn — the hero's personal file
+// at a new game (design/hero-creation/v1) and once more at its first check. Since is the actor's Sequence when it was
+// last set: the receipt of an action at or before it was earned under the earlier start and learning, so its gain is
+// checked for its shape only and never re-derived; every later receipt is re-derived as always.
+type PracticeOwn struct {
+	Start         map[string]int `json:"start,omitempty"`
+	LearnPermille map[string]int `json:"learn_permille,omitempty"`
+	Since         int64          `json:"since,omitempty"`
+}
+
+// profile: the actor's profile with its own starts.
+func (a PracticeActor) profile(p PracticeProfile) PracticeProfile {
+	if a.Own == nil || len(a.Own.Start) == 0 {
+		return p
+	}
+	out := p
+	out.Skills = make(map[string]PracticeSkillInitial, len(p.Skills))
+	for k, v := range p.Skills {
+		if start, ok := a.Own.Start[k]; ok {
+			v.Start = start
+		}
+		out.Skills[k] = v
+	}
+	return out
+}
+
+// learn: the actor's learning of a skill in permille, the profile's scaled by its own.
+func (a PracticeActor) learn(p PracticeProfile, skill string) int {
+	if a.Own != nil {
+		if own, ok := a.Own.LearnPermille[skill]; ok {
+			return p.LearnPermille * own / 1000
+		}
+	}
+	return p.LearnPermille
+}
+
+// validOwn: the own start and learning name the profile's skills, starts within their caps, learning within the
+// profile's bounds, Since within the actor's actions.
+func (o *PracticeOwn) valid(p PracticeProfile, sequence int64) bool {
+	if o == nil {
+		return true
+	}
+	for k, v := range o.Start {
+		cfg, ok := p.Skills[k]
+		if !ok || v < 0 || v > cfg.Cap {
+			return false
+		}
+	}
+	for k, v := range o.LearnPermille {
+		if _, ok := p.Skills[k]; !ok || v < 0 || v > 3000 {
+			return false
+		}
+	}
+	return o.Since >= 0 && o.Since <= sequence
 }
 type PracticeSkill struct {
 	ValueMilli int64 `json:"value_milli"`
@@ -148,6 +207,22 @@ func (m PracticeModel) Start() PracticeState {
 }
 func (a PracticeActor) clone() PracticeActor {
 	out := a
+	if a.Own != nil {
+		own := PracticeOwn{Since: a.Own.Since}
+		if a.Own.Start != nil {
+			own.Start = make(map[string]int, len(a.Own.Start))
+			for k, v := range a.Own.Start {
+				own.Start[k] = v
+			}
+		}
+		if a.Own.LearnPermille != nil {
+			own.LearnPermille = make(map[string]int, len(a.Own.LearnPermille))
+			for k, v := range a.Own.LearnPermille {
+				own.LearnPermille[k] = v
+			}
+		}
+		out.Own = &own
+	}
 	out.Skills = make(map[string]PracticeSkill, len(a.Skills))
 	for k, v := range a.Skills {
 		out.Skills[k] = v
@@ -176,17 +251,17 @@ func practiceOutcome(e PracticeEvent) bool { return e.Outcome == "success" || e.
 // All intermediate products are bounded by validated model limits. Each step
 // truncates to milli precision; a positive learning signal below cap earns at
 // least one milli. Zero quality/multipliers never receive this rounding floor.
-func practiceGain(r PracticeRule, p PracticeProfile, value PracticeSkill, e PracticeEvent, count int64) int64 {
+func practiceGain(r PracticeRule, learn int, value PracticeSkill, e PracticeEvent, count int64) int64 {
 	capMilli := int64(value.Cap) * 1000
 	outcome := r.SuccessPermille
 	if e.Outcome == "failure" {
 		outcome = r.FailurePermille
 	}
-	if capMilli <= value.ValueMilli || r.BaseGainMilli == 0 || p.LearnPermille == 0 || e.QualityPermille == 0 || outcome == 0 {
+	if capMilli <= value.ValueMilli || r.BaseGainMilli == 0 || learn == 0 || e.QualityPermille == 0 || outcome == 0 {
 		return 0
 	}
 	gain := r.BaseGainMilli * (capMilli - value.ValueMilli) / capMilli
-	gain = gain * int64(p.LearnPermille) / 1000
+	gain = gain * int64(learn) / 1000
 	gain = gain * int64(e.QualityPermille) / 1000
 	gain = gain * int64(outcome) / 1000
 	challenge := (int64(r.Difficulty)*1000 + 1000) * 1000 / (value.ValueMilli + 1000)
@@ -207,10 +282,11 @@ func practiceGain(r PracticeRule, p PracticeProfile, value PracticeSkill, e Prac
 	}
 	return gain
 }
-func (a PracticeActor) validate(m PracticeModel, id string, p PracticeProfile, now int64) error {
-	if a.Sequence < 0 || len(a.Skills) != len(p.Skills) {
+func (a PracticeActor) validate(m PracticeModel, id string, model PracticeProfile, now int64) error {
+	if a.Sequence < 0 || len(a.Skills) != len(model.Skills) || !a.Own.valid(model, a.Sequence) {
 		return fmt.Errorf("invalid practice actor %q", id)
 	}
+	p := a.profile(model)
 	for _, key := range practiceKeys(p.Skills) {
 		cfg := p.Skills[key]
 		v, ok := a.Skills[key]
@@ -262,7 +338,11 @@ func (a PracticeActor) validate(m PracticeModel, id string, p PracticeProfile, n
 		count = repeat.Count - 1
 	}
 	before := PracticeSkill{ValueMilli: result.BeforeMilli, Cap: v.Cap}
-	if result.GainMilli != practiceGain(r, p, before, e, count) {
+	if a.Own != nil && e.Sequence <= a.Own.Since {
+		// earned under the start and learning before the last SetOwn: its shape is checked above
+		return nil
+	}
+	if result.GainMilli != practiceGain(r, a.learn(p, r.Skill), before, e, count) {
 		return fmt.Errorf("inconsistent practice gain for %q", id)
 	}
 	return nil
@@ -341,7 +421,7 @@ func (s *PracticeState) Apply(m PracticeModel, e PracticeEvent, now int64) (Prac
 	if !exists || e.Tick-repeat.WindowStart >= r.RepeatWindowTicks {
 		repeat = PracticeRepeat{WindowStart: e.Tick}
 	}
-	gain := practiceGain(r, p, v, e, repeat.Count)
+	gain := practiceGain(r, a.learn(p, r.Skill), v, e, repeat.Count)
 	result := PracticeResult{Actor: e.Actor, Rule: e.Rule, Skill: r.Skill, Sequence: e.Sequence, Tick: e.Tick, BeforeMilli: v.ValueMilli, AfterMilli: v.ValueMilli + gain, GainMilli: gain}
 	next := a.clone()
 	v.ValueMilli = result.AfterMilli
@@ -359,4 +439,48 @@ func (s *PracticeState) Apply(m PracticeModel, e PracticeEvent, now int64) (Prac
 	next.LastResult = result
 	s.Actors[e.Actor] = next
 	return result, nil
+}
+
+// SetOwn sets an actor's own start and learning (the hero's personal file) and keeps what the actor has earned: each
+// skill moves by the change of its start, within the new start and its cap; the last receipt moves with its skill so
+// that it still ends at the skill's value, and is from now on checked for its shape only (Since). Atomic: the actor
+// changes only when the result validates.
+func (s *PracticeState) SetOwn(m PracticeModel, actor string, own PracticeOwn, now int64) error {
+	model, ok := m.Profiles[actor]
+	if !ok {
+		return fmt.Errorf("practice: unknown actor")
+	}
+	a, ok := s.Actors[actor]
+	if !ok {
+		return fmt.Errorf("practice: missing actor state")
+	}
+	if err := a.validate(m, actor, model, now); err != nil {
+		return err
+	}
+	old := a.profile(model)
+	next := a.clone()
+	own.Since = a.Sequence
+	next.Own = &own
+	if !next.Own.valid(model, next.Sequence) {
+		return fmt.Errorf("practice: invalid own start or learning for %q", actor)
+	}
+	fresh := next.profile(model)
+	for _, k := range practiceKeys(model.Skills) {
+		v := next.Skills[k]
+		delta := int64(fresh.Skills[k].Start-old.Skills[k].Start) * 1000
+		v.ValueMilli = min(int64(v.Cap)*1000, max(int64(fresh.Skills[k].Start)*1000, v.ValueMilli+delta))
+		next.Skills[k] = v
+	}
+	if next.Sequence > 0 {
+		r := &next.LastResult
+		delta := int64(fresh.Skills[r.Skill].Start-old.Skills[r.Skill].Start) * 1000
+		r.AfterMilli = next.Skills[r.Skill].ValueMilli
+		r.BeforeMilli = min(r.AfterMilli, max(int64(fresh.Skills[r.Skill].Start)*1000, r.BeforeMilli+delta))
+		r.GainMilli = r.AfterMilli - r.BeforeMilli
+	}
+	if err := next.validate(m, actor, model, now); err != nil {
+		return err
+	}
+	s.Actors[actor] = next
+	return nil
 }

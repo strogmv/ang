@@ -185,6 +185,9 @@ type Combatant struct {
  BodyCanWalk, BodyCanStand, BodyCanHold bool
  BodyRisk int
  BodyAPPenalty int
+ // AP of the wound penalty this fighter shrugs off (the hero's personal file: a stubborn hero), 0..APPerTurn; the turn's
+ // AP lose WoundAPPenalty, never below the raw penalty minus this.
+ WoundAPRelief int `json:"wound_ap_relief,omitempty"`
  BodyMoveScale int
  SeriousWound bool
  Facing Cell
@@ -206,6 +209,9 @@ type Combatant struct {
 }
 
 func(a Combatant)WeaponRisk()int{if len(a.Body)>0{return max(1,a.BodyRisk)};return a.Weapon.Damage}
+
+// WoundAPPenalty: the AP a fighter's wounds take from each turn, less what he shrugs off.
+func (a Combatant) WoundAPPenalty() int { return max(0, a.BodyAPPenalty-a.WoundAPRelief) }
 
 func (a Combatant) Able() bool { return a.HP > 0 && !a.Surrendered && !a.Withdrawn && a.FightResponse!="fall" }
 
@@ -512,7 +518,7 @@ func (a Combatant) Validate(r CombatRules) error {
 	if len(a.ID) > 256 || len(a.Team) > 256 || len(a.Weapon.ID) > 256 || a.MaxHP > 1000000 || a.Armor > 1000000 || a.Ammo > 1000000 || a.ReserveAmmo > 1000000 || a.Medkits > 10000 || a.Weapon.Damage > 1000000 || a.Weapon.RangeMM > 10000000 || a.Weapon.Magazine > 1000000 || a.Weapon.AttackAP > 100 || a.Initiative < -1000000 || a.Initiative > 1000000 {
 		return errors.New("combatant stat bounds exceeded")
 	}
-	if a.ID == "" || a.Team == "" || a.MaxHP < 1 || a.HP < 0 || a.HP > a.MaxHP || a.AP < 0 || a.AP > r.APPerTurn || a.Armor < 0 || a.Skill < 0 || a.Skill > 100 || a.Courage < 0 || a.Courage > 100 || a.Ammo < 0 || a.Ammo > a.Weapon.Magazine || a.ReserveAmmo < 0 || a.Medkits < 0 || a.Weapon.Damage < 0 || a.Weapon.RangeMM < 0 || a.Weapon.AttackAP < 0 || a.Weapon.Magazine < 0 {
+	if a.ID == "" || a.Team == "" || a.MaxHP < 1 || a.HP < 0 || a.HP > a.MaxHP || a.AP < 0 || a.AP > r.APPerTurn || a.WoundAPRelief < 0 || a.WoundAPRelief > r.APPerTurn || a.Armor < 0 || a.Skill < 0 || a.Skill > 100 || a.Courage < 0 || a.Courage > 100 || a.Ammo < 0 || a.Ammo > a.Weapon.Magazine || a.ReserveAmmo < 0 || a.Medkits < 0 || a.Weapon.Damage < 0 || a.Weapon.RangeMM < 0 || a.Weapon.AttackAP < 0 || a.Weapon.Magazine < 0 {
 		return fmt.Errorf("invalid combatant %s", a.ID)
 	}
 	if a.Weapon.Damage > 0 && (a.Weapon.RangeMM < 1 || a.Weapon.AttackAP < 1) {
@@ -736,7 +742,7 @@ func (s *CombatState) beginTurn(r CombatRules, space CombatSpace) bool {
 	if r.SuppressionPerAP > 0 {
 		penalty = a.Suppression / r.SuppressionPerAP
 	}
-	penalty+=a.BodyAPPenalty
+	penalty+=a.WoundAPPenalty()
 	a.AP = max(1, r.APPerTurn-penalty)
 	a.Suppression = max(0, a.Suppression-r.SuppressionRecovery)
 	a.Morale = min(100, a.Morale+r.MoraleRecovery)
@@ -1054,12 +1060,23 @@ func (s CombatState) friendlyFire(space CombatSpace, r CombatRules, from Cell, a
 	}
 	return false
 }
+// HitOdds: the core of a blow's or a shot's chance — the attacker's skill against the defender's, times his weapon's
+// reach falloff at the distance (a melee weapon: the melee scale; a rolling defender: the roll accuracy) — before cover
+// and armor, wounds, morale, mode and body part (shotChance applies those). The hero's personal file words its fight line
+// with it (hero_file.go).
+func (r CombatRules) HitOdds(a, b Combatant, distanceMM int, rolling bool) float64 {
+	falloff := 1 - .5*float64(distanceMM)/float64(a.Weapon.RangeMM)
+	if combatWeaponKind(a.Weapon) != "firearm" && r.MeleeSkillScale > 0 {
+		falloff = r.MeleeSkillScale
+	}
+	if rolling {
+		falloff *= r.RollAccuracy
+	}
+	return float64(a.Skill) / float64(a.Skill+b.Skill+1) * falloff
+}
 func (s CombatState) shotChance(space CombatSpace, r CombatRules, a, b Combatant, from Cell, q combatShotSpec, round int) float64 {
 	distance := space.rangeMM(from, b.Position)
-	falloff := 1 - .5*float64(distance)/float64(a.Weapon.RangeMM)
- if combatWeaponKind(a.Weapon)!="firearm"&&r.MeleeSkillScale>0{falloff=r.MeleeSkillScale}
-	if b.RollingUntilTurn>=s.Turn&&b.RollingUntilTurn>0{falloff*=r.RollAccuracy}
- chance := float64(a.Skill) / float64(a.Skill+b.Skill+1) * falloff * (1 - space.protection(from, b.Position, a, b, r.PhysicalPart(q.BodyPart)))
+	chance := r.HitOdds(a, b, distance, b.RollingUntilTurn >= s.Turn && b.RollingUntilTurn > 0) * (1 - space.protection(from, b.Position, a, b, r.PhysicalPart(q.BodyPart)))
 	if a.Crouched {
 		chance *= 1.08
 	}
@@ -1353,7 +1370,7 @@ func(s *CombatState)ExecuteAssault(space CombatSpace,r CombatRules,actorID strin
  if action.Type!="assault"{return errors.New("explicit assault required")}
  draft:=s.Clone();actor:=draft.Actor(actorID);victim:=draft.Actor(action.TargetID)
  if actor==nil||!actor.Able()||victim==nil||victim.HP<=0||victim.Prone||!victim.Surrendered||victim.Withdrawn{return errors.New("no standing surrendered target")}
- if !draft.Active{draft.Active=true;draft.Winner="";draft.Turn++;draft.TurnSpentS=0;actor.AP=max(1,r.APPerTurn-actor.BodyAPPenalty);for i:=range draft.Actors{if draft.Actors[i].ID==actorID{draft.CurrentIndex=i}}}
+ if !draft.Active{draft.Active=true;draft.Winner="";draft.Turn++;draft.TurnSpentS=0;actor.AP=max(1,r.APPerTurn-actor.WoundAPPenalty());for i:=range draft.Actors{if draft.Actors[i].ID==actorID{draft.CurrentIndex=i}}}
  if err:=draft.Execute(space,r,actorID,action);err!=nil{return err};*s=draft;return nil
 }
 func (s *CombatState) Execute(space CombatSpace, r CombatRules, actorID string, action CombatAction) error {
@@ -2224,7 +2241,7 @@ func(s CombatState)ThreatensCare(space CombatSpace,r CombatRules,patient Combata
  for _,enemy:=range s.Actors{if enemy.ID==patient.ID||enemy.Team==patient.Team||!enemy.Able()||enemy.StunTurns>0||!space.ActorVisible(enemy,patient,r){continue}
   if len(enemy.Body)>0&&!enemy.BodyCanHold{continue}
   if enemy.WeaponUsesLimited&&enemy.WeaponUsesRemaining<1{continue}
-  budget:=max(1,r.APPerTurn-enemy.BodyAPPenalty)
+  budget:=max(1,r.APPerTurn-enemy.WoundAPPenalty())
   if combatWeaponKind(enemy.Weapon)=="firearm"{if enemy.Ammo>0&&budget>=enemy.Weapon.AttackAP&&(space.CanUseWeapon==nil||space.CanUseWeapon(enemy))&&space.ballisticClear(enemy.Position,patient.Position,enemy,patient,"torso"){return true};continue}
   if budget<enemy.Weapon.AttackAP{continue}
   if space.rangeMM(enemy.Position,patient.Position)<=enemy.Weapon.RangeMM&&space.ballisticClear(enemy.Position,patient.Position,enemy,patient,"torso"){return true}

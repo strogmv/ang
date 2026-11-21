@@ -24,6 +24,12 @@ type combatProfile struct {
 	Ammo         int                   `json:"ammo"`
 	ReserveAmmo  int                   `json:"reserve_ammo"`
 	Medkits      int                   `json:"medkits"`
+	// the fighter's skill grows with a developed skill (the hero's personal file, part 1b; developedCombatSkill)
+	Develops *struct {
+		Skill  string   `json:"skill"`
+		Base   int      `json:"base"`
+		Except []string `json:"except"`
+	} `json:"develops,omitempty"`
 }
 type combatLifeSync struct { EncounterID string; Sequence uint64 }
 
@@ -75,6 +81,9 @@ func (c combatCatalog) Validate() error {
 		if p.Skill < 0 || p.Skill > 100 || p.Courage < 0 || p.Courage > 100 || p.Weapon.ID == "" || p.Weapon.Damage < 1 || p.Weapon.AttackAP < 1 || p.Weapon.RangeMM < 1 {
 			return errors.New("invalid combat profile")
 		}
+		if d := p.Develops; d != nil && (d.Skill == "" || d.Base < 0 || d.Base > 100) {
+			return errors.New("invalid developed combat skill")
+		}
 	}
 	for _, id := range c.Actors {
 		if _, ok := c.Profiles[id]; !ok {
@@ -105,6 +114,8 @@ func (r *Runtime) combatant(id, team string) behavior.Combatant {
  r.initializeWoundBody(&a)
  r.refreshCombatEquipment(r.state.Inventory,&a)
  if hero:=r.state.Life.Actor(id);hero!=nil&&id==playerActorID&&hero.Sneaking&&!hero.SneakUpright{a.Crouched=true;a.Prone=false}
+ // the hero's personal file: a stubborn hero shrugs off part of the wound penalty (hero_file.go)
+ if id==playerActorID{a.WoundAPRelief=r.heroWoundRelief()}
  return a
 }
 func(r *Runtime) heroInCombat()bool{return r.state.Combat.Active&&r.state.Combat.Actor(playerActorID)!=nil}

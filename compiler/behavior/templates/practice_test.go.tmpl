@@ -304,3 +304,91 @@ func TestPracticeModelRejectsInvalidContent(t *testing.T) {
 		}
 	}
 }
+
+// The hero's personal file (design/hero-creation/v1): an actor's own start replaces the profile's, its own learning
+// makes a marked skill grow faster, and a second setting (the first check) keeps what was earned.
+func TestPracticeOwnStartLearningAndRecheckKeepEarnedGain(t *testing.T) {
+	m := practiceFixture()
+	s := m.Start()
+	if err := s.SetOwn(m, "hero", PracticeOwn{Start: map[string]int{"shooting": 35, "melee": 25}, LearnPermille: map[string]int{"shooting": 1500}}, 0); err != nil {
+		t.Fatal(err)
+	}
+	if s.Value("hero", "shooting") != 35 || s.Value("hero", "melee") != 25 || s.Value("worker", "shooting") != 20 {
+		t.Fatal("own start not applied to the hero only")
+	}
+	if err := s.Validate(m, 0); err != nil {
+		t.Fatalf("an own start fails validation: %v", err)
+	}
+	// the same start without the faster learning: the marked skill gains half again as much
+	plain := m.Start()
+	if err := plain.SetOwn(m, "hero", PracticeOwn{Start: map[string]int{"shooting": 35, "melee": 25}}, 0); err != nil {
+		t.Fatal(err)
+	}
+	fast := practiceApply(t, &s, m, practiceEvent("hero", "aimed_shot", 1, 2))
+	slow := practiceApply(t, &plain, m, practiceEvent("hero", "aimed_shot", 1, 2))
+	if d := fast.GainMilli*2 - slow.GainMilli*3; fast.GainMilli <= slow.GainMilli || d < -4 || d > 4 {
+		t.Fatalf("own learning 1500: gain %d, plain %d", fast.GainMilli, slow.GainMilli)
+	}
+	// a tampered value of the start is refused: the actor never practised melee
+	bad := s.Clone()
+	a := bad.Actors["hero"]
+	a.Skills["melee"] = PracticeSkill{ValueMilli: 24000, Cap: 70}
+	bad.Actors["hero"] = a
+	if bad.Validate(m, 2) == nil {
+		t.Fatal("a skill below its own start validated")
+	}
+	// the first check: shooting's start drops by 10, melee's rises by 5; earned shooting stays
+	earned := s.Actors["hero"].Skills["shooting"].ValueMilli - 35000
+	if err := s.SetOwn(m, "hero", PracticeOwn{Start: map[string]int{"shooting": 25, "melee": 30}, LearnPermille: map[string]int{"melee": 1500}}, 2); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Actors["hero"].Skills["shooting"].ValueMilli; got != 25000+earned {
+		t.Fatalf("recheck lost the earned gain: %d, want %d", got, 25000+earned)
+	}
+	if s.Value("hero", "melee") != 30 || s.Actors["hero"].Own.Since != 1 {
+		t.Fatal("recheck start or receipt anchor")
+	}
+	if err := s.Validate(m, 2); err != nil {
+		t.Fatalf("a rechecked actor fails validation: %v", err)
+	}
+	// the next action is re-derived under the new learning again
+	practiceApply(t, &s, m, practiceEvent("hero", "melee_exchange", 2, 4))
+	if err := s.Validate(m, 4); err != nil {
+		t.Fatal(err)
+	}
+	forged := s.Clone()
+	a = forged.Actors["hero"]
+	a.LastResult.GainMilli++
+	a.LastResult.AfterMilli++
+	v := a.Skills["melee"]
+	v.ValueMilli++
+	a.Skills["melee"] = v
+	forged.Actors["hero"] = a
+	if forged.Validate(m, 4) == nil {
+		t.Fatal("a forged gain after the recheck validated")
+	}
+	// an own start above the cap, of an unknown skill, or Since ahead of the actions are refused
+	for name, own := range map[string]PracticeOwn{
+		"above cap":     {Start: map[string]int{"melee": 71}},
+		"unknown skill": {Start: map[string]int{"cooking": 10}},
+		"bad learning":  {LearnPermille: map[string]int{"melee": 3001}},
+	} {
+		c := s.Clone()
+		if c.SetOwn(m, "hero", own, 4) == nil {
+			t.Fatalf("%s accepted", name)
+		}
+	}
+	c := s.Clone()
+	a = c.Actors["hero"]
+	a.Own.Since = a.Sequence + 1
+	c.Actors["hero"] = a
+	if c.Validate(m, 4) == nil {
+		t.Fatal("Since ahead of the actions validated")
+	}
+	// the clone is deep
+	c2 := s.Clone()
+	c2.Actors["hero"].Own.Start["melee"] = 0
+	if s.Actors["hero"].Own.Start["melee"] != 30 {
+		t.Fatal("clone shares the own start")
+	}
+}

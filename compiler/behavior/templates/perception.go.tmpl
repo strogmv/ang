@@ -32,6 +32,9 @@ type StealthEvidence struct {
  Moving,Sneaking bool
  LightKnown bool
  LightFactor float64
+ // How much more the target draws the eye than usual (the hero's personal file: a patient hero who stands long is
+ // noticed sooner); 0 or 1 = as usual, at most 3.
+ Conspicuous float64
 }
 func(p StealthPolicy)VisualRate(e StealthEvidence)float64{
  light:=1.0;if e.LightKnown{if !(e.LightFactor>=0&&e.LightFactor<=1){return 0};light=e.LightFactor}
@@ -40,7 +43,9 @@ func(p StealthPolicy)VisualRate(e StealthEvidence)float64{
  if e.DistanceMM<=p.NearMM{return 1000}
  if e.FacingDot<p.ConeCos{return 0}
  rate:=p.AcquirePerSecond*e.Exposure*(1-.5*float64(e.DistanceMM)/reach)*light
- if e.Sneaking{rate*=p.SneakVisibility};if e.Moving{rate*=p.MovingVisibility};return rate
+ if e.Sneaking{rate*=p.SneakVisibility};if e.Moving{rate*=p.MovingVisibility}
+ if e.Conspicuous>1{rate*=math.Min(3,e.Conspicuous)}
+ return rate
 }
 // LastSeen changes only on actual recognition. A hidden target position is
 // never copied into memory, including while an old contact is being searched.

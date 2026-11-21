@@ -710,6 +710,7 @@ func (r *Runtime) snapshotState() state {
 	s.Busker = r.state.Busker.clone()
  s.CalendarEncounter=r.state.CalendarEncounter.clone()
 	s.Memory = r.state.Memory.clone()
+ s.HeroFile=r.state.HeroFile.clone()
 	s.Crafting = r.state.Crafting.Clone()
 	s.Barks = r.state.Barks.Clone()
 	s.Path = append([]point(nil), s.Path...)

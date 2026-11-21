@@ -57,6 +57,13 @@ func (r *Runtime) initLifeState(life behavior.LifeState) {
 	r.syncLifeHero()
 	r.updateLifeExploration()
 	r.state.Life.ObserveDecisions()
+	// every new life world starts with the hero of the book's file; a new game then applies its own (hero_file.go)
+	r.state.HeroFile = nil
+	if w := r.world.HeroFile; w != nil {
+		if err := r.heroFileNewGame(w.Default); err != nil {
+			panic(fmt.Sprintf("the hero of the book's file does not start: %v", err)) // ANG checks the start against the caps
+		}
+	}
 }
 
 // Explicit initial map knowledge is memory of fixed geometry only. Live actors,
@@ -111,6 +118,8 @@ func (r *Runtime) advanceLifeFrameBy(delta int64) error {
 	r.state.Life.Seed = r.state.Seed
  r.combatLifeBeforeFrame()
  r.calendarEncounterBeforeFrame()
+ // the hero's personal file: since when he stands, the first check on the first night in the dorm (hero_file.go)
+ r.heroFileBeforeFrame()
  // market musician v1: his routine override for this frame (busker.go.tmpl)
  r.buskerBeforeFrame()
 	defer r.state.Life.ObserveDecisions()
@@ -286,6 +295,7 @@ func (r *Runtime) sendLifeState(c *connection) {
  r.appendIllumination(view,hero)
  r.appendBarks(view,msg,hero,c.locale)
  r.appendEncounterBark(view,msg,hero,c.locale)
+ r.appendHeroFileOffer(msg,c.locale)
 	if hero.Trip != nil {
 		edge := r.world.Life.Edge(hero.Trip.Edge)
 		view.TripDestination = r.regionLevelName(c.locale, edge.To)

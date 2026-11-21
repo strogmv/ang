@@ -116,6 +116,8 @@ type worldData struct {
 	// story memory (doc 103 step 1): facts, topics, interjections, talks, and every conversation (conversation.go)
 	Memory        *memoryCatalog              `json:"memory"`
 	Conversations map[string]*conversationDef `json:"conversations"`
+	// the hero's personal file (hero_file.go): nil without world.hero_file
+	HeroFile *heroFileCatalog `json:"hero_file"`
  Peddlers                peddlerCatalog                  `json:"peddlers"`
 	Visitors                visitorCatalog                  `json:"visitors"`
 	Busker                  buskerCatalog                   `json:"busker"`
@@ -193,6 +195,8 @@ type state struct {
 	Tick, Seed           int64
 	// conversation checks (dialogue.go): this game's own value, drawn once at a new game; a load keeps it (never rerolls)
 	CheckSeed int64 `json:",omitempty"`
+	// the hero's personal file (hero_file.go): the new game's choice; nil outside a life world
+	HeroFile *heroFileState `json:"hero_file,omitempty"`
 	PlayerName           string
 	Player               point
 	Path                 []point
@@ -776,6 +780,11 @@ func (r *Runtime) command(in input) {
   return
  }
 <<ANG end ANG>>
+	// the hero's personal file screen: a pure answer for a choice, the running game untouched (hero_file.go)
+	if request := m.GetHeroFile(); request != nil {
+		r.send(c, &pb.ServerMessage{Msg: &pb.ServerMessage_HeroFile{HeroFile: r.heroFileView(c.locale, request)}})
+		return
+	}
 	if request := m.GetLocale(); request != nil {
 		c.locale = r.validLocale(request.Locale)
 		r.sendState(c)
@@ -819,6 +828,9 @@ func (r *Runtime) command(in input) {
 	case m.GetNewGame() != nil:
 		v := m.GetNewGame()
 		id, action, epoch = v.RequestId, "new", v.Epoch
+	case m.GetHeroFileCommand() != nil:
+		v := m.GetHeroFileCommand()
+		id, action, epoch = v.RequestId, "hero_file", v.Epoch
 	case m.GetSaveGame() != nil:
 		v := m.GetSaveGame()
 		id, action, epoch, slot, kind = v.RequestId, "save", v.Epoch, v.Slot, v.Kind
@@ -878,6 +890,10 @@ func (r *Runtime) command(in input) {
 		err := r.craftingCommand(m.GetCraftingCommand(), c.locale)
 		r.action(c, id, action, slot, err)
 		r.sendState(c)
+	case "hero_file":
+		err := r.heroFileCommand(m.GetHeroFileCommand())
+		r.heroFileAction(c, id, err)
+		r.sendState(c)
 	case "new":
 		v := m.GetNewGame()
 		scenario := v.Scenario
@@ -888,6 +904,17 @@ func (r *Runtime) command(in input) {
 		if err != nil {
 			r.action(c, id, action, slot, err)
 			return
+		}
+		// the hero's personal file (hero_file.go): read and complete before the running game is replaced
+		var file heroFileChoice
+		if world.HeroFile != nil {
+			if file, err = world.HeroFile.read(v.HeroFile); err == nil {
+				err = world.HeroFile.complete(file)
+			}
+			if err != nil {
+				r.action(c, id, action, slot, err)
+				return
+			}
 		}
 		seed := v.Seed
 		if seed == 0 {
@@ -932,12 +959,22 @@ func (r *Runtime) command(in input) {
 				life.Actor(playerActorID).Manual = true
 			}
 		}
+		// the new game is built in place and swapped back on a failure: the running game stays as it was
+		previousWorld, previousState, previousStore := r.world, r.state, r.openStore
+		restore := func(err error) {
+			r.world, r.state, r.openStore = previousWorld, previousState, previousStore
+			r.action(c, id, action, slot, err)
+		}
 		r.world = world
 		r.openStore = ""
 		r.state = state{Wounds:wounds.Save{Version:1},Playable:playableSceneState{ID:world.PlayableID},SDKLayout: layout, Inventory: items, Active: true, Epoch: newEpoch(), Seed: seed, CheckSeed: checkSeed, PlayerName: name, Player: world.Spawn, Speed: 1}
 		if isLife {
 			r.initLifeState(life)
-            if err:=r.initPlayableScene();err!=nil{r.action(c,id,action,slot,err);return}
+			if err := r.heroFileNewGame(file); err != nil {
+				restore(err)
+				return
+			}
+            if err:=r.initPlayableScene();err!=nil{restore(err);return}
 		} else {
 			r.initDemo(scenario)
 		}
@@ -1183,6 +1220,11 @@ func (r *Runtime) readSaveFile(slot string) (state, int64, error) {
 	migrateCheckSeed(&s)
 	validator, err := r.savedWorldRuntimeForState(s)
 	if err != nil {
+		return s, 0, err
+	}
+	// the hero's personal file: a save from before it gets a legacy file (hero_file.go), then it is checked
+	validator.migrateHeroFile(&s)
+	if err := validator.validateHeroFile(s); err != nil {
 		return s, 0, err
 	}
 	if err := validator.validateSDKSave(s); err != nil {

@@ -32,7 +32,7 @@ func combatBody(a behavior.Combatant) wounds.Body {
 }
 func projectWoundBody(a *behavior.Combatant, b wounds.Body) {
 	st := combatWounds.Status(b)
-	a.AP = max(0, a.AP-max(0, st.APPenalty-a.BodyAPPenalty))
+	a.AP = max(0, a.AP-max(0, max(0, st.APPenalty-a.WoundAPRelief)-a.WoundAPPenalty()))
 	a.Body, _ = json.Marshal(b)
 	a.BodyState = st.State
 	a.BodyCanWalk = st.CanWalk
@@ -201,7 +201,7 @@ func (r *Runtime) stopWoundedFight(s *behavior.CombatState, a *behavior.Combatan
 		return
 	}
 	psyche:=r.woundPsyche(*a)
- if a.Weapon.ID!="unarmed"&&a.Weapon.RangeMM>0&&a.BodyCanHold&&(!a.WeaponUsesLimited||a.WeaponUsesRemaining>0)&&(a.Weapon.Magazine==0||a.Ammo>0||a.ReserveAmmo>0&&max(1,r.world.CombatRuntime.Rules.APPerTurn-a.BodyAPPenalty)>=r.world.CombatRuntime.Rules.ReloadAP+a.Weapon.AttackAP){for _,other:=range s.Actors{if other.Team!=a.Team&&other.Able()&&r.combatDistance(a.Position,other.Position)<=max(a.Weapon.RangeMM,other.Weapon.RangeMM){psyche.ArmedContact=true;break}}}
+ if a.Weapon.ID!="unarmed"&&a.Weapon.RangeMM>0&&a.BodyCanHold&&(!a.WeaponUsesLimited||a.WeaponUsesRemaining>0)&&(a.Weapon.Magazine==0||a.Ammo>0||a.ReserveAmmo>0&&max(1,r.world.CombatRuntime.Rules.APPerTurn-a.WoundAPPenalty())>=r.world.CombatRuntime.Rules.ReloadAP+a.Weapon.AttackAP){for _,other:=range s.Actors{if other.Team!=a.Team&&other.Able()&&r.combatDistance(a.Position,other.Position)<=max(a.Weapon.RangeMM,other.Weapon.RangeMM){psyche.ArmedContact=true;break}}}
  reaction := combatWounds.StopFight(combatBody(*a), psyche, s.Seed+int64(s.ActionSeq)*65537+int64(s.EventSeq))
 	if len(previous)>0&&previous[0]=="flee"&&reaction.Kind=="fight_on"{reaction.Kind="flee";reaction.Reason="continuing escape after another serious wound"}
  a.FightResponse = reaction.Kind
