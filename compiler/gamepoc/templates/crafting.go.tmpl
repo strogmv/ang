@@ -25,6 +25,19 @@ import (
 func (r *Runtime) craftingOn() bool {
 	return r.world.Crafting.Hero.Actor != "" && r.state.Life.Enabled
 }
+// growCrafting (saves growth, owner 20.11): a new resident who is a crafting master starts with the points and
+// knowledge a new game gives him; the save's own workers stay as they are.
+func (r *Runtime) growCrafting(s *state, owners map[string]bool) {
+	if r.world.Crafting.Hero.Actor == "" || s.Crafting.Actors == nil {
+		return
+	}
+	for id, a := range r.world.Crafting.NewState().Actors {
+		if _, ok := s.Crafting.Actors[id]; !ok && owners[id] {
+			s.Crafting.Actors[id] = a
+		}
+	}
+}
+
 func (r *Runtime) initCrafting() {
 	r.state.Crafting = crafting.State{}
 	if r.world.Crafting.Hero.Actor != "" {

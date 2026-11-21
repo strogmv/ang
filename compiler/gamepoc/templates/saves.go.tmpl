@@ -131,17 +131,53 @@ func (r *Runtime) noteSaveProblem(slot string, err error) {
 	if !errors.As(err, &problem) {
 		return
 	}
-	if r.saveNotes == nil {
-		r.saveNotes = map[string]string{}
-	}
-	if r.saveNotes[slot] == problem.reason {
-		return
-	}
-	r.saveNotes[slot] = problem.reason
 	kind := "from an older version of the game"
 	if problem.damaged {
 		kind = "damaged"
 	}
+	r.noteSave(slot, kind, problem.reason)
+}
+
+// growSavedWorld (saves growth, owner 20.11) gives an older save the residents the content has gained since, and only
+// what belongs to them: Life (each at his hour, placed on the save's own floor — its gates and decks — clear of everyone
+// and of the host's bodies: walkers, the cabinet, convoys, trailers, the musician's case), his practice, his inventory
+// (accounts, stores, entitlements, deliveries, shop fronts the save lacks, and the things of the sources in the stores
+// added for him, as a new game creates them), his starting balance in the economy's ledger, a crafting master's state.
+// It runs before the validators, which then check the grown state as any; whatever else the save lacks still refuses.
+// A resident the content lost is no growth: the load refuses with his name.
+func (r *Runtime) growSavedWorld(s *state) ([]string, error) {
+	if !s.Life.Enabled || s.SDKLayout != "" || s.Playable.ID != "" {
+		return nil, nil
+	}
+	saved := &Runtime{world: r.world, state: *s}
+	floor := s.Life.GateModel(saved.liftingDeckLifeModel(*s, r.world.Life))
+	added, err := s.Life.Grow(r.world.Life, floor, saved.walkersDynamic(true, true))
+	if err != nil || len(added) == 0 {
+		return nil, err
+	}
+	owners := map[string]bool{}
+	for _, id := range added {
+		owners[id] = true
+	}
+	g, err := s.Inventory.Grow(r.inventoryModelFor(true), s.Seed, s.Life.Seconds, owners)
+	if err != nil {
+		return nil, fmt.Errorf("the new residents' things: %w", err)
+	}
+	r.growNPCEconomy(s, g.Accounts)
+	r.growCrafting(s, owners)
+	return added, nil
+}
+
+// noteSave writes a line about a slot to save-problems.log, once per slot, kind and text.
+func (r *Runtime) noteSave(slot, kind, text string) {
+	if r.saveNotes == nil {
+		r.saveNotes = map[string]string{}
+	}
+	if r.saveNotes[slot+"\x00"+kind] == text {
+		return
+	}
+	r.saveNotes[slot+"\x00"+kind] = text
+	reason := text
 	path := filepath.Join(r.data, saveProblemLog)
 	flags := os.O_CREATE | os.O_WRONLY | os.O_APPEND
 	if info, statErr := os.Stat(path); statErr == nil && info.Size() > saveProblemLogMax {
@@ -152,7 +188,7 @@ func (r *Runtime) noteSaveProblem(slot string, err error) {
 		return
 	}
 	defer f.Close()
-	_, _ = fmt.Fprintf(f, "%s %s: %s: %s\n", time.Now().UTC().Format(time.RFC3339), slot, kind, problem.reason)
+	_, _ = fmt.Fprintf(f, "%s %s: %s: %s\n", time.Now().UTC().Format(time.RFC3339), slot, kind, reason)
 }
 
 // rotatingSlot: the kind's slot to save into — an empty one first, else the one written longest ago.

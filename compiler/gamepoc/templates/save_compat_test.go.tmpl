@@ -351,24 +351,272 @@ func TestSaveCorpusSurvivesAdditiveContent(t *testing.T) {
 	}
 }
 
-// One more resident is not additive for a save yet: Life, inventory and practice keep exact registries of the residents
-// (growth migration: a job of its own). The save refuses as from an older version, with the reason.
-func TestSaveCorpusWithANewResidentRefusesAsOlderVersion(t *testing.T) {
+// growthTrader is the id of the resident the growth tests add: a copy of a trader of the market with his own wallet,
+// stall stores and stock (saves growth, owner 20.11).
+const growthTrader = "char.save_growth_new_trader"
+
+// addTrader adds to both worlds of r a new resident copied from a trader of the content: his day, his practice, his own
+// account, actor store, stall stores beside the original's and the stock of the original's sources in them. It returns
+// the id of the trader copied.
+func addTrader(t *testing.T, r *Runtime) string {
+	t.Helper()
+	m := r.world.Inventory
+	owner := ""
+	for _, src := range m.Sources {
+		if st, ok := m.Stores[src.Location.Store]; ok && src.Location.Kind == "store" && st.Owner != "" && st.Anchor.Kind == "world" && r.world.Life.Person(st.Owner) != nil && st.Owner != playerActorID {
+			if owner == "" || st.Owner < owner {
+				owner = st.Owner
+			}
+		}
+	}
+	if owner == "" {
+		t.Fatal("no trader with stock in the content")
+	}
+	changeWorld(r, func(w *worldData) {
+		var person behavior.LifePerson
+		for _, p := range w.Life.Actors {
+			if p.ID == owner {
+				person = p
+			}
+		}
+		person.ID = growthTrader
+		w.Life.Actors = append(append([]behavior.LifePerson(nil), w.Life.Actors...), person)
+		if p, ok := w.Life.Development.Profiles[owner]; ok {
+			w.Life.Development.Profiles[growthTrader] = p
+		}
+		m := &w.Inventory
+		m.Actors[growthTrader], m.Owners[growthTrader] = true, true
+		actorStore := "actor/" + growthTrader
+		m.Stores[actorStore] = invStore(actorStore, growthTrader, m.Stores["actor/"+owner])
+		for _, key := range sortedAccountKeys(m.Accounts) {
+			if a := m.Accounts[key]; a.Owner == owner && a.Currency == w.Life.Brain.Currency {
+				a.ID, a.Owner = "account.save_growth", growthTrader
+				m.Accounts[a.ID] = a
+				break
+			}
+		}
+		var sources []inv.Source
+		for _, src := range m.Sources {
+			st, ok := m.Stores[src.Location.Store]
+			if src.Location.Kind != "store" || !ok || st.Owner != owner || st.Anchor.Kind != "world" {
+				continue
+			}
+			store := src.Location.Store + ".growth"
+			m.Stores[store] = invStore(store, growthTrader, st)
+			src.ID, src.Owner, src.Location.Store = src.ID+".growth", growthTrader, store
+			sources = append(sources, src)
+		}
+		m.Sources = append(append([]inv.Source(nil), m.Sources...), sources...)
+	})
+	return owner
+}
+
+// One more resident (a new trader) is additive for a save now: on load he joins the saved world at his hour, with his
+// wallet, stores and stock as a new game creates them, and the world runs and saves on. Nothing the save had changes.
+func TestSaveCorpusGrowsANewResident(t *testing.T) {
 	corpus := saveCorpus(t)
 	for _, name := range saveCorpusNames(corpus) {
 		r, slot := corpusRuntime(t, corpus[name])
+		before, _, err := r.storageRuntime().readSave(slot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		owner := addTrader(t, r)
+		changedKey(r, "life", "inventory")
+		s, _, err := r.storageRuntime().readSave(slot)
+		if err != nil {
+			t.Fatalf("%s: a new resident: %v", name, err)
+		}
+		// the growth is the same on every load of the same file
+		if twice, _, err := r.storageRuntime().readSave(slot); err != nil || !reflect.DeepEqual(twice, s) {
+			t.Fatalf("%s: a second load of the old save differs: %v", name, err)
+		}
+		// the growth leaves the game's own check value alone: an old save's derived value is the same with or without it
+		if s.CheckSeed == 0 || s.CheckSeed != before.CheckSeed {
+			t.Fatalf("%s: check value %d after the growth, %d without", name, s.CheckSeed, before.CheckSeed)
+		}
+		a := s.Life.Actor(growthTrader)
+		if a == nil || len(s.Life.Actors) != len(before.Life.Actors)+1 {
+			t.Fatalf("%s: the new trader did not join", name)
+		}
+		// he stands where nothing the save knows stands: its people and the host's bodies (walkers, cabinet, convoys)
+		if a.OnFloor() {
+			host := (&Runtime{world: r.world, state: s}).walkersDynamic(true, true)
+			if host[a.Level][a.Position] || s.Life.BlockedCells(a.Level, a.ID)[a.Position] {
+				t.Fatalf("%s: the new trader stands on a taken cell %v", name, a.Position)
+			}
+		}
+		for _, b := range before.Life.Actors {
+			if g := s.Life.Actor(b.ID); g == nil || !reflect.DeepEqual(*g, b) {
+				t.Fatalf("%s: %s changed in the growth", name, b.ID)
+			}
+		}
+		for id, item := range before.Inventory.Items {
+			if !reflect.DeepEqual(s.Inventory.Items[id], item) {
+				t.Fatalf("%s: thing %s changed in the growth", name, id)
+			}
+		}
+		added, money := 0, int64(0)
+		for id, item := range s.Inventory.Items {
+			if _, had := before.Inventory.Items[id]; !had {
+				if item.Owner != growthTrader && item.Location.Store != "actor/"+growthTrader {
+					t.Fatalf("%s: %s is not the new trader's", name, id)
+				}
+				added++
+			}
+		}
+		for id, acc := range s.Inventory.Accounts {
+			if _, had := before.Inventory.Accounts[id]; !had {
+				money += acc.Balance
+			}
+		}
+		if added == 0 || s.Inventory.Accounts["account.save_growth"].Balance != r.world.Inventory.Accounts["account.save_growth"].Balance+r.world.Life.Brain.InitialBalance ||
+			s.NPCEconomy.InitialSource != before.NPCEconomy.InitialSource+r.world.Life.Brain.InitialBalance || money != s.Inventory.Accounts["account.save_growth"].Balance {
+			t.Fatalf("%s: the trader's stock %d, wallet %d, initial source %d -> %d", name, added, s.Inventory.Accounts["account.save_growth"].Balance, before.NPCEconomy.InitialSource, s.NPCEconomy.InitialSource)
+		}
+		if _, ok := s.Life.Development.Actors[growthTrader]; !ok && r.world.Life.Development.Profiles[owner].Skills != nil {
+			t.Fatalf("%s: the new trader has no practice", name)
+		}
+		loadAndRun(t, r, slot, name+" with a new trader")
+		if r.state.Life.Actor(growthTrader) == nil {
+			t.Fatalf("%s: the new trader is gone after running", name)
+		}
+		// his save loads again in the same build, without his things twice
+		again := r.world.Config.SaveSlots[1]
+		grown, _, err := r.storageRuntime().readSave(again)
+		if err != nil || len(grown.Life.Actors) != len(s.Life.Actors) {
+			t.Fatalf("%s: the grown world's own save: %v", name, err)
+		}
+	}
+}
+
+// The real case (saves growth): saves written by a build whose content had no street musician yet
+// (testdata/save-corpus/growth-no-musician) load in this content with the musician grown into them, his wallet and his
+// things, and the line in save-problems.log says so.
+func TestSaveCorpusGrowsTheMusician(t *testing.T) {
+	corpus := saveCorpus(t)
+	grown := 0
+	for _, name := range saveCorpusNames(corpus) {
+		if !strings.HasPrefix(name, "growth-no-musician/") {
+			continue
+		}
+		r, slot := corpusRuntime(t, corpus[name])
+		if r.world.Busker.Actor == "" {
+			t.Skip("the content has no musician")
+		}
+		var file saveFile
+		if err := json.Unmarshal(corpus[name], &file); err != nil {
+			t.Fatal(err)
+		}
+		var before state
+		if err := json.Unmarshal(file.State, &before); err != nil {
+			t.Fatal(err)
+		}
+		if before.Life.Actor(r.world.Busker.Actor) != nil {
+			t.Fatalf("%s already has the musician", name)
+		}
+		s, _, err := r.storageRuntime().readSave(slot)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if s.Life.Actor(r.world.Busker.Actor) == nil || len(s.Life.Actors) != len(r.world.Life.Actors) {
+			t.Fatalf("%s: the musician did not join", name)
+		}
+		if _, ok := s.Inventory.Accounts[r.world.Busker.Account]; !ok {
+			t.Fatalf("%s: the musician has no account", name)
+		}
+		log, _ := os.ReadFile(filepath.Join(r.data, saveProblemLog))
+		if !strings.Contains(string(log), "older save grown") || !strings.Contains(string(log), r.world.Busker.Actor) {
+			t.Fatalf("%s: no growth line in the log: %s", name, log)
+		}
+		loadAndRun(t, r, slot, name)
+		grown++
+	}
+	if grown == 0 {
+		t.Fatal("no growth-no-musician corpus")
+	}
+}
+
+// A save of the earlier record form still refuses, with a clear reason, when what it refers into by position changed:
+// a saved resident's steps (by his id), or, for a key no alias covers, the steps of all residents as one.
+func TestSaveOldFormStillRefusesAChangedStrictPart(t *testing.T) {
+	corpus := saveCorpus(t)
+	for _, name := range saveCorpusNames(corpus) {
+		if strings.HasPrefix(name, "growth-") {
+			continue
+		}
+		r, slot := corpusRuntime(t, corpus[name])
+		var each string
+		for p := range r.world.SaveKey.Parts {
+			if strings.HasPrefix(p, "life/actors/*/steps/*/activity[") && !strings.Contains(p, playerActorID) {
+				if each == "" || p < each {
+					each = p
+				}
+			}
+		}
+		changedKey(r, each)
+		_, _, err := r.storageRuntime().readSave(slot)
+		var problem saveProblem
+		if err == nil || !errors.As(err, &problem) || problem.damaged || !strings.Contains(problem.reason, each) {
+			t.Fatalf("%s: a resident's steps changed (%s): %v", name, each, err)
+		}
+		r, slot = corpusRuntime(t, corpus[name])
 		changeWorld(r, func(w *worldData) {
-			a := w.Life.Actors[len(w.Life.Actors)-1]
-			a.ID = "char.save_compat_new_resident"
-			w.Life.Actors = append(append([]behavior.LifePerson(nil), w.Life.Actors...), a)
+			if w.SaveKey.Legacy != nil {
+				legacy := *w.SaveKey.Legacy
+				legacy.Aliases = nil
+				w.SaveKey.Legacy = &legacy
+			}
+		})
+		var file saveFile
+		if err := json.Unmarshal(corpus[name], &file); err != nil {
+			t.Fatal(err)
+		}
+		if file.SaveKey == nil {
+			continue // a save without a key is read with the legacy record itself
+		}
+		changedKey(r, "life/actors/*/steps/*/activity")
+		_, _, err = r.storageRuntime().readSave(slot)
+		if err == nil || !errors.As(err, &problem) || problem.damaged || !strings.Contains(problem.reason, "life/actors/*/steps/*/activity") {
+			t.Fatalf("%s: the steps as one changed for a key without alias: %v", name, err)
+		}
+	}
+}
+
+// A resident the content lost is no growth: the save refuses as from an older version and names him.
+func TestSaveCorpusWithAResidentGoneRefusesWithHisName(t *testing.T) {
+	corpus := saveCorpus(t)
+	for _, name := range saveCorpusNames(corpus) {
+		r, slot := corpusRuntime(t, corpus[name])
+		gone := ""
+		changeWorld(r, func(w *worldData) {
+			actors := []behavior.LifePerson{}
+			for _, p := range w.Life.Actors {
+				if gone == "" && p.ID != playerActorID {
+					gone = p.ID
+					continue
+				}
+				if p.ID != gone {
+					actors = append(actors, p)
+				}
+			}
+			w.Life.Actors = actors
 		})
 		changedKey(r, "life")
 		_, _, err := r.storageRuntime().readSave(slot)
 		var problem saveProblem
-		if err == nil || !errors.As(err, &problem) || problem.damaged || !strings.Contains(problem.reason, "char.save_compat_new_resident") {
-			t.Fatalf("%s: a new resident without the growth migration: %v", name, err)
+		if err == nil || !errors.As(err, &problem) || problem.damaged || !strings.Contains(problem.reason, gone) {
+			t.Fatalf("%s: a resident gone (%s): %v", name, gone, err)
 		}
 	}
+}
+
+func invStore(id, owner string, from inv.Store) inv.Store {
+	from.ID, from.Owner = id, owner
+	if from.Anchor.Kind == "actor" {
+		from.Anchor.Actor = owner
+	}
+	return from
 }
 
 // A content id the save uses is gone: the load refuses as from an older version and says which.
@@ -413,7 +661,13 @@ func TestSaveRefusesARemovedID(t *testing.T) {
 // the reason goes to save-problems.log in the data folder.
 func TestSaveProblemsSayOlderOrDamaged(t *testing.T) {
 	corpus := saveCorpus(t)
-	name := saveCorpusNames(corpus)[0]
+	// a save whose record knows every strict part of this build (a growth corpus lacks the parts new since it)
+	name := ""
+	for _, n := range saveCorpusNames(corpus) {
+		if name == "" && !strings.HasPrefix(n, "growth-") {
+			name = n
+		}
+	}
 	r, slot := corpusRuntime(t, corpus[name])
 	part := r.world.SaveKey.Strict[0]
 	changedKey(r, part)

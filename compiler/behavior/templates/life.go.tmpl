@@ -148,6 +148,101 @@ func(m LifeModel)Start()LifeState{
   a:=LifeActor{ID:p.ID,Level:step.Level,Position:step.At,Goal:step.At,Step:index,Day:day,StartedAt:s.Seconds,Arrived:true,Activity:step.Activity,Label:step.Label,Visits:map[string]int{step.Level:1}};if step.Activity=="eat"{a.Meals++};s.Actors=append(s.Actors,a)
  };for i:=range s.Actors{s.enterResidence(m,&s.Actors[i])};s.Gates=m.startGates(s.Seconds,m.MotionTick(0,s.Seconds));return s
 }
+// Grow (saves growth, owner 20.11) adds to a saved Life the residents the content has gained since: each at the step
+// of his day the saved clock is in, as a new game would start him at that hour, entered into his home when he sleeps
+// there, else on the nearest cell of the save's own floor (floor: its gates and decks as saved) that nothing the save
+// knows stands on (its people and bodies, and extra: the host's walkers, cabinet, carts and trailers). His practice
+// starts as in a new game. Nothing the save holds is touched; the residents keep the content's order (by id, so a
+// reordered content loads too). A resident the content lost is no growth (Validate refuses the save). It returns the
+// residents added, or why one cannot be placed.
+func (s *LifeState) Grow(m, floor LifeModel, extra map[string]map[Cell]bool) ([]string, error) {
+	saved := map[string]LifeActor{}
+	for _, a := range s.Actors {
+		saved[a.ID] = a
+	}
+	for id := range saved {
+		if m.Person(id) == nil {
+			return nil, nil
+		}
+	}
+	ordered := len(saved) == len(m.Actors)
+	for i, p := range m.Actors {
+		ordered = ordered && i < len(s.Actors) && s.Actors[i].ID == p.ID
+	}
+	if ordered {
+		return nil, nil
+	}
+	at := m
+	at.StartSeconds = s.Seconds
+	fresh := at.Start()
+	var added []string
+	actors := make([]LifeActor, 0, len(m.Actors))
+	for i, p := range m.Actors {
+		if a, ok := saved[p.ID]; ok {
+			actors = append(actors, a)
+			continue
+		}
+		added = append(added, p.ID)
+		actors = append(actors, fresh.Actors[i])
+	}
+	s.Actors = actors
+	for _, id := range added {
+		a := s.Actor(id)
+		if !a.OnFloor() {
+			continue
+		}
+		blocked := s.BlockedCells(a.Level, a.ID)
+		for c := range extra[a.Level] {
+			blocked[c] = true
+		}
+		cell, ok := floor.freeCellNear(a.Level, a.Position, blocked)
+		if !ok {
+			return nil, fmt.Errorf("no free floor on %s for the new resident %s near %v", a.Level, a.ID, a.Position)
+		}
+		a.Position, a.Goal = cell, cell
+	}
+	if len(added) > 0 {
+		if s.Development.Actors == nil {
+			s.Development.Actors = map[string]PracticeActor{}
+		}
+		start := m.Development.Start()
+		for _, id := range added {
+			if p, ok := start.Actors[id]; ok {
+				if _, had := s.Development.Actors[id]; !had {
+					s.Development.Actors[id] = p
+				}
+			}
+		}
+	}
+	return added, nil
+}
+
+// freeCellNear: the walkable cell nearest to from (by steps over walkable cells; from itself may be shut now, a gate
+// closed on it) that nothing stands on, within a bounded search.
+func (m LifeModel) freeCellNear(level string, from Cell, blocked map[Cell]bool) (Cell, bool) {
+	seen := map[Cell]bool{from: true}
+	queue := []Cell{from}
+	for len(queue) > 0 && len(seen) < 1<<16 {
+		c := queue[0]
+		queue = queue[1:]
+		walks := m.Walks(level, c)
+		if walks && !blocked[c] {
+			return c, true
+		}
+		if !walks && c != from {
+			continue
+		}
+		for _, d := range []Cell{{X: 1}, {X: -1}, {Y: 1}, {Y: -1}} {
+			n := Cell{X: c.X + d.X, Y: c.Y + d.Y}
+			if !seen[n] {
+				seen[n] = true
+				queue = append(queue, n)
+			}
+		}
+	}
+	return Cell{}, false
+}
+
 // StartWithPopulation enables an explicit population scenario. Count zero keeps
 // the ordinary life state byte-for-byte compatible in its existing fields.
 func(m LifeModel)StartWithPopulation(count int,observerID string)(LifeState,error){

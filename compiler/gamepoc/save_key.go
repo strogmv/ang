@@ -27,12 +27,15 @@ import (
 //
 // Parts inside a section can differ from their section ("out" or "strict"), by a path of "/" segments where "*" is
 // every key of an object or item of a list and "**" any depth. A strict part with shape only hashes the lengths of
-// what it matches (a grid's rows and columns), not the values.
+// what it matches (a grid's rows and columns), not the values. A strict part with each (the id field of the items its
+// first "*" goes through) is hashed per item, "<path>[<id>]": a save then refuses only when an item it knows changed or
+// is gone, and an item new since the save (a new resident) is no change to it (saves growth, owner 20.11).
 type SaveKeyPolicy struct {
 	Sections map[string]SaveKeyRule `json:"sections"`
 	Parts    []SaveKeyPart          `json:"parts,omitempty"`
 	// Legacy: the key a save without one (a v1 save of an earlier build in the content-hash lists) is read with —
-	// the runtime package of the build that introduced the save key, pinned.
+	// the runtime package of the build that introduced the save key, pinned. Its aliases are keys in the earlier form of
+	// the record (before per-item strict parts) whose strict parts are this record's: a save carrying one is read with it.
 	Legacy *SaveKeyRecord `json:"legacy,omitempty"`
 }
 
@@ -47,14 +50,16 @@ type SaveKeyPart struct {
 	Key    string `json:"key"`
 	Reads  string `json:"reads,omitempty"`
 	Shape  bool   `json:"shape,omitempty"`
+	Each   string `json:"each,omitempty"`
 	Reason string `json:"reason"`
 }
 
 // SaveKeyRecord is what a save file carries: the whole key and the hash of every keyed section and strict part, so a
 // later build can compare whatever it holds strict then.
 type SaveKeyRecord struct {
-	Hash  string            `json:"hash"`
-	Parts map[string]string `json:"parts"`
+	Hash    string            `json:"hash"`
+	Parts   map[string]string `json:"parts"`
+	Aliases []string          `json:"aliases,omitempty"`
 }
 
 // SaveKeyCatalog is the section save_key of world.json.
@@ -63,6 +68,9 @@ type SaveKeyCatalog struct {
 	Parts map[string]string `json:"parts"`
 	// Strict: the sections and parts a save's record must match.
 	Strict []string `json:"strict"`
+	// StrictEach: the strict parts hashed per item ("<path>[<id>]" in Parts); "<path>" itself is their hash as one, for a
+	// record of the earlier form.
+	StrictEach []string `json:"strict_each,omitempty"`
 	// Unread: what the server does not decode (out, reads none), for the generated test that proves it.
 	Unread []string       `json:"unread"`
 	Legacy *SaveKeyRecord `json:"legacy,omitempty"`
@@ -142,6 +150,9 @@ func (p *SaveKeyPolicy) validate() error {
 			if section.Key != saveKeyChecked {
 				return fmt.Errorf("save_key part %q: a strict part belongs in a checked section (%q is %s)", part.Path, segs[0], section.Key)
 			}
+			if part.Each != "" && (!containsString(segs, "*") || strings.ContainsAny(part.Each, "/*[]")) {
+				return fmt.Errorf("save_key part %q: each names the id field of the items its first * goes through", part.Path)
+			}
 		case saveKeyOut:
 			if len(segs) == 1 {
 				return fmt.Errorf("save_key part %q: a whole section is left out by its section rule", part.Path)
@@ -149,8 +160,8 @@ func (p *SaveKeyPolicy) validate() error {
 			if part.Reads != saveReadsNone && part.Reads != saveReadsAside {
 				return fmt.Errorf("save_key part %q: out needs reads none or aside", part.Path)
 			}
-			if part.Shape {
-				return fmt.Errorf("save_key part %q: shape is for strict parts", part.Path)
+			if part.Shape || part.Each != "" {
+				return fmt.Errorf("save_key part %q: shape and each are for strict parts", part.Path)
 			}
 			if section.Key == saveKeyOut {
 				return fmt.Errorf("save_key part %q: section %q is out already", part.Path, segs[0])
@@ -166,6 +177,11 @@ func (p *SaveKeyPolicy) validate() error {
 		for name, h := range p.Legacy.Parts {
 			if !validHexHash(h) {
 				return fmt.Errorf("save_key.legacy part %q: not a sha256 hash", name)
+			}
+		}
+		for _, h := range p.Legacy.Aliases {
+			if !validHexHash(h) || h == p.Legacy.Hash {
+				return fmt.Errorf("save_key.legacy alias %q: another sha256 hash of the same package", h)
 			}
 		}
 	}
@@ -406,14 +422,70 @@ func computeSaveKey(p *SaveKeyPolicy, sections map[string]json.RawMessage) (Save
 			return out, err
 		}
 		out.Parts[part.Path] = h
-		out.Strict = append(out.Strict, part.Path)
+		if part.Each == "" {
+			out.Strict = append(out.Strict, part.Path)
+			continue
+		}
+		items, err := saveKeyEachItem(values[segs[0]], segs, part)
+		if err != nil {
+			return out, err
+		}
+		for id, item := range items {
+			if part.Shape {
+				for i := range item {
+					item[i].Value = saveKeyShape(item[i].Value)
+				}
+			}
+			if out.Parts[part.Path+"["+id+"]"], err = saveKeyHash(item); err != nil {
+				return out, err
+			}
+		}
+		out.StrictEach = append(out.StrictEach, part.Path)
 	}
 	sort.Strings(out.Strict)
+	sort.Strings(out.StrictEach)
 	sort.Strings(out.Unread)
 	out.Hash = saveKeyRecordHash(out.Parts)
 	if p.Legacy != nil {
 		legacy := *p.Legacy
 		out.Legacy = &legacy
+	}
+	return out, nil
+}
+
+// saveKeyEachItem: the matches of a per-item strict part grouped by the id of the item its first "*" goes through.
+func saveKeyEachItem(section any, segs []string, part SaveKeyPart) (map[string][]saveKeyMatch, error) {
+	first := 0
+	for i, s := range segs {
+		if s == "*" {
+			first = i
+			break
+		}
+	}
+	var containers []saveKeyMatch
+	saveKeySelect(section, segs[1:first], segs[0], &containers)
+	out := map[string][]saveKeyMatch{}
+	for _, c := range containers {
+		var problem error
+		saveKeyEach(c.Value, c.Path, func(item any, at string) {
+			fields, ok := item.(map[string]any)
+			id, named := fields[part.Each].(string)
+			if !ok || !named || id == "" || strings.ContainsAny(id, "[]") {
+				problem = fmt.Errorf("save_key part %q: %s has no %s to name it by", part.Path, at, part.Each)
+				return
+			}
+			if _, twice := out[id]; twice {
+				problem = fmt.Errorf("save_key part %q: %s %q twice", part.Path, part.Each, id)
+				return
+			}
+			// paths inside the item, not through its place in the list: one more item before it changes nothing of it
+			var matches []saveKeyMatch
+			saveKeySelect(item, segs[first+1:], "", &matches)
+			out[id] = matches
+		})
+		if problem != nil {
+			return nil, problem
+		}
 	}
 	return out, nil
 }

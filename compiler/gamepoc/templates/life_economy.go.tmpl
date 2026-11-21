@@ -27,6 +27,15 @@ func(r *Runtime)npcAccount(id string)(inv.Account,bool){
  if r.npcAccountIDs==nil{r.npcAccountIDs=map[string]string{};for key,a:=range r.world.Inventory.Accounts{if a.Currency==r.world.Life.Brain.Currency{r.npcAccountIDs[a.Owner]=key}}}
  key:=r.npcAccountIDs[id];a,ok:=r.state.Inventory.Accounts[key];return a,ok
 }
+// growNPCEconomy (saves growth, owner 20.11): an account a new resident's growth has just added gets the initial
+// balance a new game gives him, counted in the ledger's initial source as initNPCEconomy counts it, so the money still
+// adds up; an account the save already had is never credited again.
+func(r *Runtime)growNPCEconomy(s *state,accounts []string){
+ c:=r.world.Life.Brain;if !c.Enabled{return}
+ for _,key:=range accounts{a,ok:=s.Inventory.Accounts[key];if !ok||a.Owner==playerActorID||a.Currency!=c.Currency{continue}
+  a.Balance+=c.InitialBalance;s.Inventory.Accounts[key]=a;s.NPCEconomy.InitialSource+=c.InitialBalance}
+}
+func sortedAccountKeys(m map[string]inv.Account)[]string{keys:=make([]string,0,len(m));for k:=range m{keys=append(keys,k)};sort.Strings(keys);return keys}
 func(r *Runtime)initNPCEconomy(){
  if !r.world.Life.Brain.Enabled{return};r.state.NPCEconomy=npcEconomyState{Employer:r.world.Life.Brain.Employer}
  ids:=[]string{};for _,a:=range r.state.Life.Actors{if a.ID!=playerActorID{ids=append(ids,a.ID)}};for _,a:=range r.state.Life.Population.Actors{ids=append(ids,a.ID)}

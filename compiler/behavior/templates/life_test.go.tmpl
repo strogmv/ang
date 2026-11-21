@@ -669,3 +669,35 @@ func TestLifeWorkCellsAreOnlyForTheirWorkersAndHostBodiesAreSolid(t *testing.T){
  if !s.occupied("a",Cell{3,2},"one")||!s.BlockedCells("a","one")[Cell{3,2}]{t.Fatal("a host body is not occupancy")}
  if s.occupied("b",Cell{3,2},"one"){t.Fatal("a host body on another level")}
 }
+
+// Saves growth (owner 20.11): a resident new to a save joins it at the step the saved clock is in, on the nearest cell
+// nothing the save knows stands on (its people and the host's bodies), with his practice; the saved residents stay
+// exactly as they are; a second growth adds nothing; a reordered content is rebuilt by id; no free floor is a named
+// refusal; a resident the content lost is no growth (the save then refuses in Validate).
+func TestLifeGrowAddsANewResidentAtTheSavedHour(t *testing.T){
+ m:=lifeFixture();m.Development=PracticeModel{Skills:[]PracticeSkillDefinition{{ID:"trade",Name:"Trade"}},Profiles:map[string]PracticeProfile{"two":{Skills:map[string]PracticeSkillInitial{"trade":{Start:3,Cap:10}}}}}
+ old:=m;old.Actors=m.Actors[:1];old.Development=PracticeModel{Skills:m.Development.Skills,Profiles:map[string]PracticeProfile{}}
+ s:=old.Start();s.Seconds=10
+ // the saved resident stands on the cell the new one's step names; a host body (a walker) on the next one
+ one:=s.Actor("one");one.Position,one.Goal=Cell{1,2},Cell{1,2}
+ before:=s.Clone()
+ added,err:=s.Grow(m,m,map[string]map[Cell]bool{"a":{{0,2}:true}})
+ if err!=nil||fmt.Sprint(added)!="[two]"||len(s.Actors)!=2||s.Actors[1].ID!="two"{t.Fatalf("growth %v %v, actors %d",added,err,len(s.Actors))}
+ if !reflect.DeepEqual(s.Actors[0],before.Actors[0]){t.Fatal("the saved resident changed")}
+ two:=s.Actor("two")
+ if two.Level!="a"||two.Step!=0||two.Position==(Cell{1,2})||two.Position==(Cell{0,2})||!m.Walks("a",two.Position)||Distance(two.Position,Cell{1,2})>2||two.Goal!=two.Position||!two.Arrived{t.Fatalf("new resident at %+v",*two)}
+ if s.Development.Actors["two"].Skills["trade"].ValueMilli!=3000||len(s.Development.Actors)!=1{t.Fatal("the new resident's practice, and only his")}
+ if err:=s.Validate(m,0);err!=nil{t.Fatal(err)}
+ again:=s.Clone();if a,err:=again.Grow(m,m,nil);a!=nil||err!=nil||!reflect.DeepEqual(again.Clone(),s.Clone()){t.Fatal("a second growth changed the state")}
+ // at the saved hour: past minute 1 both residents are at their second step
+ late:=old.Start();late.Seconds=70;if added,err:=late.Grow(m,m,nil);err!=nil||len(added)!=1||late.Actor("two").Level!="b"||late.Actor("two").Step!=1{t.Fatalf("not at the saved hour: %+v",*late.Actor("two"))}
+ // a reordered content: rebuilt by id, nothing added
+ swapped:=m.Start();rev:=m;rev.Actors=[]LifePerson{m.Actors[1],m.Actors[0]}
+ if added,err:=swapped.Grow(rev,rev,nil);err!=nil||len(added)!=0||swapped.Actors[0].ID!="two"||swapped.Validate(rev,0)!=nil{t.Fatalf("reordered: %v %v",added,err)}
+ // no free floor: a named refusal
+ full:=old.Start();full.Seconds=10;walls:=map[string]map[Cell]bool{"a":{}}
+ for y:=0;y<3;y++{for x:=0;x<5;x++{walls["a"][Cell{x,y}]=true}}
+ if _,err:=full.Grow(m,m,walls);err==nil||!strings.Contains(err.Error(),"two"){t.Fatalf("no free floor: %v",err)}
+ // a resident gone: no growth, and Validate refuses
+ gone:=m.Start();if a,err:=gone.Grow(old,old,nil);a!=nil||err!=nil{t.Fatal("a resident gone was grown")};if gone.Validate(old,0)==nil{t.Fatal("a resident gone was accepted")}
+}

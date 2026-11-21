@@ -251,3 +251,62 @@ func TestWithSaveKeyAppendsTheSection(t *testing.T) {
 		t.Fatal("not an object")
 	}
 }
+
+// A strict part with each is hashed per item by its id (saves growth, owner 20.11): one more item, even before the
+// others in the list, changes no item's hash; a changed item changes its own only. The part as one stays for records of
+// the earlier form.
+func TestSaveKeyStrictPartPerItem(t *testing.T) {
+	sections := map[string]json.RawMessage{
+		"life": json.RawMessage(`{"actors":[{"id":"char.a","steps":[{"activity":"work"},{"activity":"sleep"}]},{"id":"char.b","steps":[{"activity":"eat"}]}]}`),
+	}
+	policy := &SaveKeyPolicy{Sections: map[string]SaveKeyRule{"life": {Key: saveKeyChecked, Reason: "x"}},
+		Parts: []SaveKeyPart{{Path: "life/actors/*/steps/*/activity", Key: saveKeyStrict, Each: "id", Reason: "positions per actor"}}}
+	base, err := computeSaveKey(policy, sections)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, b, whole := "life/actors/*/steps/*/activity[char.a]", "life/actors/*/steps/*/activity[char.b]", "life/actors/*/steps/*/activity"
+	if base.Parts[a] == "" || base.Parts[b] == "" || base.Parts[whole] == "" || len(base.Strict) != 0 || len(base.StrictEach) != 1 {
+		t.Fatalf("per item %+v", base)
+	}
+	sections["life"] = json.RawMessage(`{"actors":[{"id":"char.new","steps":[{"activity":"post"}]},{"id":"char.a","steps":[{"activity":"work"},{"activity":"sleep"}]},{"id":"char.b","steps":[{"activity":"eat"}]}]}`)
+	grown, err := computeSaveKey(policy, sections)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if grown.Parts[a] != base.Parts[a] || grown.Parts[b] != base.Parts[b] || grown.Parts["life/actors/*/steps/*/activity[char.new]"] == "" || grown.Parts[whole] == base.Parts[whole] {
+		t.Fatal("one more actor changed the others' hashes, or the part as one did not change")
+	}
+	sections["life"] = json.RawMessage(`{"actors":[{"id":"char.a","steps":[{"activity":"sleep"},{"activity":"work"}]},{"id":"char.b","steps":[{"activity":"eat"}]}]}`)
+	moved, err := computeSaveKey(policy, sections)
+	if err != nil || moved.Parts[a] == base.Parts[a] || moved.Parts[b] != base.Parts[b] {
+		t.Fatalf("reordered steps of one actor: %v", err)
+	}
+	for name, life := range map[string]string{
+		"an item without its id": `{"actors":[{"steps":[{"activity":"work"}]}]}`,
+		"an id twice":            `{"actors":[{"id":"char.a","steps":[]},{"id":"char.a","steps":[]}]}`,
+	} {
+		sections["life"] = json.RawMessage(life)
+		if _, err := computeSaveKey(policy, sections); err == nil {
+			t.Fatalf("accepted %s", name)
+		}
+	}
+	sections["life"] = json.RawMessage(`{"actors":[]}`)
+	for name, part := range map[string]SaveKeyPart{
+		"each without a wildcard": {Path: "life/actors", Key: saveKeyStrict, Each: "id", Reason: "x"},
+		"each on an out part":     {Path: "life/actors", Key: saveKeyOut, Reads: saveReadsNone, Each: "id", Reason: "x"},
+	} {
+		p := &SaveKeyPolicy{Sections: policy.Sections, Parts: []SaveKeyPart{part}}
+		if err := p.validate(); err == nil {
+			t.Fatalf("accepted %s", name)
+		}
+	}
+	p := &SaveKeyPolicy{Sections: policy.Sections, Legacy: &SaveKeyRecord{Hash: base.Hash, Parts: map[string]string{"life": base.Parts["life"]}, Aliases: []string{base.Hash}}}
+	if err := p.validate(); err == nil {
+		t.Fatal("a legacy record that is its own alias")
+	}
+	p.Legacy.Aliases = []string{"not-a-hash"}
+	if err := p.validate(); err == nil {
+		t.Fatal("a legacy alias that is no hash")
+	}
+}
