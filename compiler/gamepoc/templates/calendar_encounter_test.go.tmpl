@@ -72,7 +72,7 @@ func TestCalendarEncounterActualPurchasePersistsContact(t *testing.T){
  r:=encounterFixture(t);encounterAdvanceTo(t,r,r.world.CalendarEncounter.Morning+600);p:=peddlerNamed(t,r,"peddler.prokhor");peddlerOpenAt(t,r,p,0);peddlerHeroBeside(t,r,p,0)
  item:=peddlerFirstOnTray(r,p,"item.part.spring");if item.ID==""{t.Fatal("no spring")}
  if !inventoryRequest(t,r,peddlerRequest(r,"buy",item,p.Tray)){t.Fatal("ordinary purchase refused")}
- met:=r.encounterMetFact();if rec,ok:=r.state.Memory.Facts[met];!ok||rec.Args["how"]!="bought"{t.Fatalf("ordinary purchase did not write the acquaintance: %+v",rec)}
+ met:=r.encounterMetFact();if rec,ok:=r.state.Memory.Facts[met];!ok||!reflect.DeepEqual(rec.Args["how"], []string{"bought"}){t.Fatalf("ordinary purchase did not write the acquaintance: %+v",rec)}
  slot:=r.world.Config.SaveSlots[0];if err:=r.writeSave(slot,r.snapshotState());err!=nil{t.Fatal(err)};saved,_,err:=r.readSave(slot);if err!=nil{t.Fatal(err)};if _,ok:=saved.Memory.Facts[met];!ok{t.Fatal("purchase contact lost on load")}
 }
 
@@ -84,7 +84,7 @@ func TestCalendarEncounterActualGreetingPersistsContact(t *testing.T){
  // the first meeting: the sack talk opens by itself; the quiet greeting writes the acquaintance
  r.calendarEncounterAfterFrame();if r.state.Memory.Open!=talkKey(e.Talk.Sack,e.Actor){t.Fatalf("the first meeting did not open the sack talk: %q",r.state.Memory.Open)}
  if err:=r.conversationCommand(&pb.PocLifeCommand{Action:"conversation_choice",Destination:"greet"});err!=nil{t.Fatal(err)}
- slot:=r.world.Config.SaveSlots[0];if err:=r.writeSave(slot,r.snapshotState());err!=nil{t.Fatal(err)};saved,_,err:=r.readSave(slot);if err!=nil{t.Fatal(err)};if rec,ok:=saved.Memory.Facts[r.encounterMetFact()];!ok||rec.Args["how"]!="greeted"{t.Fatal("greeting contact lost on load")}
+ slot:=r.world.Config.SaveSlots[0];if err:=r.writeSave(slot,r.snapshotState());err!=nil{t.Fatal(err)};saved,_,err:=r.readSave(slot);if err!=nil{t.Fatal(err)};if rec,ok:=saved.Memory.Facts[r.encounterMetFact()];!ok||!reflect.DeepEqual(rec.Args["how"], []string{"greeted"}){t.Fatal("greeting contact lost on load")}
 }
 
 func TestConversationScreenProjectionIsReadOnlyAndTyped(t *testing.T) {

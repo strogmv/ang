@@ -435,7 +435,7 @@ func New(data, token string) (*Runtime, error) {
 		return nil, err
 	}
 	// the first state is a game too: it has its own check value like its epoch (a save of it keeps it; 0 is only an older save's)
-	r.state = state{Wounds:wounds.Save{Version:1},Epoch: newEpoch(), CheckSeed: drawCheckSeed(), Speed: 1, Inventory: initialItems}
+	r.state = state{Memory:memoryState{Migrated:memoryMigrationVersion},Wounds:wounds.Save{Version:1},Epoch: newEpoch(), CheckSeed: drawCheckSeed(), Speed: 1, Inventory: initialItems}
 	return r, nil
 }
 func newEpoch() string {
@@ -1019,7 +1019,7 @@ func (r *Runtime) command(in input) {
 		}
 		r.world = world
 		r.openStore = ""
-		r.state = state{Wounds:wounds.Save{Version:1},Playable:playableSceneState{ID:world.PlayableID},SDKLayout: layout, Inventory: items, Active: true, Epoch: newEpoch(), Seed: seed, CheckSeed: checkSeed, PlayerName: name, Player: world.Spawn, Speed: 1}
+		r.state = state{Memory:memoryState{Migrated:memoryMigrationVersion},Wounds:wounds.Save{Version:1},Playable:playableSceneState{ID:world.PlayableID},SDKLayout: layout, Inventory: items, Active: true, Epoch: newEpoch(), Seed: seed, CheckSeed: checkSeed, PlayerName: name, Player: world.Spawn, Speed: 1}
 		if isLife {
 			r.initLifeState(life)
 			if err := r.heroFileNewGame(file); err != nil {
@@ -1153,7 +1153,17 @@ func (r *Runtime) writeSave(slot string, s state) error {
 		return err
 	}
 	sum := sha256.Sum256(b)
-	data, err := json.Marshal(saveFile{Version: r.world.Config.SaveVersion, ContentHash: r.world.ContentHash, Checksum: hex.EncodeToString(sum[:]), CreatedUnixMS: time.Now().UnixMilli(), State: b, SaveKey: &saveKeyRecord{Hash: r.world.SaveKey.Hash, Parts: r.world.SaveKey.Parts}})
+ checksum:=hex.EncodeToString(sum[:]);key:=&saveKeyRecord{Hash:r.world.SaveKey.Hash,Parts:r.world.SaveKey.Parts};created:=time.Now().UnixMilli()
+ // An unchanged game saved again keeps its envelope time, so a load/save is byte-stable.
+ // Compare the complete key as well as the state: corrupt or obsolete envelopes are rewritten.
+ if raw,readErr:=os.ReadFile(r.slotFile(slot));readErr==nil{
+  var previous saveFile
+  if json.Unmarshal(raw,&previous)==nil&&previous.Version==r.world.Config.SaveVersion&&previous.ContentHash==r.world.ContentHash&&previous.Checksum==checksum&&bytes.Equal(previous.State,b){
+   oldKey,_:=json.Marshal(previous.SaveKey);newKey,_:=json.Marshal(key)
+   if bytes.Equal(oldKey,newKey){created=previous.CreatedUnixMS}
+  }
+ }
+ data, err := json.Marshal(saveFile{Version:r.world.Config.SaveVersion,ContentHash:r.world.ContentHash,Checksum:checksum,CreatedUnixMS:created,State:b,SaveKey:key})
 	if err != nil {
 		return err
 	}

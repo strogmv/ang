@@ -2,9 +2,14 @@
 package poc
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -128,7 +133,7 @@ func TestMemorySackFirstMeeting(t *testing.T) {
 		t.Fatal(err)
 	}
 	met := r.encounterMetFact()
-	if rec := r.state.Memory.Facts[met]; rec.Args["how"] != "greeted" || !r.memoryKnows(e.Actor, met) {
+	if rec := r.state.Memory.Facts[met]; !reflect.DeepEqual(rec.Args["how"], []string{"greeted"}) || !r.memoryKnows(e.Actor, met) {
 		t.Fatalf("the greeting did not write the acquaintance he knows: %+v", rec)
 	}
 	if shownIDs(dialogueView(t, r, "en"))["greet"] {
@@ -157,8 +162,9 @@ func TestMemorySackFirstMeeting(t *testing.T) {
 		if err := choose(w, "fix_lamp"); err != nil {
 			t.Fatal(err)
 		}
-		if w.state.Memory.Facts[met].Args["how"] != "helped" {
-			t.Fatalf("fail=%v: the lamp did not make them acquainted by help", fail)
+		// N4: repairing the lamp adds help to the greeting already recorded above.
+		if rec := w.state.Memory.Facts[met]; !reflect.DeepEqual(rec.Args["how"], []string{"greeted", "helped"}) || rec.Count != 2 {
+			t.Fatalf("fail=%v: the lamp did not preserve the greeting and add help: %+v", fail, rec)
 		}
 		// the lamp on his tray (his restock stays as it was)
 		lamp, held := w.memoryShown(e.Actor, "item.hub_light_headlamp")
@@ -482,7 +488,7 @@ func TestMemoryOldSaveBecomesFacts(t *testing.T) {
 		if _, ok := s.Memory.Facts[c.fact]; !ok {
 			t.Fatalf("%s: no %s from the old save", c.choice, c.fact)
 		}
-		if rec := s.Memory.Facts[r.encounterMetFact()]; rec.Args["how"] != "greeted" {
+		if rec := s.Memory.Facts[r.encounterMetFact()]; !reflect.DeepEqual(rec.Args["how"], []string{"greeted"}) {
 			t.Fatalf("%s: the old greeting did not become the acquaintance: %+v", c.choice, rec)
 		}
 		if s.CalendarEncounter.Met || len(s.CalendarEncounter.Talk.Lines) > 0 || s.Memory.Talks[custodyKey(r)] == nil {
@@ -793,4 +799,330 @@ func TestMemoryTalkThingIsTheExactInstance(t *testing.T) {
 			t.Fatalf("his stock %s was touched", id)
 		}
 	}
+}
+
+// Saving loaded state again must preserve every byte, not just selected fact fields.
+func memoryRoundTripBytes(t *testing.T, r *Runtime, s state) state {
+	t.Helper()
+	slot := r.world.Config.SaveSlots[0]
+	if err := r.writeSave(slot, s); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(r.slotFile(slot))
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, _, err := r.readSave(slot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.writeSave(slot, loaded); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(r.slotFile(slot))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatalf("save changed on load (%d -> %d bytes)", len(before), len(after))
+	}
+	return loaded
+}
+func TestMemoryCustodyEveryOutcomeStable(t *testing.T) {
+	base := encounterFixture(t)
+	e := base.world.CalendarEncounter
+	// Outcomes come from authored choices, including check failures and timeout.
+	type outcome struct {
+		choice, result string
+		seen           bool
+	}
+	all := []outcome{{choice: "timeout", result: "forced"}}
+	for _, c := range e.Choices {
+		all = append(all, outcome{choice: c.ID, result: c.Outcome})
+		if c.Outcome == "escape" {
+			all = append(all, outcome{choice: c.ID, result: c.Outcome, seen: true})
+		}
+		if c.Fail != nil && c.Fail.Outcome != c.Outcome {
+			all = append(all, outcome{choice: c.ID, result: c.Fail.Outcome})
+		}
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].choice+all[i].result < all[j].choice+all[j].result })
+	for _, out := range all {
+		t.Run(fmt.Sprintf("%s/%s/seen=%v", out.choice, out.result, out.seen), func(t *testing.T) {
+			r := encounterFixture(t)
+			s := r.snapshotState()
+			s.CalendarEncounter.Choice, s.CalendarEncounter.Outcome, s.CalendarEncounter.Phase = out.choice, out.result, "done"
+			s.Memory = memoryState{}
+			s.CalendarEncounter.Log = append(s.CalendarEncounter.Log, encounterReason{Second: s.Life.Seconds, Cause: e.Duty.Law, Choice: out.choice, Outcome: out.result, Observed: out.seen})
+			// A legacy save migrates once; the first normalized save is then byte-stable over three loads.
+			r.sanitizeMemory(&s)
+			if s.Memory.Migrated != memoryMigrationVersion {
+				t.Fatal("no migration mark")
+			}
+			if s.Memory.Talks[custodyKey(r)] != nil {
+				t.Fatal("migration created an empty custody talk")
+			}
+			before := s.Memory.clone()
+			inventory := s.Inventory
+			relations := s.Life.RelationOverrides
+			for i := 0; i < 3; i++ {
+				s = memoryRoundTripBytes(t, r, s)
+			}
+			if !reflect.DeepEqual(before, s.Memory) || !reflect.DeepEqual(inventory, s.Inventory) || !reflect.DeepEqual(relations, s.Life.RelationOverrides) {
+				t.Fatal("repeated migration changed memory, inventory or relations")
+			}
+		})
+	}
+}
+func TestMemoryTimeoutAlreadySettledDoesNotReplay(t *testing.T) {
+	r := encounterFixture(t)
+	e := r.world.CalendarEncounter
+	s := r.snapshotState()
+	s.Memory = memoryState{}
+	s.CalendarEncounter.Choice, s.CalendarEncounter.Outcome, s.CalendarEncounter.Phase = "timeout", "forced", "done"
+	old := r.state
+	r.state = s
+	r.memoryDo(talkCtx{conv: r.world.Conversations[e.Talk.Custody], self: e.Actor, quiet: true}, r.world.Conversations[e.Talk.Custody].Events["timeout"].Do)
+	s = r.snapshotState()
+	r.state = old
+	before := s.Memory.clone()
+	r.sanitizeMemory(&s)
+	before.Migrated = memoryMigrationVersion
+	if !reflect.DeepEqual(before, s.Memory) {
+		t.Fatal("settled timeout replayed")
+	}
+}
+func TestMemoryMissingStartsAtHallOpening(t *testing.T) {
+	r := memoryDay(t, 3)
+	e := r.world.CalendarEncounter
+	day := e.FirstDays * 86400
+	// Advance the real kernel so the save has matching game, motion and service clocks.
+	encounterAdvanceTo(t, r, day+600)
+	if _, ok := r.state.Memory.Facts[e.Facts.Missing]; ok {
+		t.Fatal("missing fact written at night")
+	}
+	r.state = memoryRoundTripBytes(t, r, r.snapshotState())
+	r.calendarEncounterAfterFrame()
+	if _, ok := r.state.Memory.Facts[e.Facts.Missing]; ok {
+		t.Fatal("load wrote missing fact at night")
+	}
+	encounterAdvanceTo(t, r, day+r.encounterHallOpening()-1)
+	if _, ok := r.state.Memory.Facts[e.Facts.Missing]; ok {
+		t.Fatal("fact before opening")
+	}
+	encounterAdvanceTo(t, r, day+r.encounterHallOpening())
+	rec, ok := r.state.Memory.Facts[e.Facts.Missing]
+	if !ok || rec.First != r.state.Life.Seconds {
+		t.Fatalf("opening fact has wrong first time: %+v", rec)
+	}
+}
+func TestMemoryFactArgumentSetsAndLegacySave(t *testing.T) {
+	r := encounterFixture(t)
+	if r.state.Memory.Migrated != memoryMigrationVersion {
+		t.Fatal("new Life world lacks its migration mark")
+	}
+	e := r.world.CalendarEncounter
+	id := r.encounterMetFact()
+	c := talkCtx{self: e.Actor}
+	r.memoryWrite(id, map[string]string{"how": "helped"}, c)
+	r.memoryWrite(id, map[string]string{"how": "bought"}, c)
+	if r.state.Memory.Facts[id].Count != 2 {
+		t.Fatal("two writes did not bump Count to two")
+	}
+	r.memoryWrite(id, map[string]string{"how": "helped"}, c)
+	for _, v := range []string{"helped", "bought"} {
+		if !r.memoryHolds(c, &memWhen{Fact: &memFactWhen{ID: id, Args: map[string]string{"how": v}}}) {
+			t.Fatalf("lost %s", v)
+		}
+	}
+	if f := r.state.Memory.Facts[id]; f.Count != 3 || !reflect.DeepEqual(f.Args["how"], []string{"bought", "helped"}) {
+		t.Fatalf("not a counted set: %+v", f)
+	}
+	r.state = memoryRoundTripBytes(t, r, r.snapshotState())
+	var legacy memoryFact
+	if err := json.Unmarshal([]byte(`{"First":0,"Second":0,"Count":1,"Args":{"how":"helped"}}`), &legacy); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(legacy.Args["how"], []string{"helped"}) {
+		t.Fatal("legacy argument lost")
+	}
+}
+func TestMemoryOnceSurvivesRemovedConversationFlow(t *testing.T) {
+	r := encounterFixture(t)
+	e := r.world.CalendarEncounter
+	key := talkKey(e.Talk.Sack, e.Actor)
+	d := r.world.Conversations[e.Talk.Sack]
+	// Keep one once answer and one failed check; a removed node invalidates only the flow.
+	once, check := "", ""
+	var checkOption convOption
+	for _, n := range d.Nodes {
+		for _, o := range n.Options {
+			if o.Once {
+				once = o.ID
+			}
+			if o.Check != nil {
+				check = o.ID
+				checkOption = o
+			}
+		}
+	}
+	if once == "" || check == "" {
+		t.Fatal("fixture needs a once answer and check")
+	}
+	tk := r.talkState(key)
+	tk.Node = d.Entries[len(d.Entries)-1].Node
+	tk.Nodes = []string{tk.Node}
+	tk.Chosen = []string{once, "ask_work"}
+	tk.Checks = map[string]dialogueCheckRecord{check: {Attempts: 1, Success: false, SkillAt: 100}}
+	r.state.Memory.rememberTalk(key, tk)
+	slot := r.world.Config.SaveSlots[0]
+	if err := r.writeSave(slot, r.snapshotState()); err != nil {
+		t.Fatal(err)
+	}
+	editConversation(t, r, e.Talk.Sack, func(d *conversationDef) {
+		for _, n := range d.Nodes {
+			keep := n.Options[:0]
+			for _, o := range n.Options {
+				if o.ID != "ask_work" {
+					keep = append(keep, o)
+				}
+			}
+			n.Options = keep
+		}
+	})
+	r.canonicalWorld.Conversations = r.world.Conversations
+	d = r.world.Conversations[e.Talk.Sack]
+	s, _, err := r.readSave(slot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Memory.Talks[key] != nil {
+		t.Fatal("invalid flow kept")
+	}
+	r.state = s
+	tk = r.talkState(key)
+	c := talkCtx{conv: d, key: key, self: e.Actor, t: tk}
+	if !tk.chose(once) || tk.Checks[check].Success || tk.Checks[check].Attempts != 1 {
+		t.Fatal("once outcomes lost")
+	}
+	if r.optionOwn(c, convOption{ID: once, Once: true}) {
+		t.Fatal("once answer offered again")
+	}
+	if open, _ := r.dialogueCheckOpen(&tk.dialogueSession, check, *checkOption.Check); open {
+		t.Fatal("failed check rerolled")
+	}
+	r.state = memoryRoundTripBytes(t, r, r.snapshotState())
+}
+func TestMemoryPreDialogueSaveCorpusIsStable(t *testing.T) {
+	corpus := saveCorpus(t)
+	count := 0
+	for _, name := range saveCorpusNames(corpus) {
+		r, slot := corpusRuntime(t, corpus[name])
+		s, _, err := r.readSave(slot)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		memoryRoundTripBytes(t, r, s)
+		count++
+	}
+	if count == 0 {
+		t.Fatal("no pre-dialogue saves")
+	}
+}
+
+func TestMemoryMigrationWithoutFactEffectsRunsOnce(t *testing.T) {
+	r := encounterFixture(t)
+	e := r.world.CalendarEncounter
+	editConversation(t, r, e.Talk.Custody, func(d *conversationDef) {
+		d.Events["timeout"].Do = []memDo{{Trust: &struct {
+			Who   string  `json:"who"`
+			Delta float64 `json:"delta"`
+		}{Who: e.Guard, Delta: 0.1}}}
+	})
+	r.canonicalWorld.Conversations = r.world.Conversations
+	s := r.snapshotState()
+	s.Memory = memoryState{}
+	s.CalendarEncounter.Choice, s.CalendarEncounter.Outcome, s.CalendarEncounter.Phase = "timeout", "forced", "done"
+	r.sanitizeMemory(&s)
+	relations := s.Life.Clone().RelationOverrides
+	for i := 0; i < 3; i++ {
+		s = memoryRoundTripBytes(t, r, s)
+	}
+	if !reflect.DeepEqual(relations, s.Life.RelationOverrides) {
+		t.Fatal("fact-free timeout replayed its trust effect")
+	}
+}
+
+func TestMemoryMigrationUsesSortedNodes(t *testing.T) {
+	r := encounterFixture(t)
+	e := r.world.CalendarEncounter
+	id := r.encounterMetFact()
+	editConversation(t, r, e.Talk.Sack, func(d *conversationDef) {
+		d.Nodes = map[string]*convNode{
+			"a": {Options: []convOption{{ID: "early", Do: []memDo{{Fact: id, Args: map[string]string{"how": "greeted"}}}}}},
+			"z": {Options: []convOption{{ID: "late", Do: []memDo{{Fact: id, Args: map[string]string{"how": "helped"}}}}}},
+		}
+	})
+	for i := 0; i < 20; i++ {
+		s := r.snapshotState()
+		s.Memory = memoryState{}
+		s.CalendarEncounter.Met = true
+		r.sanitizeMemory(&s)
+		if !reflect.DeepEqual(s.Memory.Facts[id].Args["how"], []string{"helped"}) {
+			t.Fatalf("migration node order changed: %+v", s.Memory.Facts[id])
+		}
+	}
+}
+
+func TestMemoryLegacyArgumentsAndOnceLedgerLoad(t *testing.T) {
+	r := encounterFixture(t)
+	e := r.world.CalendarEncounter
+	slot := r.world.Config.SaveSlots[0]
+	if err := r.writeSave(slot, r.snapshotState()); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(r.slotFile(slot))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelope saveFile
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(envelope.State, &payload); err != nil {
+		t.Fatal(err)
+	}
+	now := r.state.Life.Seconds
+	key := talkKey(e.Talk.Sack, e.Actor)
+	d := r.world.Conversations[e.Talk.Sack]
+	legacy := map[string]any{
+		"Facts": map[string]any{r.encounterMetFact(): map[string]any{"First": now, "Second": now, "Count": 1, "Args": map[string]string{"how": "helped"}}},
+		"Talks": map[string]any{key: map[string]any{"Node": d.Entries[len(d.Entries)-1].Node, "Chosen": []string{"greet"}, "Checks": map[string]dialogueCheckRecord{"fix_lamp": {Attempts: 1, Success: false, SkillAt: 100}}}},
+	}
+	payload["Memory"], err = json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope.State, err = json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(envelope.State)
+	envelope.Checksum = hex.EncodeToString(sum[:])
+	raw, err = json.Marshal(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(r.slotFile(slot), raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	s, _, err := r.readSave(slot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(s.Memory.Facts[r.encounterMetFact()].Args["how"], []string{"helped"}) || !memoryIn(s.Memory.Once[key].Chosen, "greet") || s.Memory.Once[key].Checks["fix_lamp"].Attempts != 1 {
+		t.Fatal("legacy arguments or one-shot outcomes lost")
+	}
+	memoryRoundTripBytes(t, r, s)
 }

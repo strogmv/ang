@@ -361,6 +361,7 @@ type Compiled struct {
 	Conversations map[string]*Conversation `json:"conversations,omitempty"`
 	memoryLinks   *memoryLinks
 	linksPage     []byte
+	memoryScripts map[string]string
 	// The hero's personal file before the lineup (doc 104 v2, world.hero_file, hero_file.go): profiles, strengths, past,
 	// traits and the words of the screen; the server builds the hero's start from the new game's choice. nil without it.
 	HeroFile *HeroFile `json:"hero_file,omitempty"`
@@ -1239,6 +1240,10 @@ func generatePOC(project string, legacyUnity bool) error {
 	}
 	phases.mark("emit: barks")
 	// story memory: the links of facts, topics and conversations (castes and bark lines come from the barks)
+	compiled.memoryScripts, err = readMemoryScripts(filepath.Dir(project))
+	if err != nil {
+		return err
+	}
 	if err := checkMemory(&compiled); err != nil {
 		return err
 	}

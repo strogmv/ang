@@ -2,6 +2,7 @@
 package poc
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -139,13 +140,13 @@ type memDo struct {
 	} `json:"item_condition,omitempty"`
 }
 type conversationDef struct {
-	ID            string                `json:"id"`
-	Event         bool                  `json:"event"`
-	Speakers      []string              `json:"speakers"`
-	Reach int `json:"reach"`
+	ID       string   `json:"id"`
+	Event    bool     `json:"event"`
+	Speakers []string `json:"speakers"`
+	Reach    int      `json:"reach"`
 	// real seconds of the open talk (the world waits meanwhile): the owner's timeout, the last words on screen
-	AnswerSeconds int64 `json:"answer_seconds,omitempty"`
-	LingerSeconds int64 `json:"linger_seconds"`
+	AnswerSeconds int64                 `json:"answer_seconds,omitempty"`
+	LingerSeconds int64                 `json:"linger_seconds"`
 	Entries       []convEntryDef        `json:"entries"`
 	Nodes         map[string]*convNode  `json:"nodes"`
 	Events        map[string]*convEvent `json:"events"`
@@ -181,11 +182,11 @@ type convVoice struct {
 	Do       []memDo       `json:"do"`
 }
 type convOption struct {
-	ID       string         `json:"id"`
-	Text     string         `json:"text"`
-	Variants []convVariant  `json:"variants"`
-	When     *memWhen       `json:"when,omitempty"`
-	Once     bool           `json:"once"`
+	ID       string        `json:"id"`
+	Text     string        `json:"text"`
+	Variants []convVariant `json:"variants"`
+	When     *memWhen      `json:"when,omitempty"`
+	Once     bool          `json:"once"`
 	// shown in place of the node's general answer it names (a fact improves a line instead of adding one)
 	Replaces string         `json:"replaces,omitempty"`
 	Reply    []convLine     `json:"reply"`
@@ -211,7 +212,12 @@ type convEvent struct {
 func (o convOption) question() bool { return o.Next == "" && o.Close == "" && !o.Trade }
 
 // memoryState is saved with the game. It refers to content by id only (sanitizeMemory drops an id that is gone).
+const memoryMigrationVersion = 1
+
 type memoryState struct {
+	Migrated int `json:",omitempty"`
+	// Once outcomes outlive the current log and node. Keys are conversation|person.
+	Once map[string]memoryOnce `json:",omitempty"`
 	// fact id -> the record: stored once
 	Facts map[string]memoryFact `json:",omitempty"`
 	// topic id -> the Life second the hero learned it
@@ -226,12 +232,80 @@ type memoryState struct {
 }
 type memoryFact struct {
 	First, Second int64
-	Level         string            `json:",omitempty"`
-	Args          map[string]string `json:",omitempty"`
+	Level         string     `json:",omitempty"`
+	Args          memoryArgs `json:",omitempty"`
 	// Life people who knew it at once (witnesses, the level, named)
 	Witnesses []string `json:",omitempty"`
 	Count     int
 }
+
+// memoryArgs accepts the pre-set save representation as well as sorted value sets.
+type memoryArgs map[string][]string
+
+func (a *memoryArgs) UnmarshalJSON(raw []byte) error {
+	var values map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &values); err != nil {
+		return err
+	}
+	if values == nil {
+		*a = nil
+		return nil
+	}
+	out := memoryArgs{}
+	for key, raw := range values {
+		var list []string
+		if err := json.Unmarshal(raw, &list); err != nil {
+			var value string
+			if err := json.Unmarshal(raw, &value); err != nil {
+				return err
+			}
+			list = []string{value}
+		}
+		sort.Strings(list)
+		out[key] = nil
+		for _, value := range list {
+			if !memoryIn(out[key], value) {
+				out[key] = append(out[key], value)
+			}
+		}
+	}
+	*a = out
+	return nil
+}
+
+type memoryOnce struct {
+	Chosen []string                       `json:",omitempty"`
+	Checks map[string]dialogueCheckRecord `json:",omitempty"`
+}
+
+// Chosen and Checks on a talk are working views of Once, or legacy fields on decode.
+// They are persisted only in the independent ledger.
+func (t talkState) MarshalJSON() ([]byte, error) {
+	type plain talkState
+	return json.Marshal(struct {
+		*plain
+		Chosen []string                       `json:",omitempty"`
+		Checks map[string]dialogueCheckRecord `json:",omitempty"`
+	}{plain: (*plain)(&t)})
+}
+func (s *memoryState) rememberTalk(key string, t *talkState) {
+	if t == nil || len(t.Chosen)+len(t.Checks) == 0 {
+		return
+	}
+	if s.Once == nil {
+		s.Once = map[string]memoryOnce{}
+	}
+	s.Once[key] = memoryOnce{Chosen: t.Chosen, Checks: t.Checks}
+}
+func sortedMemoryNodes(d *conversationDef) []string {
+	ids := make([]string, 0, len(d.Nodes))
+	for id := range d.Nodes {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
 type talkState struct {
 	// the log of the talk on now; the answers chosen and checks rolled with this person, kept between talks
 	dialogueSession
@@ -255,15 +329,22 @@ type talkState struct {
 }
 
 func (s memoryState) clone() memoryState {
-	out := memoryState{Open: s.Open, Serial: s.Serial}
+	out := memoryState{Open: s.Open, Serial: s.Serial, Migrated: s.Migrated}
+	if s.Once != nil {
+		out.Once = map[string]memoryOnce{}
+		for key, h := range s.Once {
+			c := dialogueSession{Chosen: h.Chosen, Checks: h.Checks}.clone()
+			out.Once[key] = memoryOnce{Chosen: c.Chosen, Checks: c.Checks}
+		}
+	}
 	if s.Facts != nil {
 		out.Facts = make(map[string]memoryFact, len(s.Facts))
 		for id, f := range s.Facts {
 			f.Witnesses = append([]string(nil), f.Witnesses...)
 			if f.Args != nil {
-				args := make(map[string]string, len(f.Args))
+				args := make(memoryArgs, len(f.Args))
 				for k, v := range f.Args {
-					args[k] = v
+					args[k] = append([]string(nil), v...)
 				}
 				f.Args = args
 			}
@@ -287,6 +368,9 @@ func (s memoryState) clone() memoryState {
 		for id, t := range s.Talks {
 			c := *t
 			c.dialogueSession = t.dialogueSession.clone()
+			if h, ok := out.Once[id]; ok {
+				c.Chosen, c.Checks = h.Chosen, h.Checks
+			}
 			c.Voiced = append([]string(nil), t.Voiced...)
 			out.Talks[id] = &c
 		}
@@ -417,9 +501,14 @@ func (r *Runtime) memoryWrite(fact string, args map[string]string, c talkCtx) {
 		rec.Level = hero.Level
 	}
 	if len(args) > 0 {
-		rec.Args = make(map[string]string, len(args))
+		if rec.Args == nil {
+			rec.Args = memoryArgs{}
+		}
 		for k, v := range args {
-			rec.Args[k] = v
+			if !memoryIn(rec.Args[k], v) {
+				rec.Args[k] = append(rec.Args[k], v)
+				sort.Strings(rec.Args[k])
+			}
 		}
 	}
 	known := map[string]bool{}
@@ -590,7 +679,7 @@ func (r *Runtime) memoryHolds(c talkCtx, w *memWhen) bool {
 			return false
 		}
 		for k, v := range f.Args {
-			if rec.Args[k] != v {
+			if !memoryIn(rec.Args[k], v) {
 				return false
 			}
 		}
@@ -848,6 +937,9 @@ func (r *Runtime) talkState(key string) *talkState {
 		t = &talkState{}
 		r.state.Memory.Talks[key] = t
 	}
+	if h, ok := r.state.Memory.Once[key]; ok {
+		t.Chosen, t.Checks = h.Chosen, h.Checks
+	}
 	return t
 }
 
@@ -976,6 +1068,7 @@ func (r *Runtime) talkChoose(id string) (string, bool, error) {
 	if !ok {
 		return "", false, textError{Key: "error.encounter.unavailable"}
 	}
+	defer func() { r.state.Memory.rememberTalk(c.key, c.t) }()
 	n := c.conv.Nodes[c.t.Node]
 	if n == nil {
 		return "", false, textError{Key: "error.encounter.unavailable"}
@@ -1087,6 +1180,9 @@ func (r *Runtime) talkNews(conv, self string) bool {
 	if t != nil {
 		probe.dialogueSession = t.dialogueSession.clone()
 		probe.Voiced = t.Voiced
+	}
+	if h, ok := r.state.Memory.Once[key]; ok {
+		probe.Chosen, probe.Checks = h.Chosen, h.Checks
 	}
 	c := talkCtx{conv: d, key: key, self: self, t: probe}
 	r.talkThings(c)
@@ -1329,9 +1425,18 @@ func (r *Runtime) sanitizeMemory(s *state) {
 			}
 		}
 		f.Witnesses = keep
-		for k, v := range f.Args {
-			if !memoryIn(m.Facts[id].Args[k], v) {
+		for k, values := range f.Args {
+			keep := values[:0]
+			for _, v := range values {
+				if memoryIn(m.Facts[id].Args[k], v) && !memoryIn(keep, v) {
+					keep = append(keep, v)
+				}
+			}
+			if len(keep) == 0 {
 				delete(f.Args, k)
+			} else {
+				sort.Strings(keep)
+				f.Args[k] = keep
 			}
 		}
 		s.Memory.Facts[id] = f
@@ -1345,6 +1450,46 @@ func (r *Runtime) sanitizeMemory(s *state) {
 		person, fact, _ := strings.Cut(id, "|")
 		if !people[person] || m.Facts[fact] == nil {
 			delete(s.Memory.Said, id)
+		}
+	}
+	if s.Memory.Migrated < memoryMigrationVersion {
+		for key, t := range s.Memory.Talks {
+			s.Memory.rememberTalk(key, t)
+		}
+	}
+	resetFlows := map[string]bool{}
+	for key, h := range s.Memory.Once {
+		conv, self, _ := strings.Cut(key, "|")
+		d := r.world.Conversations[conv]
+		if d == nil || !people[self] {
+			delete(s.Memory.Once, key)
+			continue
+		}
+		options := map[string]bool{}
+		for _, n := range d.Nodes {
+			for _, o := range n.Options {
+				options[o.ID] = true
+			}
+		}
+		keep := h.Chosen[:0]
+		for _, id := range h.Chosen {
+			if options[id] && !memoryIn(keep, id) {
+				keep = append(keep, id)
+			} else if !options[id] {
+				resetFlows[key] = true
+			}
+		}
+		h.Chosen = keep
+		for id := range h.Checks {
+			if !options[id] {
+				delete(h.Checks, id)
+				resetFlows[key] = true
+			}
+		}
+		if len(h.Chosen)+len(h.Checks) == 0 {
+			delete(s.Memory.Once, key)
+		} else {
+			s.Memory.Once[key] = h
 		}
 	}
 	for key, t := range s.Memory.Talks {
@@ -1368,8 +1513,13 @@ func (r *Runtime) sanitizeMemory(s *state) {
 		for _, sp := range d.Speakers {
 			speakers[sp] = true
 		}
-		if r.validateDialogueSession(t.dialogueSession, options, nodes, speakers) != nil || t.Node != "" && !nodes[t.Node] {
-			// the log names what is gone: the talk starts again (answers and checks with it)
+		invalid := resetFlows[key] || r.validateDialogueSession(t.dialogueSession, options, nodes, speakers) != nil || t.Node != "" && !nodes[t.Node]
+		t.Chosen, t.Checks = nil, nil
+		if h, ok := s.Memory.Once[key]; ok {
+			t.Chosen, t.Checks = h.Chosen, h.Checks
+		}
+		if invalid {
+			// The log names removed content: reset its flow; the independent once ledger survives.
 			if key == s.Memory.Open {
 				s.Memory.Open = ""
 			}
@@ -1415,6 +1565,24 @@ func (r *Runtime) validateMemorySave(s state) error {
 		if t.Opened < 0 || t.Opened > now || t.Serial < 0 || t.Serial > s.Memory.Serial || t.Ticks < 0 || t.Until < 0 {
 			return fmt.Errorf("saved memory: invalid talk %s", key)
 		}
+	}
+	for key, h := range s.Memory.Once {
+		conv, _, _ := strings.Cut(key, "|")
+		options := map[string]bool{}
+		for _, n := range r.world.Conversations[conv].Nodes {
+			for _, o := range n.Options {
+				options[o.ID] = true
+			}
+		}
+		if err := r.validateDialogueSession(dialogueSession{Chosen: h.Chosen, Checks: h.Checks}, options, nil, nil); err != nil {
+			return err
+		}
+	}
+	if s.Memory.Migrated < 0 || s.Memory.Migrated > memoryMigrationVersion {
+		return errors.New("saved memory: invalid migration version")
+	}
+	if len(s.Memory.Once) > 4096 {
+		return errors.New("saved memory: too many once histories")
 	}
 	if len(s.Memory.Talks) > 4096 || len(s.Memory.Said) > 4096 {
 		return errors.New("saved memory: too large")

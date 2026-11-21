@@ -71,8 +71,10 @@ func custodyKey(r *Runtime) string {
 	e := r.world.CalendarEncounter
 	return talkKey(e.Talk.Custody, e.Actor)
 }
-func custodyConv(r *Runtime) *conversationDef { return r.world.Conversations[r.world.CalendarEncounter.Talk.Custody] }
-func custodyTalk(r *Runtime) *talkState    { return r.state.Memory.Talks[custodyKey(r)] }
+func custodyConv(r *Runtime) *conversationDef {
+	return r.world.Conversations[r.world.CalendarEncounter.Talk.Custody]
+}
+func custodyTalk(r *Runtime) *talkState { return r.state.Memory.Talks[custodyKey(r)] }
 
 // custodyNode: the node the custody decides in.
 func custodyNode(t *testing.T, r *Runtime) *convNode {
@@ -423,7 +425,11 @@ func TestDialogueSaveAndLoadInTheMiddleOfTheConversation(t *testing.T) {
 		t.Fatalf("the loaded conversation cannot go on: %v", err)
 	}
 	// a saved answer that no longer exists: the load keeps the game and drops that talk (it starts again)
-	custodyTalk(r).Chosen = append(custodyTalk(r).Chosen, "answer_removed")
+	// One-shot history is saved independently of the current log (N6).
+	key := custodyKey(r)
+	history := r.state.Memory.Once[key]
+	history.Chosen = append(history.Chosen, "answer_removed")
+	r.state.Memory.Once[key] = history
 	if err := r.writeSave(slot, r.snapshotState()); err != nil {
 		t.Fatal(err)
 	}
@@ -433,6 +439,11 @@ func TestDialogueSaveAndLoadInTheMiddleOfTheConversation(t *testing.T) {
 	}
 	if loaded.Memory.Talks[custodyKey(r)] != nil || loaded.Memory.Open != "" {
 		t.Fatal("a talk naming a removed answer was kept")
+	}
+	for _, q := range questions {
+		if !memoryIn(loaded.Memory.Once[key].Chosen, q.ID) {
+			t.Fatalf("surviving answer %s lost with the flow", q.ID)
+		}
 	}
 }
 

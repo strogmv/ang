@@ -2,6 +2,8 @@ package gamepoc
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -75,6 +77,7 @@ func TestMemoryChecksRejectBrokenLinks(t *testing.T) {
 		"nothing reads it": func(c *Compiled) {
 			c.Conversations["dlg.trader"].Entries = c.Conversations["dlg.trader"].Entries[1:]
 			c.Memory.Interjections = nil
+			c.Memory.Facts["fact.trader.met"].Journal = ""
 		},
 		"unknown fact": func(c *Compiled) {
 			c.Conversations["dlg.trader"].Entries[0].When = &When{Fact: &FactWhen{ID: "fact.trader.gone"}}
@@ -94,7 +97,10 @@ func TestMemoryChecksRejectBrokenLinks(t *testing.T) {
 		},
 		"talks nowhere":   func(c *Compiled) { c.Memory.Interjections[0].Speaker = "char.guard" },
 		"nobody opens it": func(c *Compiled) { c.Memory.Talks = nil; c.Memory.Interjections[0].Waits = "later" },
-		"topics.topic.trader_work: nothing reads it": func(c *Compiled) { node(c).Options[1].When = &When{Voiced: "lamp"} },
+		"facts.fact.trader.unread: nothing reads it": func(c *Compiled) {
+			node(c).Options[1].When = &When{Voiced: "lamp"}
+			c.Memory.Facts["fact.trader.unread"] = &MemoryFact{Visibility: "private", MemoryDays: 14, ExternalWriters: []string{"test event"}}
+		},
 		"exactly one thing": func(c *Compiled) {
 			node(c).Options[0].Do[0].Fact = "fact.trader.met"
 		},
@@ -156,5 +162,136 @@ func TestMemoryChecksKeepNineAnswersOnScreen(t *testing.T) {
 	c.Conversations["dlg.trader"].Nodes["open"].Options[0].Replaces = "nothing"
 	if err := checkMemory(c); err == nil || !strings.Contains(err.Error(), "replaces") {
 		t.Fatalf("a replacement of nothing passed: %v", err)
+	}
+}
+
+func TestMemoryVisibleReaders(t *testing.T) {
+	for _, kind := range []string{"effect", "waits", "heard", "external", "journal"} {
+		t.Run(kind, func(t *testing.T) {
+			c := memoryWorld(t)
+			f := c.Memory.Facts["fact.trader.met"]
+			f.Journal = ""
+			c.Conversations["dlg.trader"].Entries = c.Conversations["dlg.trader"].Entries[1:]
+			c.Memory.Interjections = nil
+			switch kind {
+			case "effect":
+				c.Conversations["dlg.trader"].Nodes["open"].Options[0].Do = append(c.Conversations["dlg.trader"].Nodes["open"].Options[0].Do, Do{When: &When{Fact: &FactWhen{ID: "fact.trader.met"}}, Topic: "topic.trader_work"})
+			case "waits":
+				c.Memory.Interjections = []Interjection{{ID: "interject.met.guard", Text: "t.interject", Fact: "fact.trader.met", Speaker: "char.guard", Belief: "witness", Waits: "later"}}
+			case "heard":
+				c.Memory.Interjections = []Interjection{{ID: "interject.met.trader", Text: "t.interject", Fact: "fact.trader.met", Speaker: "char.trader", Belief: "heard"}}
+			case "external":
+				f.ExternalReaders = []string{"later system"}
+			case "journal":
+				f.Journal = "t.journal"
+			}
+			err := checkMemory(c)
+			if kind == "journal" {
+				if err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), "nothing reads it") {
+				t.Fatalf("%s hidden-only reader passed: %v", kind, err)
+			}
+		})
+	}
+}
+func TestMemoryWritersNeedReachableFacts(t *testing.T) {
+	for _, kind := range []string{"effect", "answer", "entry", "cycle", "alternative"} {
+		t.Run(kind, func(t *testing.T) {
+			c := memoryWorld(t)
+			c.Memory.Facts["fact.trader.never"] = &MemoryFact{Visibility: "private", MemoryDays: 14, Journal: "t.journal"}
+			o := &c.Conversations["dlg.trader"].Nodes["open"].Options[0]
+			gate := &When{Fact: &FactWhen{ID: "fact.trader.never"}}
+			if kind == "answer" {
+				o.When = gate
+			} else {
+				o.Do[1].When = gate
+			}
+			if kind == "entry" {
+				o.Do = o.Do[:1]
+				c.Conversations["dlg.trader"].Entries[0].When = gate
+				c.Conversations["dlg.trader"].Entries[0].Node = "later"
+				c.Conversations["dlg.trader"].Nodes["later"] = &ConvNode{Options: []ConvOption{{ID: "later_bye", Text: "t.bye", Close: "bye", Do: []Do{{Fact: "fact.trader.met"}}}}}
+			}
+			if kind == "cycle" {
+				o.Do = append(o.Do, Do{Fact: "fact.trader.never", When: &When{Fact: &FactWhen{ID: "fact.trader.met"}}})
+			}
+			if kind == "alternative" {
+				o.Do[1].When = &When{Any: []When{*gate, {NotFact: "fact.trader.met"}}}
+				o.Do = append(o.Do, Do{Fact: "fact.trader.never"})
+			}
+			err := checkMemory(c)
+			if kind == "alternative" {
+				if err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), "writer cannot run") || !strings.Contains(err.Error(), "fact.trader.never") {
+				t.Fatalf("unreachable writer accepted: %v", err)
+			}
+		})
+	}
+}
+
+func TestMemoryDeclaredScriptReaderIsVisible(t *testing.T) {
+	c := memoryWorld(t)
+	c.memoryScripts = map[string]string{"01": "01-prokhor-week.md"}
+	f := c.Memory.Facts["fact.trader.met"]
+	f.Journal = ""
+	f.ExternalReaders = []string{"01"}
+	c.Memory.Interjections = nil
+	c.Conversations["dlg.trader"].Entries = c.Conversations["dlg.trader"].Entries[1:]
+	if err := checkMemory(c); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(c.linksPage), "читается только в сценарии") || !strings.Contains(string(c.linksPage), "сценарий 01") {
+		t.Fatal("links page does not mark the script-only fact")
+	}
+	// Losing the declared reader makes this fact dead again; a prose annotation cannot replace it.
+	for _, readers := range [][]string{nil, {"later system"}} {
+		f.ExternalReaders = readers
+		if err := checkMemory(c); err == nil || !strings.Contains(err.Error(), "nothing reads it") {
+			t.Fatalf("undeclared reader accepted: %v", err)
+		}
+	}
+	f.ExternalReaders = []string{"99"}
+	if err := checkMemory(c); err == nil || !strings.Contains(err.Error(), "unknown external reader script 99") {
+		t.Fatalf("missing script accepted: %v", err)
+	}
+	// The same declaration surface is accepted for a topic.
+	f.ExternalReaders = []string{"01"}
+	c.Memory.Topics["topic.trader_work"].ExternalReaders = []string{"01"}
+	if err := checkMemory(c); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMemoryScriptRegistry(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "design", "dialogue", "scripts")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"01-prokhor.md", "26-hero.md", "README.md"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("script"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ids, err := readMemoryScripts(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 2 || ids["01"] != "01-prokhor.md" {
+		t.Fatalf("wrong registry: %v", ids)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "01-duplicate.md"), []byte("script"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readMemoryScripts(root); err == nil {
+		t.Fatal("duplicate script id accepted")
 	}
 }

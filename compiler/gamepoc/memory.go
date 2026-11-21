@@ -3,9 +3,12 @@ package gamepoc
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
+	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"cuelang.org/go/cue"
@@ -280,11 +283,31 @@ func readMemory(world cue.Value) (*Memory, map[string]*Conversation, error) {
 }
 
 var memoryWord = regexp.MustCompile(`^[a-z_]+$`)
+var memoryScriptID = regexp.MustCompile(`^[0-9]{2}$`)
+
+func readMemoryScripts(gameRoot string) (map[string]string, error) {
+	files, err := filepath.Glob(filepath.Join(gameRoot, "design", "dialogue", "scripts", "[0-9][0-9]-*.md"))
+	if err != nil {
+		return nil, err
+	}
+	ids := map[string]string{}
+	for _, file := range files {
+		name := filepath.Base(file)
+		id := name[:2]
+		if ids[id] != "" {
+			return nil, fmt.Errorf("dialogue scripts: duplicate id %s", id)
+		}
+		ids[id] = name
+	}
+	return ids, nil
+}
 
 // memoryLinks: who writes and who reads every fact and topic, and what every conversation opens and closes; the checks
 // fill it and the links page shows it.
 type memoryLinks struct {
 	factWriters, factReaders, topicWriters, topicReaders map[string][]string
+	factSeen, topicSeen                                  map[string]bool
+	factScripts, topicScripts                            map[string][]string
 	opened                                               map[string]string
 	closes                                               map[string][]string
 	people                                               map[string][]string
@@ -307,6 +330,202 @@ type memoryChecker struct {
 	castes   map[string]bool
 	links    *memoryLinks
 	messages map[string]bool
+	writers  []memoryWriter
+}
+
+// Reader kinds are independent of their labels on the links page.
+type memoryReaderKind uint8
+
+const (
+	memoryHidden memoryReaderKind = iota
+	memorySeen
+)
+
+func memoryReader(reader string) memoryReaderKind {
+	for _, prefix := range []string{"условие: ", "ждёт: ", "слух, шаг 2: ", "вне: "} {
+		if strings.HasPrefix(reader, prefix) {
+			return memoryHidden
+		}
+	}
+	return memorySeen
+}
+func (k *memoryChecker) read(fact bool, id, reader string) {
+	if fact {
+		k.links.add(k.links.factReaders, id, reader)
+		if memoryReader(reader) == memorySeen {
+			k.links.factSeen[id] = true
+		}
+	} else {
+		k.links.add(k.links.topicReaders, id, reader)
+		if memoryReader(reader) == memorySeen {
+			k.links.topicSeen[id] = true
+		}
+	}
+}
+
+func (k *memoryChecker) externalReader(where, id, reader string, fact bool) error {
+	if memoryScriptID.MatchString(reader) {
+		if k.c.memoryScripts[reader] == "" {
+			return fmt.Errorf("%s: unknown external reader script %s", where, reader)
+		}
+		if fact {
+			k.links.add(k.links.factScripts, id, reader)
+			k.links.add(k.links.factReaders, id, "сценарий "+reader)
+		} else {
+			k.links.add(k.links.topicScripts, id, reader)
+			k.links.add(k.links.topicReaders, id, "сценарий "+reader)
+		}
+	} else {
+		if fact {
+			k.links.add(k.links.factReaders, id, "вне: "+reader)
+		} else {
+			k.links.add(k.links.topicReaders, id, "вне: "+reader)
+		}
+	}
+	return nil
+}
+
+type memoryWriter struct {
+	fact, topic, where string
+	gates              []*When
+	conv               *Conversation
+	node               string
+}
+
+// Reachability grows to a fixed point. A negated fact may hold before it is written;
+// a positive fact must have some possible writer. Any keeps alternative routes alive.
+func memoryPossible(w *When, facts, topics map[string]bool) (yes, no bool) {
+	if w == nil {
+		return true, false
+	}
+	yes = true
+	add := func(y, n bool) { yes = yes && y; no = no || n }
+	if w.Fact != nil {
+		add(facts[w.Fact.ID], true)
+	}
+	if w.NotFact != "" {
+		add(true, facts[w.NotFact])
+	}
+	if w.Topic != "" {
+		add(topics[w.Topic], true)
+	}
+	if w.NotTopic != "" {
+		add(true, topics[w.NotTopic])
+	}
+	if w.Knows != nil {
+		add(facts[w.Knows.Fact], true)
+	}
+	if len(w.Any) > 0 {
+		y, n := false, true
+		for i := range w.Any {
+			a, b := memoryPossible(&w.Any[i], facts, topics)
+			y = y || a
+			n = n && b
+		}
+		add(y, n)
+	}
+	if w.Not != nil {
+		a, b := memoryPossible(w.Not, facts, topics)
+		add(b, a)
+	}
+	// Other world/skill/item conditions may be either true or false.
+	if w.Trust != nil || w.Skill != nil || w.Day != nil || w.Asked != "" || w.NotAsked != "" || w.Voiced != "" || w.Entry != "" || w.Interjected != nil || len(w.Speaker) > 0 || len(w.Caste) > 0 || w.Item != nil || w.World != "" || w.SeenBy != "" || w.NotSeenBy != "" {
+		no = true
+	}
+	return
+}
+func memoryNodePossible(c *Conversation, node string, facts, topics map[string]bool) bool {
+	seen := map[string]bool{}
+	queue := []string{}
+	for _, e := range c.Entries {
+		if yes, _ := memoryPossible(e.When, facts, topics); yes && !seen[e.Node] {
+			seen[e.Node] = true
+			queue = append(queue, e.Node)
+		}
+	}
+	if node == "" {
+		return len(queue) > 0
+	}
+	for len(queue) > 0 {
+		id := queue[0]
+		queue = queue[1:]
+		if id == node {
+			return true
+		}
+		for _, o := range c.Nodes[id].Options {
+			if yes, _ := memoryPossible(o.When, facts, topics); !yes {
+				continue
+			}
+			for _, next := range []string{o.Next, failNext(o)} {
+				if next != "" && !seen[next] {
+					seen[next] = true
+					queue = append(queue, next)
+				}
+			}
+		}
+	}
+	return false
+}
+func (k *memoryChecker) checkWriters() error {
+	facts, topics := map[string]bool{}, map[string]bool{}
+	for id, ws := range k.links.factWriters {
+		for _, w := range ws {
+			if strings.HasPrefix(w, "вне: ") || strings.HasPrefix(w, "покупка у ") || strings.HasPrefix(w, "встреча:") {
+				facts[id] = true
+			}
+		}
+	}
+	for id, ws := range k.links.topicWriters {
+		for _, w := range ws {
+			if strings.HasPrefix(w, "вне: ") || strings.HasPrefix(w, "услышанный барк ") {
+				topics[id] = true
+			}
+		}
+	}
+	possible := func(w memoryWriter) bool {
+		if w.conv != nil && !memoryNodePossible(w.conv, w.node, facts, topics) {
+			return false
+		}
+		for _, gate := range w.gates {
+			if yes, _ := memoryPossible(gate, facts, topics); !yes {
+				return false
+			}
+		}
+		return true
+	}
+	for changed := true; changed; {
+		changed = false
+		for _, w := range k.writers {
+			if possible(w) {
+				if w.fact != "" && !facts[w.fact] {
+					facts[w.fact] = true
+					changed = true
+				}
+				if w.topic != "" && !topics[w.topic] {
+					topics[w.topic] = true
+					changed = true
+				}
+			}
+		}
+	}
+	for _, w := range k.writers {
+		if !possible(w) {
+			missing := []string{}
+			for _, id := range sortedKeys(k.m.Facts) {
+				if !facts[id] {
+					missing = append(missing, id)
+				}
+			}
+			for _, id := range sortedKeys(k.m.Topics) {
+				if !topics[id] {
+					missing = append(missing, id)
+				}
+			}
+			sort.Strings(missing)
+			return fmt.Errorf("%s: writer cannot run; requires unwritten fact or topic: %s", w.where, strings.Join(missing, ", "))
+		}
+	}
+	return nil
 }
 
 func (k *memoryChecker) text(where, key string) error {
@@ -357,6 +576,8 @@ type convScope struct {
 	id                       string
 	options, voices, entries map[string]bool
 	self                     bool
+	conv                     *Conversation
+	node                     string
 }
 
 func (k *memoryChecker) when(where string, w *When, s *convScope, reader string) error {
@@ -367,14 +588,14 @@ func (k *memoryChecker) when(where string, w *When, s *convScope, reader string)
 		if k.m.Facts[id] == nil {
 			return fmt.Errorf("%s: unknown fact %s", where, id)
 		}
-		k.links.add(k.links.factReaders, id, reader)
+		k.read(true, id, reader)
 		return nil
 	}
 	topic := func(id string) error {
 		if k.m.Topics[id] == nil {
 			return fmt.Errorf("%s: unknown topic %s", where, id)
 		}
-		k.links.add(k.links.topicReaders, id, reader)
+		k.read(false, id, reader)
 		return nil
 	}
 	if w.Fact != nil {
@@ -492,7 +713,7 @@ func (k *memoryChecker) when(where string, w *When, s *convScope, reader string)
 	return k.when(where+".not", w.Not, s, reader)
 }
 
-func (k *memoryChecker) do(where string, list []Do, s *convScope, writer string) error {
+func (k *memoryChecker) do(where string, list []Do, s *convScope, writer string, gates ...*When) error {
 	for i, d := range list {
 		at := fmt.Sprintf("%s.do[%d]", where, i)
 		n := 0
@@ -507,7 +728,7 @@ func (k *memoryChecker) do(where string, list []Do, s *convScope, writer string)
 		if len(d.Args) > 0 && d.Fact == "" {
 			return fmt.Errorf("%s: arguments belong to a fact", at)
 		}
-		if err := k.when(at+".when", d.When, s, writer); err != nil {
+		if err := k.when(at+".when", d.When, s, "условие: "+writer); err != nil {
 			return err
 		}
 		self := s != nil && s.self
@@ -520,11 +741,21 @@ func (k *memoryChecker) do(where string, list []Do, s *convScope, writer string)
 				return err
 			}
 			k.links.add(k.links.factWriters, d.Fact, writer)
+			k.writers = append(k.writers, memoryWriter{fact: d.Fact, where: at, gates: append(append([]*When(nil), gates...), d.When)})
+			if s != nil {
+				k.writers[len(k.writers)-1].conv = s.conv
+				k.writers[len(k.writers)-1].node = s.node
+			}
 		case d.Topic != "":
 			if k.m.Topics[d.Topic] == nil {
 				return fmt.Errorf("%s: unknown topic %s", at, d.Topic)
 			}
 			k.links.add(k.links.topicWriters, d.Topic, writer)
+			k.writers = append(k.writers, memoryWriter{topic: d.Topic, where: at, gates: append(append([]*When(nil), gates...), d.When)})
+			if s != nil {
+				k.writers[len(k.writers)-1].conv = s.conv
+				k.writers[len(k.writers)-1].node = s.node
+			}
 		case d.Trust != nil:
 			if err := k.person(at, d.Trust.Who, self); err != nil {
 				return err
@@ -602,7 +833,7 @@ func (k *memoryChecker) conversation(c *Conversation) error {
 		}
 		speakers[id] = true
 	}
-	s := &convScope{id: c.ID, options: map[string]bool{}, voices: map[string]bool{}, entries: map[string]bool{}, self: true}
+	s := &convScope{conv: c, id: c.ID, options: map[string]bool{}, voices: map[string]bool{}, entries: map[string]bool{}, self: true}
 	for _, e := range c.Entries {
 		if s.entries[e.ID] {
 			return fmt.Errorf("%s: repeated entry %s", where, e.ID)
@@ -654,6 +885,7 @@ func (k *memoryChecker) conversation(c *Conversation) error {
 	writer := func(what string) string { return reader + ": " + what }
 	closes := map[string]bool{}
 	for _, id := range nodes {
+		s.node = id
 		n := c.Nodes[id]
 		at := where + "." + id
 		if err := k.lines(at, n.Lines, speakers, s, reader); err != nil {
@@ -673,7 +905,7 @@ func (k *memoryChecker) conversation(c *Conversation) error {
 			if err := k.when(vat+".when", v.When, s, reader+" (голос "+v.ID+")"); err != nil {
 				return err
 			}
-			if err := k.do(vat, v.Do, s, writer("голос "+v.ID)); err != nil {
+			if err := k.do(vat, v.Do, s, writer("голос "+v.ID), v.When); err != nil {
 				return err
 			}
 		}
@@ -691,7 +923,7 @@ func (k *memoryChecker) conversation(c *Conversation) error {
 			if err := k.lines(oat+".reply", o.Reply, speakers, s, reader); err != nil {
 				return err
 			}
-			if err := k.do(oat, o.Do, s, writer("ответ "+o.ID)); err != nil {
+			if err := k.do(oat, o.Do, s, writer("ответ "+o.ID), o.When); err != nil {
 				return err
 			}
 			if o.Next != "" && c.Nodes[o.Next] == nil {
@@ -733,12 +965,13 @@ func (k *memoryChecker) conversation(c *Conversation) error {
 				if err := k.lines(oat+".fail.reply", f.Reply, speakers, s, reader); err != nil {
 					return err
 				}
-				if err := k.do(oat+".fail", f.Do, s, writer("провал "+o.ID)); err != nil {
+				if err := k.do(oat+".fail", f.Do, s, writer("провал "+o.ID), o.When); err != nil {
 					return err
 				}
 			}
 		}
 	}
+	s.node = ""
 	for _, id := range sortedKeys(c.Events) {
 		e := c.Events[id]
 		at := where + ".events." + id
@@ -927,7 +1160,7 @@ func checkMemory(c *Compiled) error {
 	}
 	k := &memoryChecker{c: c, m: m, persons: map[string]bool{}, castes: map[string]bool{}, messages: map[string]bool{},
 		links: &memoryLinks{factWriters: map[string][]string{}, factReaders: map[string][]string{}, topicWriters: map[string][]string{},
-			topicReaders: map[string][]string{}, opened: map[string]string{}, closes: map[string][]string{}, people: map[string][]string{}}}
+			topicReaders: map[string][]string{}, factSeen: map[string]bool{}, topicSeen: map[string]bool{}, factScripts: map[string][]string{}, topicScripts: map[string][]string{}, opened: map[string]string{}, closes: map[string][]string{}, people: map[string][]string{}}}
 	for _, a := range life.Actors {
 		k.persons[a.ID] = true
 	}
@@ -984,11 +1217,16 @@ func checkMemory(c *Compiled) error {
 				}
 			}
 		}
+		if f.Journal != "" {
+			k.read(true, id, "журнал "+f.Journal)
+		}
 		for _, w := range f.ExternalWriters {
 			k.links.add(k.links.factWriters, id, "вне: "+w)
 		}
 		for _, r := range f.ExternalReaders {
-			k.links.add(k.links.factReaders, id, "вне: "+r)
+			if err := k.externalReader(where, id, r, true); err != nil {
+				return err
+			}
 		}
 		if f.OnTrade != nil {
 			if err := k.person(where, f.OnTrade.Seller, false); err != nil {
@@ -1006,6 +1244,7 @@ func checkMemory(c *Compiled) error {
 		if err := k.text(where, t.Journal); err != nil {
 			return err
 		}
+		k.read(false, id, "журнал "+t.Journal)
 		for _, line := range t.FromBarks {
 			if c.Barks == nil {
 				return fmt.Errorf("%s: heard barks need the barks catalog", where)
@@ -1022,7 +1261,9 @@ func checkMemory(c *Compiled) error {
 			k.links.add(k.links.topicWriters, id, "вне: "+w)
 		}
 		for _, r := range t.ExternalReaders {
-			k.links.add(k.links.topicReaders, id, "вне: "+r)
+			if err := k.externalReader(where, id, r, false); err != nil {
+				return err
+			}
 		}
 	}
 	// who opens which conversation
@@ -1119,11 +1360,11 @@ func checkMemory(c *Compiled) error {
 		case in.Belief == "heard":
 			reader = "слух, шаг 2: " + reader
 		}
-		k.links.add(k.links.factReaders, in.Fact, reader)
+		k.read(true, in.Fact, reader)
 		if err := k.when(where+".when", in.When, nil, reader); err != nil {
 			return err
 		}
-		if err := k.do(where, in.Do, nil, reader); err != nil {
+		if err := k.do(where, in.Do, nil, reader, in.When, &When{Fact: &FactWhen{ID: in.Fact}}); err != nil {
 			return err
 		}
 		if v := in.Voice; v != nil {
@@ -1141,22 +1382,29 @@ func checkMemory(c *Compiled) error {
 			}
 		}
 	}
-	// no dead branch: every fact and topic is written somewhere and read somewhere
+	if err := k.checkWriters(); err != nil {
+		return err
+	}
+	// No dead branch: every fact and topic has a writer and a visible reader.
+	var dead []error
 	for _, id := range sortedKeys(m.Facts) {
 		if len(k.links.factWriters[id]) == 0 {
-			return fmt.Errorf("world.memory.facts.%s: nothing writes it (a dead branch for every condition on it)", id)
+			dead = append(dead, fmt.Errorf("world.memory.facts.%s: nothing writes it (a dead branch for every condition on it)", id))
 		}
-		if len(k.links.factReaders[id]) == 0 {
-			return fmt.Errorf("world.memory.facts.%s: nothing reads it (a fact nobody remembers is a flag)", id)
+		if !k.links.factSeen[id] && len(k.links.factScripts[id]) == 0 {
+			dead = append(dead, fmt.Errorf("world.memory.facts.%s: nothing reads it (a fact nobody remembers is a flag)", id))
 		}
 	}
 	for _, id := range sortedKeys(m.Topics) {
 		if len(k.links.topicWriters[id]) == 0 {
-			return fmt.Errorf("world.memory.topics.%s: nothing gives it to the hero", id)
+			dead = append(dead, fmt.Errorf("world.memory.topics.%s: nothing gives it to the hero", id))
 		}
-		if len(k.links.topicReaders[id]) == 0 {
-			return fmt.Errorf("world.memory.topics.%s: nothing reads it", id)
+		if !k.links.topicSeen[id] && len(k.links.topicScripts[id]) == 0 {
+			dead = append(dead, fmt.Errorf("world.memory.topics.%s: nothing reads it", id))
 		}
+	}
+	if len(dead) > 0 {
+		return errors.Join(dead...)
 	}
 	c.memoryLinks = k.links
 	c.linksPage = memoryLinksPage(c, k.links)
@@ -1211,11 +1459,21 @@ ul{margin:0;padding-left:16px}.out{color:var(--out)}.gap{color:var(--muted)}
 		if f.Recorded && vis != "recorded" {
 			vis += " + recorded"
 		}
-		fmt.Fprintf(&b, "<tr><td><code>%s</code></td><td>%s, %d дн.</td><td>%s</td><td>%s</td></tr>", esc(id), esc(vis), f.MemoryDays, list(l.factWriters[id]), list(l.factReaders[id]))
+
+		readers := list(l.factReaders[id])
+		if !l.factSeen[id] && len(l.factScripts[id]) > 0 {
+			readers = `<span class="out">читается только в сценарии</span>` + readers
+		}
+		fmt.Fprintf(&b, "<tr><td><code>%s</code></td><td>%s, %d дн.</td><td>%s</td><td>%s</td></tr>", esc(id), esc(vis), f.MemoryDays, list(l.factWriters[id]), readers)
 	}
 	b.WriteString(`</table></div><h2>Темы героя</h2><div class="wrap"><table><tr><th>тема</th><th>даёт</th><th>читает</th></tr>`)
 	for _, id := range sortedKeys(m.Topics) {
-		fmt.Fprintf(&b, "<tr><td><code>%s</code></td><td>%s</td><td>%s</td></tr>", esc(id), list(l.topicWriters[id]), list(l.topicReaders[id]))
+
+		readers := list(l.topicReaders[id])
+		if !l.topicSeen[id] && len(l.topicScripts[id]) > 0 {
+			readers = `<span class="out">читается только в сценарии</span>` + readers
+		}
+		fmt.Fprintf(&b, "<tr><td><code>%s</code></td><td>%s</td><td>%s</td></tr>", esc(id), list(l.topicWriters[id]), readers)
 	}
 	b.WriteString(`</table></div><h2>Разговоры</h2><div class="wrap"><table><tr><th>разговор</th><th>открывает</th><th>входы</th><th>итоги</th></tr>`)
 	for _, id := range sortedKeys(c.Conversations) {

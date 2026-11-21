@@ -184,6 +184,16 @@ func(r *Runtime)encounterFedAway(held bool){
  if a.Brain.Needs[0]>m.Initial[0]{a.Brain.Needs[0]=m.Initial[0]}
 }
 func(r *Runtime)encounterGuardAvailable()bool{e:=r.world.CalendarEncounter;if e==nil{return false};a:=r.state.Life.Actor(e.Guard);if a==nil||a.CombatHold||r.serviceReserved(e.Guard){return false};if c,ok:=r.state.CombatRoster[e.Guard];ok&&!c.Able(){return false};return true}
+// The hall opening is shared with its population closure; the encounter morning is the fallback for other worlds.
+func (r *Runtime) encounterHallOpening() int64 {
+	e := r.world.CalendarEncounter
+	for _, c := range r.world.Life.Population.Closures {
+		if c.Level == e.Level {
+			return c.OpenSecond
+		}
+	}
+	return e.Morning
+}
 func(r *Runtime)calendarEncounterAfterFrame(){
  e:=r.world.CalendarEncounter;if e==nil{return};s:=&r.state.CalendarEncounter;now:=r.state.Life.Seconds
  if s.Outcome!=""{
@@ -202,7 +212,7 @@ func(r *Runtime)calendarEncounterAfterFrame(){
  }
  if s.Day<=e.FirstDays+e.MissingDays{
   // the missing days are a fact of the hall: public, written once on the first missing morning, on the market level
-  if _,ok:=r.state.Memory.Facts[e.Facts.Missing];!ok&&s.Phase=="missing"{r.memoryWrite(e.Facts.Missing,nil,talkCtx{self:e.Actor,level:e.Level})}
+  if _,ok:=r.state.Memory.Facts[e.Facts.Missing];!ok&&s.Phase=="missing"&&now%86400>=r.encounterHallOpening(){r.memoryWrite(e.Facts.Missing,nil,talkCtx{self:e.Actor,level:e.Level})}
   return
  }
  if s.Phase=="return"&&r.encounterGuardAvailable()&&r.encounterAt(e.Actor,e.Meet)&&r.encounterAt(e.Guard,e.GuardAt)&&r.encounterNear(e.Guard,e.Reach)&&!r.heroInCombat(){
@@ -361,40 +371,127 @@ func(r *Runtime)encounterPassageOpen()bool{
 // migrateEncounterMemory: a save from before story memory had the custody's log in the encounter and the acquaintance as
 // two flags. The log becomes the custody talk; the acquaintance and a settled custody become the facts the conversation
 // would have written (its own data replayed: the closing answer's effects, with the guard's sight as it was saved).
-func(r *Runtime)migrateEncounterMemory(s *state){
- e:=r.world.CalendarEncounter;if e==nil||r.world.Memory==nil{s.CalendarEncounter.Talk=dialogueSession{};return}
- keep:=r.state;r.state=*s;defer func(){*s=r.state;r.state=keep}();v:=&r.state.CalendarEncounter
- if met:=r.encounterMetFact();met!=""&&(v.Met||v.Bought){if _,ok:=r.state.Memory.Facts[met];!ok{
-  args:=r.world.Memory.Facts[met].OnTrade.Args
-  if v.Met&&!v.Bought{if d:=r.world.Conversations[e.Talk.Sack];d!=nil{for _,n:=range d.Nodes{for _,o:=range n.Options{for _,do:=range o.Do{if do.Fact==met&&do.When==nil&&o.Check==nil{args=do.Args}}}}}}
-  r.memoryWrite(met,args,talkCtx{self:e.Actor,quiet:true})
- }}
- v.Met,v.Bought=false,false
- custody:=talkKey(e.Talk.Custody,e.Actor)
- if d:=r.world.Conversations[e.Talk.Custody];d!=nil&&len(v.Talk.Lines)+len(v.Talk.Chosen)+len(v.Talk.Checks)>0&&r.state.Memory.Talks[custody]==nil{
-  t:=r.talkState(custody);t.dialogueSession=migrateTalk(d,v.Talk)
-  t.Node=d.Entries[len(d.Entries)-1].Node;t.Entry=d.Entries[len(d.Entries)-1].ID;t.Nodes=[]string{t.Node}
-  r.state.Memory.Serial++;t.Serial=r.state.Memory.Serial
-  if v.Phase=="conversation"{r.state.Memory.Open=custody}
- }
- v.Talk=dialogueSession{}
- if v.Outcome==""{return}
- d:=r.world.Conversations[e.Talk.Custody];if d==nil{return}
- settled:=false;for _,n:=range d.Nodes{for _,o:=range n.Options{for _,do:=range append(append([]memDo(nil),o.Do...),failDo(o)...){if _,ok:=r.state.Memory.Facts[do.Fact];do.Fact!=""&&ok{settled=true}}}}
- if settled{return}
- seen:=false;for _,entry:=range v.Log{if entry.Choice==v.Choice&&entry.Cause==e.Duty.Law{seen=entry.Observed}}
- c:=talkCtx{conv:d,key:custody,self:e.Actor,t:r.talkState(custody),seen:map[string]bool{e.Guard:seen},quiet:true}
- if v.Choice=="timeout"{if ev:=d.Events["timeout"];ev!=nil{r.memoryDo(c,ev.Do)};return}
- for _,n:=range d.Nodes{for _,o:=range n.Options{if o.Close!=v.Choice{continue}
-  failed:=false;for _,ch:=range e.Choices{if ch.ID==v.Choice&&ch.Fail!=nil&&ch.Fail.Outcome==v.Outcome&&ch.Outcome!=v.Outcome{failed=true}}
-  if failed&&o.Fail!=nil{r.memoryDo(c,o.Fail.Do)}else{r.memoryDo(c,o.Do)};return
- }}
+func (r *Runtime) migrateEncounterMemory(s *state) {
+	if s.Memory.Migrated >= memoryMigrationVersion {
+		return
+	}
+	defer func() {
+		for key, t := range s.Memory.Talks {
+			s.Memory.rememberTalk(key, t)
+		}
+		s.Memory.Migrated = memoryMigrationVersion
+	}()
+	e := r.world.CalendarEncounter
+	if e == nil || r.world.Memory == nil {
+		s.CalendarEncounter.Talk = dialogueSession{}
+		return
+	}
+	keep := r.state
+	r.state = *s
+	defer func() { *s = r.state; r.state = keep }()
+	v := &r.state.CalendarEncounter
+	if met := r.encounterMetFact(); met != "" && (v.Met || v.Bought) {
+		if _, ok := r.state.Memory.Facts[met]; !ok {
+			args := r.world.Memory.Facts[met].OnTrade.Args
+			if v.Met && !v.Bought {
+				if d := r.world.Conversations[e.Talk.Sack]; d != nil {
+					for _, nodeID := range sortedMemoryNodes(d) {
+						n := d.Nodes[nodeID]
+						for _, o := range n.Options {
+							for _, do := range o.Do {
+								if do.Fact == met && do.When == nil && o.Check == nil {
+									args = do.Args
+								}
+							}
+						}
+					}
+				}
+			}
+			r.memoryWrite(met, args, talkCtx{self: e.Actor, quiet: true})
+		}
+	}
+	v.Met, v.Bought = false, false
+	custody := talkKey(e.Talk.Custody, e.Actor)
+	if d := r.world.Conversations[e.Talk.Custody]; d != nil && len(v.Talk.Lines)+len(v.Talk.Chosen)+len(v.Talk.Checks) > 0 && r.state.Memory.Talks[custody] == nil {
+		t := r.talkState(custody)
+		t.dialogueSession = migrateTalk(d, v.Talk)
+		t.Node = d.Entries[len(d.Entries)-1].Node
+		t.Entry = d.Entries[len(d.Entries)-1].ID
+		t.Nodes = []string{t.Node}
+		r.state.Memory.Serial++
+		t.Serial = r.state.Memory.Serial
+		if v.Phase == "conversation" {
+			r.state.Memory.Open = custody
+		}
+	}
+	v.Talk = dialogueSession{}
+	if v.Outcome == "" {
+		return
+	}
+	d := r.world.Conversations[e.Talk.Custody]
+	if d == nil {
+		return
+	}
+	settled := false
+	for _, nodeID := range sortedMemoryNodes(d) {
+		n := d.Nodes[nodeID]
+		for _, o := range n.Options {
+			for _, do := range append(append([]memDo(nil), o.Do...), failDo(o)...) {
+				if _, ok := r.state.Memory.Facts[do.Fact]; do.Fact != "" && ok {
+					settled = true
+				}
+			}
+		}
+	}
+	if ev := d.Events["timeout"]; ev != nil {
+		for _, effect := range ev.Do {
+			if _, ok := r.state.Memory.Facts[effect.Fact]; effect.Fact != "" && ok {
+				settled = true
+			}
+		}
+	}
+	if settled {
+		return
+	}
+	seen := false
+	for _, entry := range v.Log {
+		if entry.Choice == v.Choice && entry.Cause == e.Duty.Law {
+			seen = entry.Observed
+		}
+	}
+	c := talkCtx{conv: d, key: custody, self: e.Actor, t: r.state.Memory.Talks[custody], seen: map[string]bool{e.Guard: seen}, quiet: true}
+	if v.Choice == "timeout" {
+		if ev := d.Events["timeout"]; ev != nil {
+			r.memoryDo(c, ev.Do)
+		}
+		return
+	}
+	for _, nodeID := range sortedMemoryNodes(d) {
+		n := d.Nodes[nodeID]
+		for _, o := range n.Options {
+			if o.Close != v.Choice {
+				continue
+			}
+			failed := false
+			for _, ch := range e.Choices {
+				if ch.ID == v.Choice && ch.Fail != nil && ch.Fail.Outcome == v.Outcome && ch.Outcome != v.Outcome {
+					failed = true
+				}
+			}
+			if failed && o.Fail != nil {
+				r.memoryDo(c, o.Fail.Do)
+			} else {
+				r.memoryDo(c, o.Do)
+			}
+			return
+		}
+	}
 }
 func failDo(o convOption)[]memDo{if o.Fail==nil{return nil};return o.Fail.Do}
 // migrateTalk: an older custody log keeps what the conversation still has — its answers and checks by id (a question
 // folded since, like the old intake question, goes), its people's lines, the voices and check results.
 func migrateTalk(d *conversationDef,old dialogueSession)dialogueSession{
- options:=map[string]bool{};for _,n:=range d.Nodes{for _,o:=range n.Options{options[o.ID]=true}}
+ options:=map[string]bool{};for _,nodeID:=range sortedMemoryNodes(d){n:=d.Nodes[nodeID];for _,o:=range n.Options{options[o.ID]=true}}
  speakers:=map[string]bool{};for _,sp:=range d.Speakers{speakers[sp]=true}
  s:=dialogueSession{}
  for _,id:=range old.Chosen{if options[id]{s.Chosen=append(s.Chosen,id)}}

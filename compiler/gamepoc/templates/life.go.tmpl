@@ -47,7 +47,7 @@ func (r *Runtime) initLifeState(life behavior.LifeState) {
 	r.initPeddlers()
 	r.initVisitors()
 	r.state.Busker = buskerState{}
- r.state.Memory = memoryState{}
+ r.state.Memory = memoryState{Migrated:memoryMigrationVersion}
  r.initCalendarEncounter()
 	r.initCrafting()
 	r.initBarks()
