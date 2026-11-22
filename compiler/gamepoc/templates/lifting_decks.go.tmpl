@@ -6,6 +6,7 @@ import (
  "fmt"
  "hash/fnv"
  "math"
+ "maps"
  "strconv"
  "sort"
  inv "angelsdemons/server/internal/inventory"
@@ -24,6 +25,7 @@ type liftingDeckFreightDefinition struct {
 }
 
 type liftingDeckDefinition struct {
+ BeaconPlacement string `json:"beacon_placement,omitempty"`
  Freight *liftingDeckFreightDefinition `json:"freight,omitempty"`
  ID string `json:"id"`; LevelID string `json:"level_id"`; InstanceID string `json:"instance_id"`; NameKey string `json:"name_key"`; Access string `json:"access"`; Manual bool `json:"manual"`;ClosedWalkable bool `json:"closed_walkable"`
  Rect struct {X,Y,W,H int} `json:"rect"`; BarrierRect struct {X,Y,W,H int} `json:"barrier_rect"`; BarrierFloor []string `json:"barrier_floor"`; Approach struct {X,Y int} `json:"approach"`; Plan []float64 `json:"plan_m"`; ControlPlan []float64 `json:"control_plan_m"`
@@ -57,6 +59,7 @@ type liftingDeckState struct {
  NextRunSecond int64 `json:"next_run_second"`; LastGameSecond int64 `json:"last_game_second"`; Runs int64 `json:"runs"`; Skipped int64 `json:"skipped"`; Stops int64 `json:"stops"`
  ClearSinceNS int64 `json:"clear_since_ns"`
  CycleRequested bool `json:"cycle_requested,omitempty"`; PendingRiders []string `json:"pending_riders,omitempty"`
+ RoutineRiders map[string]string `json:"routine_riders,omitempty"`
  // Pass-through deck only. Away: the deck has left the lower landing. ArriveSecond: the game second
  // it stands there again (0 while it is still going up or working above). SettleNS: when it began to settle.
  LowerAway bool `json:"lower_away,omitempty"`; LowerArriveSecond int64 `json:"lower_arrive_second,omitempty"`; LowerSettleNS int64 `json:"lower_settle_ns,omitempty"`
@@ -87,7 +90,7 @@ func(g liftingDeckState)lowerPhase(d liftingDeckDefinition)string{
  return "lower_open"
 }
 const liftingDeckFull=behavior.GateFull
-func cloneLiftingDecks(in map[string]liftingDeckState)map[string]liftingDeckState{if in==nil{return nil};out:=make(map[string]liftingDeckState,len(in));for k,v:=range in{v.PendingRiders=append([]string(nil),v.PendingRiders...);out[k]=v};return out}
+func cloneLiftingDecks(in map[string]liftingDeckState)map[string]liftingDeckState{if in==nil{return nil};out:=make(map[string]liftingDeckState,len(in));for k,v:=range in{v.PendingRiders=append([]string(nil),v.PendingRiders...);v.RoutineRiders=maps.Clone(v.RoutineRiders);out[k]=v};return out}
 func(g liftingDeckState)pose(now int64)liftingDeckPose{
  t:=int64(0);if g.DurationNS>0{t=max(int64(0),min(liftingDeckFull,(now-g.StartNS)*liftingDeckFull/g.DurationNS))}
  lerp:=func(a,b int64)int64{if g.DurationNS<=0{return a};return a+(b-a)*t/liftingDeckFull}
@@ -206,7 +209,7 @@ func(g *liftingDeckState)shiftNS(by int64){
 }
 func(r *Runtime)advanceLiftingDecks(seconds int64){
  if r.world.LiftingDecks==nil||!r.state.Life.Enabled{return};now:=r.state.Tick*r.tickNS()
- for _,d:=range r.world.LiftingDecks.Decks{g,ok:=r.state.LiftingDecks[d.ID];if !ok{continue};before:=g.Phase
+ for _,d:=range r.world.LiftingDecks.Decks{r.resumeLiftingDeckRoutines(d);g,ok:=r.state.LiftingDecks[d.ID];if !ok{continue};before:=g.Phase
   if by:=r.liftingDeckGameTimeNS(d,g,now,seconds);by>0{g.shiftNS(by)}
   // Nobody may stand on the lower barrier line while the deck is about to leave that landing.
   present:=r.liftingDeckPresent(d)||(!g.LowerAway&&r.liftingDeckLowerEdgeBusy(d))
@@ -267,17 +270,82 @@ func(r *Runtime)liftingDeckForEdge(id string)*liftingDeckDefinition{if id==""{re
 func(r *Runtime)liftingDeckAccessError(id string)error{d:=r.liftingDeckForEdge(id);if d==nil{return nil};if d.Access=="permit"{return textError{Key:"error.lifting_deck.permit"}};if r.state.Life.LocationLockdown[d.LevelID]{return textError{Key:"error.lifting_deck.lockdown"}};if r.state.Life.LocationPowerLost[d.LevelID]{return textError{Key:"error.lifting_deck.power"}};return nil}
 // An enter intent waits on the real deck until descent after its full departure signal. The timed
 // Life edge then owns the riders, so no body is drawn floating over a descending deck.
-func(r *Runtime)requestLiftingDeckRide(actorID,edgeID string)error{
- d:=r.liftingDeckForEdge(edgeID);if d==nil{return fmt.Errorf("unknown lifting deck edge")};if err:=r.liftingDeckAccessError(edgeID);err!=nil{return err};a:=r.state.Life.Actor(actorID);edge:=r.world.Life.Edge(edgeID);if a==nil||edge==nil||a.Level!=edge.From||!a.OnFloor(){return fmt.Errorf("lifting deck rider is unavailable")}
- if actorID==playerActorID{r.resetInstantTravel()}
- r.cancelQueuedLiftingDeckRide(actorID)
- g:=r.state.LiftingDecks[d.ID];found:=false;for _,id:=range g.PendingRiders{if id==actorID{found=true}};if !found{g.PendingRiders=append(g.PendingRiders,actorID)};r.state.LiftingDecks[d.ID]=g
- target:=edge.Exit;if a.Level==d.LevelID&&g.Phase!="loading"{target=behavior.Cell{X:d.Approach.X,Y:d.Approach.Y}}
- if l:=d.Lower;l!=nil&&a.Level==l.LevelID{if _,_,open:=g.lowerPose(*d);!open{target=behavior.Cell{X:l.Approach.X,Y:l.Approach.Y}}}
- r.routeLiftingDeckRider(a,target)
-
- return nil
+func (r *Runtime) requestLiftingDeckRide(actorID, edgeID string, companions ...string) error {
+    d := r.liftingDeckForEdge(edgeID)
+    if d == nil {
+        return fmt.Errorf("unknown lifting deck edge")
+    }
+    if err := r.liftingDeckAccessError(edgeID); err != nil {
+        return err
+    }
+    edge := r.world.Life.Edge(edgeID)
+    riders := append([]string{actorID}, companions...)
+    seen := map[string]bool{}
+    // Validate every participant before changing a route or the deck queue.
+    for _, id := range riders {
+        a := r.state.Life.Actor(id)
+        if seen[id] || a == nil || edge == nil || a.Level != edge.From || !a.OnFloor() {
+            return fmt.Errorf("lifting deck rider %s is unavailable", id)
+        }
+        seen[id] = true
+    }
+    if actorID == playerActorID {
+        r.resetInstantTravel()
+    }
+    for _, id := range riders {
+        r.cancelQueuedLiftingDeckRide(id)
+    }
+    g := r.state.LiftingDecks[d.ID]
+    for _, id := range riders {
+        g.PendingRiders = append(g.PendingRiders, id)
+        if id != actorID {
+            if g.RoutineRiders == nil {
+                g.RoutineRiders = map[string]string{}
+            }
+            g.RoutineRiders[id] = edge.To
+        }
+    }
+    r.state.LiftingDecks[d.ID] = g
+    for _, id := range riders {
+        a := r.state.Life.Actor(id)
+        target := r.liftingDeckBoardingTarget(*d, *edge, a)
+        if a.Level == d.LevelID && g.Phase != "loading" {
+            target = behavior.Cell{X: d.Approach.X, Y: d.Approach.Y}
+        }
+        if l := d.Lower; l != nil && a.Level == l.LevelID {
+            if _, _, open := g.lowerPose(*d); !open {
+                target = behavior.Cell{X: l.Approach.X, Y: l.Approach.Y}
+            }
+        }
+        r.routeLiftingDeckRider(a, target)
+    }
+    r.syncLifeHero()
+    return nil
 }
+
+// An accompanying worker resumes the saved routine after physically landing.
+// The record survives a save in the queue or the shaft, including a hero who leaves early.
+func (r *Runtime) resumeLiftingDeckRoutines(d liftingDeckDefinition) {
+    g := r.state.LiftingDecks[d.ID]
+    if len(g.RoutineRiders) == 0 {
+        return
+    }
+    for id, destination := range g.RoutineRiders {
+        a := r.state.Life.Actor(id)
+        if a == nil || a.Level != destination || !a.OnFloor() {
+            continue
+        }
+        r.lifeSetManual(a, false)
+        a.OverrideLevel = ""
+        a.OverrideEdge = ""
+        a.Path = nil
+        a.PendingPath = nil
+        a.Arrived = false
+        delete(g.RoutineRiders, id)
+    }
+    r.state.LiftingDecks[d.ID] = g
+}
+
 func(r *Runtime)liftingDeckShaftSeconds(d liftingDeckDefinition)int64{return int64(d.ShaftDepthM/d.ShaftSpeedMPS)}
 func(r *Runtime)liftingDeckLowerEdgeBusy(d liftingDeckDefinition)bool{
  l:=d.Lower;if l==nil{return false}
@@ -313,6 +381,14 @@ func(r *Runtime)appendLiftingDecks(msg *pb.PocGameState,hero *behavior.LifeActor
  for _,d:=range r.world.LiftingDecks.Decks{if l:=d.Lower;l!=nil&&l.LevelID==hero.Level{r.appendLowerLiftingDeck(msg,d,locale)};if d.LevelID!=hero.Level{continue};g:=r.state.LiftingDecks[d.ID];p:=g.pose(g.UpdatedNS)
   access:=r.screenAccess(msg,behavior.Cell{X:d.Approach.X,Y:d.Approach.Y},[]behavior.Cell{{X:d.Approach.X,Y:d.Approach.Y}});access.UseWorld=true;access.WorldX=d.ControlPlan[0];access.WorldY=d.ControlPlan[1];access.WorldZ=d.ControlPlan[2]
   st:=&pb.PocLiftingDeckState{Id:d.ID,InstanceId:d.InstanceID,Name:r.localText(locale,d.NameKey,d.ID),Phase:g.Phase,Cause:g.Cause,LeavesPpm:p.Leaves,DeckPpm:p.Deck,BarrierPpm:p.Barrier,UnlockPpm:p.Unlock,DamperPpm:p.Damper,ReleasePpm:p.Release,SampleNs:g.UpdatedNS,Run:g.Runs,Skipped:g.Skipped,Stops:g.Stops,Passable:d.ClosedWalkable&&g.walkable(),PhaseText:r.localText(locale,"ui.deck.phase."+g.Phase,g.Phase),SignalRed:g.Phase!="rest"&&g.Phase!="loading",SignalGreen:g.Phase=="loading"&&p.Barrier==0,Beacon:g.Phase!="rest"&&g.Phase!="loading"&&(g.UpdatedNS/max(int64(1),d.Timing.BeaconPeriod*500000))%2==0,Horn:g.Phase=="equalising"||g.Phase=="signal_up"||g.Phase=="signal_down"||g.Phase=="departure_barrier"||g.Phase=="lockdown_warning",RideAvailable:d.TravelEdge!="",TravelEdge:d.TravelEdge,NextRunSecond:g.NextRunSecond,Access:access}
+  if st.Beacon && d.BeaconPlacement != "" {
+   beacon := r.storyPlacementItem(d.BeaconPlacement)
+   if beacon.ID != "" {
+    const goodCondition = 1000000
+    flash := g.UpdatedNS / max(int64(1), d.Timing.BeaconPeriod*1000000)
+    st.Beacon = beacon.Condition >= goodCondition || beacon.Condition > 0 && flash%2 == 0
+   }
+  }
   st.WeightText=r.localText(locale,"ui.deck.weight.unknown","—")
  // the scale under the deck weighs a convoy standing on it: tug, trailer, the goods inside and the riders
  if w,ok:=r.cargoDeckWeightG(d);ok&&d.Freight==nil{st.WeightText=strings.ReplaceAll(strconv.FormatFloat(float64(w)/1000,'f',2,64),".",r.localText(locale,"ui.format.decimal_separator","."))}
@@ -343,7 +419,9 @@ func(r *Runtime)appendLowerLiftingDeck(msg *pb.PocGameState,d liftingDeckDefinit
  view.LiftingDeckSpecs=append(view.LiftingDeckSpecs,spec)
 }
 func(r *Runtime)validateLiftingDecks(s state)error{
- count:=0;if r.world.LiftingDecks!=nil{for _,d:=range r.world.LiftingDecks.Decks{count++;g,ok:=s.LiftingDecks[d.ID];if !ok{return fmt.Errorf("missing lifting deck %s",d.ID)};if g.UpdatedNS<0||g.StartNS<0||g.StartNS>g.UpdatedNS||g.DurationNS<0||g.NextRunSecond<0||g.Runs<0||g.Stops<0||g.RunSlotSecond<0||g.FreightRun<0||g.FreightRun>g.Runs||g.FreightNextSecond<0||g.FreightLandedSecond<0||g.FreightLandedSecond>s.Life.Seconds||g.LowerArriveSecond<0||g.LowerSettleNS<0||g.LowerSettleNS>g.UpdatedNS||(d.Lower==nil&&(g.LowerAway||g.LowerArriveSecond!=0||g.LowerSettleNS!=0))||(!g.LowerAway&&g.LowerArriveSecond!=0){return fmt.Errorf("invalid lifting deck state %s",d.ID)};p:=g.pose(g.UpdatedNS);for _,n:=range []int64{p.Leaves,p.Deck,p.Barrier,p.Unlock,p.Damper,p.Release}{if n<0||n>liftingDeckFull{return fmt.Errorf("lifting deck pose out of range %s",d.ID)}};if p.Deck>0&&p.Leaves<liftingDeckFull{return fmt.Errorf("lifting deck interlock %s",d.ID)}}};if len(s.LiftingDecks)!=count{return fmt.Errorf("lifting deck catalog/state mismatch")};return nil
+ count:=0;if r.world.LiftingDecks!=nil{for _,d:=range r.world.LiftingDecks.Decks{count++;g,ok:=s.LiftingDecks[d.ID];if !ok{return fmt.Errorf("missing lifting deck %s",d.ID)};for rider,destination:=range g.RoutineRiders{
+ if _,exists:=r.world.Life.Locations[destination];s.Life.Actor(rider)==nil||rider==playerActorID||!exists{return fmt.Errorf("invalid lifting deck routine rider %s",rider)}
+};if g.UpdatedNS<0||g.StartNS<0||g.StartNS>g.UpdatedNS||g.DurationNS<0||g.NextRunSecond<0||g.Runs<0||g.Stops<0||g.RunSlotSecond<0||g.FreightRun<0||g.FreightRun>g.Runs||g.FreightNextSecond<0||g.FreightLandedSecond<0||g.FreightLandedSecond>s.Life.Seconds||g.LowerArriveSecond<0||g.LowerSettleNS<0||g.LowerSettleNS>g.UpdatedNS||(d.Lower==nil&&(g.LowerAway||g.LowerArriveSecond!=0||g.LowerSettleNS!=0))||(!g.LowerAway&&g.LowerArriveSecond!=0){return fmt.Errorf("invalid lifting deck state %s",d.ID)};p:=g.pose(g.UpdatedNS);for _,n:=range []int64{p.Leaves,p.Deck,p.Barrier,p.Unlock,p.Damper,p.Release}{if n<0||n>liftingDeckFull{return fmt.Errorf("lifting deck pose out of range %s",d.ID)}};if p.Deck>0&&p.Leaves<liftingDeckFull{return fmt.Errorf("lifting deck interlock %s",d.ID)}}};if len(s.LiftingDecks)!=count{return fmt.Errorf("lifting deck catalog/state mismatch")};return nil
 }
 
 // This existing input-style Life command is for native mechanism proofs only;
@@ -358,13 +436,76 @@ func(r *Runtime)routeLiftingDeckRider(a *behavior.LifeActor,target behavior.Cell
  model:=r.state.Life.GateModel(r.world.Life);r.state.Life.EnsureHeroBody(model)
  if a.Body!=nil{r.state.Life.HeroBodyRouteTo(model,target)}else{a.Path=model.Space(a.Level,r.state.Life.BlockedCells(a.Level,a.ID)).Path(a.Position,target,behavior.Cell{},0);a.MoveStartTick=r.lifeActorMotionTick(a)}
 }
-func(r *Runtime)routeQueuedLowerLiftingDeckRiders(d liftingDeckDefinition){
- edge:=r.world.Life.Edge(d.ReturnEdge);if edge==nil||d.Lower==nil{return};g:=r.state.LiftingDecks[d.ID]
- for _,id:=range g.PendingRiders{a:=r.state.Life.Actor(id);if a==nil||!a.OnFloor()||a.Level!=d.Lower.LevelID||a.Position==edge.Exit||!a.Manual{continue};if a.Goal!=edge.Exit{r.routeLiftingDeckRider(a,edge.Exit)}}
+// Companions take separate real floor cells on the same deck. A queued
+// hero keeps the public edge's original boarding point.
+func (r *Runtime) liftingDeckBoardingTarget(d liftingDeckDefinition, edge behavior.LifeEdge, a *behavior.LifeActor) behavior.Cell {
+    if _, companion := r.state.LiftingDecks[d.ID].RoutineRiders[a.ID]; !companion {
+        return edge.Exit
+    }
+    rect := d.Rect
+    if d.Lower != nil && a.Level == d.Lower.LevelID {
+        rect = d.Lower.Rect
+    }
+    contains := func(at behavior.Cell) bool {
+        return at.X >= rect.X && at.X < rect.X+rect.W && at.Y >= rect.Y && at.Y < rect.Y+rect.H
+    }
+    if a.Goal != edge.Exit && contains(a.Goal) {
+        return a.Goal
+    }
+    blocked := r.state.Life.BlockedCells(a.Level, a.ID)
+    for _, other := range r.state.Life.Actors {
+        if other.ID != a.ID && other.Level == a.Level && other.Manual {
+            blocked[other.Goal] = true
+        }
+    }
+    target, distance := edge.Exit, int(^uint(0)>>1)
+    for y := rect.Y; y < rect.Y+rect.H; y++ {
+        for x := rect.X; x < rect.X+rect.W; x++ {
+            at := behavior.Cell{X: x, Y: y}
+            if at == edge.Exit || blocked[at] || !r.world.Life.WalksFor(a.Level, at, a.ID) {
+                continue
+            }
+            next := int(math.Abs(float64(x-edge.Exit.X)) + math.Abs(float64(y-edge.Exit.Y)))
+            if next < distance {
+                target, distance = at, next
+            }
+        }
+    }
+    return target
 }
-func(r *Runtime)routeQueuedLiftingDeckRiders(d liftingDeckDefinition){
- edge:=r.world.Life.Edge(d.TravelEdge);if edge==nil{return};g:=r.state.LiftingDecks[d.ID]
- for _,id:=range g.PendingRiders{a:=r.state.Life.Actor(id);if a==nil||!a.OnFloor()||a.Level!=d.LevelID||a.Position==edge.Exit{continue};if a.Goal!=edge.Exit{r.routeLiftingDeckRider(a,edge.Exit)}}
+
+func (r *Runtime) routeQueuedLowerLiftingDeckRiders(d liftingDeckDefinition) {
+    edge := r.world.Life.Edge(d.ReturnEdge)
+    if edge == nil || d.Lower == nil {
+        return
+    }
+    for _, id := range r.state.LiftingDecks[d.ID].PendingRiders {
+        a := r.state.Life.Actor(id)
+        if a == nil || !a.OnFloor() || a.Level != d.Lower.LevelID || !a.Manual {
+            continue
+        }
+        target := r.liftingDeckBoardingTarget(d, *edge, a)
+        if a.Goal != target {
+            r.routeLiftingDeckRider(a, target)
+        }
+    }
+}
+
+func (r *Runtime) routeQueuedLiftingDeckRiders(d liftingDeckDefinition) {
+    edge := r.world.Life.Edge(d.TravelEdge)
+    if edge == nil {
+        return
+    }
+    for _, id := range r.state.LiftingDecks[d.ID].PendingRiders {
+        a := r.state.Life.Actor(id)
+        if a == nil || !a.OnFloor() || a.Level != d.LevelID {
+            continue
+        }
+        target := r.liftingDeckBoardingTarget(d, *edge, a)
+        if a.Goal != target {
+            r.routeLiftingDeckRider(a, target)
+        }
+    }
 }
 
 

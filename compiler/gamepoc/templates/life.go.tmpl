@@ -188,11 +188,14 @@ func (r *Runtime) advanceLifeFrameBy(delta int64) error {
  if err:=r.advanceStealth();err!=nil{return err}
  if err:=r.combatLifeAfterFrame();err!=nil{return err}
  if r.state.Combat.Active&&!r.heroInCombat(){if err:=r.advanceCombatAI();err!=nil{return err}}
-	if old != r.currentLevel() {
+	level := r.currentLevel()
+	if old != level {
+		r.storyArrived(level, previousEdge)
 		r.learnRegionTraversal(previousEdge)
 		r.state.Epoch = newEpoch()
 		r.openStore = ""
 	}
+	r.advanceStoryTalks(level)
 	return nil
 }
 func (r *Runtime) lifeViewRuntime() *Runtime {

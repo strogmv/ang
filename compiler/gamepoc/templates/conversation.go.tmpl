@@ -28,9 +28,12 @@ import (
 
 type memoryCatalog struct {
 	Quests map[string][]string `json:"quests"`
+	AutoTalks map[string][]storyAutoTalk[memWhen] `json:"auto_talks,omitempty"`
+	Arrivals map[string]storyArrival[memWhen, memDo] `json:"arrivals,omitempty"`
 	Rules []storyRule[memWhen, memDo] `json:"rules,omitempty"`
 	Gatherings []storyGathering[memWhen] `json:"gatherings,omitempty"`
- BackfillPlacements []string `json:"backfill_placements,omitempty"`
+ PlacementVersions map[string]int `json:"placement_versions,omitempty"`
+	BackfillPlacements []string `json:"backfill_placements,omitempty"`
 	MigratePlacements []storyPlacementMigration `json:"migrate_placements,omitempty"`
 	Facts             map[string]*memoryFactDef  `json:"facts"`
 	Topics            map[string]*memoryTopicDef `json:"topics"`
@@ -120,6 +123,8 @@ type memKnows struct {
 	}
 
 type memWhen struct {
+	TrainBerth string `json:"train_berth,omitempty"`
+	DeckPhase *storyDeckPhase `json:"deck_phase,omitempty"`
 	FileTrait string `json:"file_trait"`
 	FileStrength string `json:"file_strength"`
 	Quest *storyQuestStep `json:"quest,omitempty"`
@@ -167,6 +172,7 @@ type memWhen struct {
 	Not       *memWhen  `json:"not,omitempty"`
 }
 type memFactWhen struct {
+	Today bool `json:"today,omitempty"`
 	CalendarDaysSince int64 `json:"calendar_days_since,omitempty"`
 	HoursSince int64 `json:"hours_since,omitempty"`
 	ID          string            `json:"id"`
@@ -175,6 +181,10 @@ type memFactWhen struct {
 	BeforeToday bool              `json:"before_today,omitempty"`
 }
 type memDo struct {
+	ResumeRoutine string `json:"resume_routine,omitempty"`
+	DeckRide string `json:"deck_ride,omitempty"`
+	DeckWith []string `json:"deck_with,omitempty"`
+	RatingLoss int64 `json:"rating_loss,omitempty"`
 	Quest *storyQuestStep `json:"quest,omitempty"`
 	Transfer *storyTransfer `json:"transfer,omitempty"`
 	RemovePlacement string `json:"remove_placement,omitempty"`
@@ -844,6 +854,7 @@ func (r *Runtime) memoryHolds(c talkCtx, w *memWhen) bool {
 			f.HoursSince > 0 && now-rec.First < f.HoursSince*3600 {
 			return false
 		}
+		if f.Today && rec.Second/86400 != now/86400 { return false }
 		if f.BeforeToday && rec.First >= now/86400*86400 {
 			return false
 		}
@@ -944,6 +955,12 @@ func (r *Runtime) memoryHolds(c talkCtx, w *memWhen) bool {
 		if it.ConditionBelow != nil && item.Condition >= int64(*it.ConditionBelow*1000000) || it.ConditionAtLeast != nil && item.Condition < int64(*it.ConditionAtLeast*1000000) {
 			return false
 		}
+	}
+	if w.TrainBerth != "" && !r.storyTrainStopped(c.level) {
+		return false
+	}
+	if p := w.DeckPhase; p != nil && !memoryIn(p.Phases, r.state.LiftingDecks[p.Deck].Phase) {
+		return false
 	}
 	switch w.World {
 	case "passage_open":

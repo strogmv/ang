@@ -60,6 +60,22 @@ type storyRule[W, D any] struct {
 	Do    []D        `json:"do"`
 }
 
+type storyAutoTalk[W any] struct {
+	Conversation string `json:"conversation"`
+	Speaker string `json:"speaker"`
+	When *W `json:"when"`
+}
+
+type storyArrival[W, D any] struct {
+	When *W `json:"when"`
+	Do []D `json:"do"`
+}
+
+type storyDeckPhase struct {
+	Deck string `json:"deck"`
+	Phases []string `json:"phases"`
+}
+
 type storyGathering[W any] struct {
 	When      *W                   `json:"when"`
 	Level     string               `json:"level"`
@@ -74,7 +90,7 @@ type storyPlacementMigration struct {
 	Witness   string         `json:"witness"`
 }
 
-const storyProgressVersion = 1
+const storyProgressVersion = 2
 
 // Derived scheduling state belongs to this runtime, never the save. An epoch
 // change also discards it after a load or a new game.
@@ -144,6 +160,14 @@ func (r *Runtime) storySetQuest(q storyQuestStep) {
 
 func (r *Runtime) storyEffect(d memDo) error {
 	switch {
+	case d.ResumeRoutine != "":
+		if actor := r.state.Life.Actor(d.ResumeRoutine); actor != nil {
+			actor.RoutineOverride = nil
+		}
+	case d.DeckRide != "":
+		return r.requestLiftingDeckRide(playerActorID, d.DeckRide, d.DeckWith...)
+	case d.RatingLoss > 0:
+		r.state.Crafting.Law.Trust = max(0, r.state.Crafting.Law.Trust-d.RatingLoss)
 	case d.Quest != nil:
 		r.storySetQuest(*d.Quest)
 	case d.RevealNode != "":
@@ -209,6 +233,40 @@ func (r *Runtime) storyEffect(d memDo) error {
 		}
 	}
 	return nil
+}
+
+func (r *Runtime) storyTrainStopped(level string) bool {
+	c := r.world.TrainMotion
+	s := r.state.TrainDispatch
+	if c == nil || level != c.BerthLevelID || s.Active != 1 {
+		return false
+	}
+	_, _, phase, _ := c.dispatchPose(s, r.simNS())
+	return phase == "berthed" || phase == "closing"
+}
+
+func (r *Runtime) advanceStoryTalks(level string) {
+	if r.world.Memory == nil || r.state.Memory.Open != "" || r.heroInCombat() {
+		return
+	}
+	for _, event := range r.world.Memory.AutoTalks[level] {
+		c := talkCtx{level: level, self: event.Speaker, worldOnly: true}
+		if r.memoryHolds(c, event.When) && r.talkOpen(event.Conversation, event.Speaker) == nil {
+			return
+		}
+	}
+}
+
+func (r *Runtime) storyArrived(level, edge string) {
+	if r.world.Memory == nil || edge == "" {
+		return
+	}
+	if arrival, ok := r.world.Memory.Arrivals[edge]; ok {
+		c := talkCtx{level: level}
+		if r.memoryHolds(c, arrival.When) {
+			_ = r.memoryDo(c, arrival.Do)
+		}
+	}
 }
 
 func (r *Runtime) advanceStoryRules() {
@@ -312,10 +370,11 @@ func (r *Runtime) storyGatheringTargets() func(string) (behavior.LifeStep, bool)
 }
 
 func (r *Runtime) migrateStoryPlacements(s *state) {
-	if s.Memory.StoryVersion != 0 {
+	version := s.Memory.StoryVersion
+	s.Memory.StoryVersion = storyProgressVersion
+	if version != 0 {
 		return
 	}
-	s.Memory.StoryVersion = storyProgressVersion
 	for _, m := range r.world.Memory.MigratePlacements {
 		if _, exists := s.Memory.QuestSteps[m.Quest.ID]; exists {
 			continue
@@ -375,7 +434,7 @@ func (r *Runtime) validateStoryProgress(s state) error {
 // Initial placement provenance identifies already surviving items, wherever they are.
 func (r *Runtime) backfillStoryPlacements(s *state) error {
 	m := r.world.Memory
-	if m == nil || s.Memory.StoryVersion != 0 || len(m.BackfillPlacements) == 0 {
+	if m == nil || s.Memory.StoryVersion >= storyProgressVersion || len(m.BackfillPlacements) == 0 {
 		return nil
 	}
 	present := map[string]bool{}
@@ -385,7 +444,8 @@ func (r *Runtime) backfillStoryPlacements(s *state) error {
 	model := r.inventoryModelFor(true)
 	var additions []inv.Make
 	for _, source := range model.Sources {
-		if present[source.ID] || !slices.Contains(m.BackfillPlacements, source.ID) {
+		if present[source.ID] || !slices.Contains(m.BackfillPlacements, source.ID) ||
+			s.Memory.StoryVersion >= max(1, m.PlacementVersions[source.ID]) {
 			continue
 		}
 		additions = append(additions, inv.Make{ID: inv.InstanceID(source.ID, 0, 0), Definition: source.Definition,

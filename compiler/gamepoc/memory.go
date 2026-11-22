@@ -23,14 +23,17 @@ import (
 
 // Memory is world.memory.
 type Memory struct {
-	Quests             map[string][]string       `json:"quests"`
-	Rules              []storyRule[When, Do]     `json:"rules,omitempty"`
-	Gatherings         []storyGathering[When]    `json:"gatherings,omitempty"`
-	BackfillPlacements []string                  `json:"backfill_placements,omitempty"`
-	MigratePlacements  []storyPlacementMigration `json:"migrate_placements,omitempty"`
-	Facts              map[string]*MemoryFact    `json:"facts"`
-	Topics             map[string]*MemoryTopic   `json:"topics"`
-	Interjections      []Interjection            `json:"interjections"`
+	AutoTalks          map[string][]storyAutoTalk[When]  `json:"auto_talks,omitempty"`
+	Arrivals           map[string]storyArrival[When, Do] `json:"arrivals,omitempty"`
+	Quests             map[string][]string               `json:"quests"`
+	Rules              []storyRule[When, Do]             `json:"rules,omitempty"`
+	Gatherings         []storyGathering[When]            `json:"gatherings,omitempty"`
+	PlacementVersions  map[string]int                    `json:"placement_versions,omitempty"`
+	BackfillPlacements []string                          `json:"backfill_placements,omitempty"`
+	MigratePlacements  []storyPlacementMigration         `json:"migrate_placements,omitempty"`
+	Facts              map[string]*MemoryFact            `json:"facts"`
+	Topics             map[string]*MemoryTopic           `json:"topics"`
+	Interjections      []Interjection                    `json:"interjections"`
 	InterjectionRules  struct {
 		FreshDays   int     `json:"fresh_days"`
 		HeardBelief float64 `json:"heard_belief"`
@@ -136,6 +139,8 @@ type KnownFactWhen struct {
 
 // When is a condition: every field set holds; Any — one of; Not — negation.
 type When struct {
+	TrainBerth   string          `json:"train_berth,omitempty"`
+	DeckPhase    *storyDeckPhase `json:"deck_phase,omitempty"`
 	FileTrait    string          `json:"file_trait,omitempty"`
 	FileStrength string          `json:"file_strength,omitempty"`
 	Quest        *storyQuestStep `json:"quest,omitempty"`
@@ -179,6 +184,7 @@ type When struct {
 
 // FactWhen: the fact was written (with these arguments, recently, or first before today). CUE allows the bare id.
 type FactWhen struct {
+	Today             bool              `json:"today,omitempty"`
 	CalendarDaysSince int               `json:"calendar_days_since,omitempty"`
 	HoursSince        int               `json:"hours_since,omitempty"`
 	ID                string            `json:"id"`
@@ -214,6 +220,10 @@ type WhenItem struct {
 
 // Do is one effect, with an optional condition.
 type Do struct {
+	ResumeRoutine      string                   `json:"resume_routine,omitempty"`
+	DeckRide           string                   `json:"deck_ride,omitempty"`
+	DeckWith           []string                 `json:"deck_with,omitempty"`
+	RatingLoss         int64                    `json:"rating_loss,omitempty"`
 	Quest              *storyQuestStep          `json:"quest,omitempty"`
 	Transfer           *storyTransfer           `json:"transfer,omitempty"`
 	RemovePlacement    string                   `json:"remove_placement,omitempty"`
@@ -522,7 +532,7 @@ func memoryPossible(w *When, facts, topics map[string]bool) (yes, no bool) {
 		add(b, a)
 	}
 	// Other world/skill/item conditions may be either true or false.
-	if w.Trust != nil || w.Skill != nil || w.Day != nil || w.Asked != "" || w.NotAsked != "" || w.Voiced != "" || w.Entry != "" || w.Interjected != nil || len(w.Speaker) > 0 || len(w.Caste) > 0 || w.Item != nil || w.World != "" || w.SeenBy != "" || w.NotSeenBy != "" {
+	if w.Trust != nil || w.Skill != nil || w.Day != nil || w.Asked != "" || w.NotAsked != "" || w.Voiced != "" || w.Entry != "" || w.Interjected != nil || len(w.Speaker) > 0 || len(w.Caste) > 0 || w.Item != nil || w.World != "" || w.TrainBerth != "" || w.DeckPhase != nil || w.SeenBy != "" || w.NotSeenBy != "" {
 		no = true
 	}
 	return
@@ -830,7 +840,7 @@ func (k *memoryChecker) do(where string, list []Do, s *convScope, writer string,
 	for i, d := range list {
 		at := fmt.Sprintf("%s.do[%d]", where, i)
 		n := 0
-		for _, set := range []bool{d.Fact != "", d.Topic != "", d.Learn != "", d.Trust != nil, d.GiveItem != nil, d.ItemCondition != nil, d.Quest != nil, d.Transfer != nil, d.RemovePlacement != "", d.PlacementCondition != nil, d.RevealNode != ""} {
+		for _, set := range []bool{d.Fact != "", d.Topic != "", d.Learn != "", d.Trust != nil, d.GiveItem != nil, d.ItemCondition != nil, d.Quest != nil, d.Transfer != nil, d.RemovePlacement != "", d.PlacementCondition != nil, d.RevealNode != "", d.DeckRide != "", d.ResumeRoutine != "", d.RatingLoss > 0} {
 			if set {
 				n++
 			}
@@ -1461,6 +1471,40 @@ func checkMemory(c *Compiled) error {
 		}
 		for _, r := range t.ExternalReaders {
 			if err := k.externalReader(where, id, r, false); err != nil {
+				return err
+			}
+		}
+	}
+	for _, level := range sortedKeys(m.AutoTalks) {
+		for _, event := range m.AutoTalks[level] {
+			where := "world.memory.auto_talks." + level
+			conv := c.Conversations[event.Conversation]
+			if _, ok := life.Locations[level]; !ok || conv == nil || !conv.Event ||
+				conv.StageLevel != level || event.When == nil || event.When.HeroAt == nil ||
+				event.When.HeroAt.Level != level || !k.persons[event.Speaker] {
+				return fmt.Errorf("%s: need a same-level event, speaker and hero approach", where)
+			}
+			if err := k.when(where, event.When, nil, "вход по месту "+event.Conversation); err != nil {
+				return err
+			}
+			k.links.opened[event.Conversation] = "Подход к месту при выполненных условиях"
+		}
+	}
+	if len(m.Arrivals) > 0 {
+		var travel struct{ Edges []struct{ ID, To string } }
+		if err := json.Unmarshal(c.Life, &travel); err != nil {
+			return err
+		}
+		for _, id := range sortedKeys(m.Arrivals) {
+			a := m.Arrivals[id]
+			where := "world.memory.arrivals." + id
+			if !slices.ContainsFunc(travel.Edges, func(e struct{ ID, To string }) bool { return e.ID == id }) {
+				return fmt.Errorf("%s: unknown Life edge", where)
+			}
+			if err := k.when(where, a.When, nil, where); err != nil {
+				return err
+			}
+			if err := k.do(where, a.Do, nil, where, a.When); err != nil {
 				return err
 			}
 		}

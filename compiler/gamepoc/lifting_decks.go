@@ -34,6 +34,7 @@ type LiftingDeckFreightDefinition struct {
 }
 
 type LiftingDeckDefinition struct {
+	BeaconPlacement      string                        `json:"beacon_placement,omitempty"`
 	Freight              *LiftingDeckFreightDefinition `json:"freight,omitempty"`
 	ID                   string                        `json:"id"`
 	LevelID              string                        `json:"level_id"`

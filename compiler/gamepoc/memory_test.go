@@ -352,3 +352,21 @@ func TestMemoryGroupNamedSpeakersAndContinuation(t *testing.T) {
 		t.Fatalf("a silent check accepted: %v", err)
 	}
 }
+
+func TestMemoryChecksDeckCompanions(t *testing.T) {
+	for _, companions := range [][]string{{"char.trader"}, {"char.trader", "char.trader"}, {"char.hero"}, {"char.unknown"}} {
+		c := memoryWorld(t)
+		c.LiftingDecks = &LiftingDeckCatalog{Decks: []LiftingDeckDefinition{{ID: "deck.test", TravelEdge: "down", ReturnEdge: "up"}}}
+		c.Conversations["dlg.trader"].Nodes["open"].Options[2].Do = []Do{{DeckRide: "down", DeckWith: companions}}
+		err := checkMemory(c)
+		valid := len(companions) == 1 && companions[0] == "char.trader"
+		if (err == nil) != valid {
+			t.Fatalf("companions %v: %v", companions, err)
+		}
+	}
+	c := memoryWorld(t)
+	c.Conversations["dlg.trader"].Nodes["open"].Options[2].Do = []Do{{Fact: "fact.trader.met", DeckWith: []string{"char.trader"}}}
+	if err := checkMemory(c); err == nil {
+		t.Fatal("companions accepted without a physical deck ride")
+	}
+}

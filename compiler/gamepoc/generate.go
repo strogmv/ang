@@ -1608,6 +1608,7 @@ func generatePOC(project string, legacyUnity bool) error {
 		"conversation.go.tmpl":                  filepath.Join(project, "internal/poc/conversation.gen.go"),
 		"story_rules.go.tmpl":                   filepath.Join(project, "internal/poc/story_rules.gen.go"),
 		"story_rules_test.go.tmpl":              filepath.Join(project, "internal/poc/story_rules_generated_test.go"),
+		"story_hub_test.go.tmpl":                filepath.Join(project, "internal/poc/story_hub_generated_test.go"),
 		"story_start_test.go.tmpl":              filepath.Join(project, "internal/poc/story_start_generated_test.go"),
 		"conversation_test.go.tmpl":             filepath.Join(project, "internal/poc/conversation_generated_test.go"),
 		"dialogue.go.tmpl":                      filepath.Join(project, "internal/poc/dialogue.gen.go"),

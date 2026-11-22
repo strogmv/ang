@@ -209,8 +209,8 @@ func (d *DialogueRules) skillCheck(where string, k DialogueCheck) error {
 	if _, ok := d.Chance[k.Difficulty]; !ok {
 		return fmt.Errorf("%s: unknown difficulty %s", where, k.Difficulty)
 	}
-	if k.Kind != "once" && k.Kind != "retry" {
-		return fmt.Errorf("%s: check kind %q is neither once nor retry", where, k.Kind)
+	if k.Kind != "once" && k.Kind != "retry" && k.Kind != "daily" {
+		return fmt.Errorf("%s: check kind %q must be once, retry or daily", where, k.Kind)
 	}
 	return nil
 }

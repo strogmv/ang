@@ -95,6 +95,7 @@ type dialogueEntry struct {
 	Minor int64  `json:",omitempty"`
 }
 type dialogueCheckRecord struct {
+	Day int64 `json:",omitempty"`
 	Attempts int
 	Success  bool
 	// the hero's skill at the last attempt: a failed retry check opens again only above it
@@ -182,6 +183,8 @@ func (r *Runtime) dialogueCheckOpen(s *dialogueSession, option string, k Dialogu
 	switch {
 	case !tried:
 		return true, false
+	case k.Kind == "daily":
+		return rec.Day != r.memoryDay(), false
 	case k.Kind == "once":
 		return false, false
 	case rec.Success:
@@ -196,11 +199,12 @@ func (r *Runtime) dialogueCheckOpen(s *dialogueSession, option string, k Dialogu
 // (no new roll, no new line).
 func (r *Runtime) dialogueRoll(s *dialogueSession, conversation, option string, k DialogueCheck) bool {
 	rec := s.Checks[option]
-	if rec.Success {
+	if rec.Success && k.Kind != "daily" {
 		return true
 	}
 	chance := r.dialogueChance(k)
 	rec.Attempts++
+	if k.Kind == "daily" { rec.Day = r.memoryDay() }
 	rec.Success = dialogueDie(r.state.Seed, r.state.CheckSeed, conversation, option, rec.Attempts) < chance
 	rec.SkillAt = r.dialogueSkill(k.Skill)
 	if s.Checks == nil {
@@ -316,7 +320,7 @@ func (r *Runtime) dialogueCheckLabel(locale string, k DialogueCheck, chance int,
 		format = d.Text.Locked
 	}
 	kind := d.Text.Retry
-	if k.Kind == "once" {
+	if k.Kind != "retry" {
 		kind = d.Text.Once
 	}
 	return strings.NewReplacer("{skill}", skill, "{difficulty}", level, "{chance}", strconv.Itoa(chance), "{kind}",
@@ -379,7 +383,7 @@ func (r *Runtime) dialogueChoice(locale string, s dialogueSession, id, text stri
 	if k != nil {
 		_, locked := r.dialogueCheckOpen(&s, id, *k)
 		c.Chance = int32(r.dialogueChance(*k))
-		c.Once = k.Kind == "once"
+		c.Once = k.Kind != "retry"
 		c.Locked = locked
 		c.Skill = k.Skill
 		_, c.CheckColour = r.dialogueSkillTag(locale, k.Skill)
