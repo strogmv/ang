@@ -352,6 +352,7 @@ type receipt struct {
 }
 
 type Runtime struct {
+ story storySchedule
 <<ANG if .GodotScreens ANG>> screenRoutes *screenAccessRoutes <<ANG end ANG>>
  playableWorlds map[string]worldData
 	// Doc 96: combat panel options of the last decision point, and the barks cursor over combat events (memory only).
@@ -442,7 +443,7 @@ func New(data, token string) (*Runtime, error) {
 		return nil, err
 	}
 	// the first state is a game too: it has its own check value like its epoch (a save of it keeps it; 0 is only an older save's)
-	r.state = state{Memory:memoryState{Migrated:memoryMigrationVersion},Wounds:wounds.Save{Version:1},Epoch: newEpoch(), CheckSeed: drawCheckSeed(), Speed: 1, Inventory: initialItems}
+	r.state = state{Memory:memoryState{Migrated:memoryMigrationVersion, StoryVersion:storyProgressVersion},Wounds:wounds.Save{Version:1},Epoch: newEpoch(), CheckSeed: drawCheckSeed(), Speed: 1, Inventory: initialItems}
 	return r, nil
 }
 func newEpoch() string {
@@ -1037,7 +1038,8 @@ func (r *Runtime) command(in input) {
 		}
 		r.world = world
 		r.openStore = ""
-		r.state = state{Memory:memoryState{Migrated:memoryMigrationVersion},Wounds:wounds.Save{Version:1},Playable:playableSceneState{ID:world.PlayableID},SDKLayout: layout, Inventory: items, Active: true, Epoch: newEpoch(), Seed: seed, CheckSeed: checkSeed, PlayerName: name, Player: world.Spawn, Speed: 1}
+		r.state = state{Memory:memoryState{Migrated:memoryMigrationVersion, StoryVersion:storyProgressVersion},Wounds:wounds.Save{Version:1},Playable:playableSceneState{ID:world.PlayableID},SDKLayout: layout, Inventory: items, Active: true, Epoch: newEpoch(), Seed: seed, CheckSeed: checkSeed, PlayerName: name, Player: world.Spawn, Speed: 1}
+		r.story = storySchedule{}
 		if isLife {
 			r.initLifeState(life)
 			if err := r.heroFileNewGame(file); err != nil {
@@ -1140,6 +1142,7 @@ func (r *Runtime) diskComplete(result diskResult) {
 			if result.err == nil {
 				r.world = world
 				r.state = result.loaded
+				r.story = storySchedule{}
 				r.applyGateTerrain()
 				r.state.Epoch = newEpoch()
 				r.state.LastMoveSeq = 0

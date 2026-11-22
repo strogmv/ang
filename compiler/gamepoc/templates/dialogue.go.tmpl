@@ -317,6 +317,8 @@ func (r *Runtime) dialogueLog(locale string, s dialogueSession) []*pb.PocConvers
 	for _, e := range s.Lines {
 		line := &pb.PocConversationLine{Kind: e.Kind, Speaker: e.Speaker, Skill: e.Skill, Success: e.Success}
 		switch e.Kind {
+		case "narration":
+			line.Text = r.dialogueText(locale, e.Text)
 		case "line", "hero":
 			line.Name, line.Colour = r.dialogueSpeaker(locale, e.Speaker)
 			line.Text = r.dialogueText(locale, e.Text)
@@ -416,6 +418,10 @@ func (r *Runtime) validateDialogueSession(s dialogueSession, options, nodes, spe
 	for _, e := range s.Lines {
 		_, skill := d.Skills[e.Skill]
 		switch e.Kind {
+		case "narration":
+			if e.Speaker != "" || e.Text == "" {
+				return errors.New("invalid saved narration")
+			}
 		case "line":
 			if !speakers[e.Speaker] || e.Text == "" {
 				return fmt.Errorf("saved conversation: line of unknown speaker %q", e.Speaker)

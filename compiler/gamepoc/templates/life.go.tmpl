@@ -47,7 +47,7 @@ func (r *Runtime) initLifeState(life behavior.LifeState) {
 	r.initPeddlers()
 	r.initVisitors()
 	r.state.Busker = buskerState{}
- r.state.Memory = memoryState{Migrated:memoryMigrationVersion, Story:storyMemory{Migrated:storyMigrationVersion}}
+ r.state.Memory = memoryState{Migrated:memoryMigrationVersion, StoryVersion:storyProgressVersion, Story:storyMemory{Migrated:storyMigrationVersion}}
  r.initCalendarEncounter()
 	r.initCrafting()
 	r.initBarks()
@@ -125,6 +125,7 @@ func (r *Runtime) advanceLifeFrameBy(delta int64) error {
 	defer r.state.Life.ObserveDecisions()
 	r.state.Life.ControlledActorID = playerActorID
 	r.state.Life.BrainServices = r.npcServices()
+	r.state.Life.BrainServices.StoryTarget = r.storyGatheringTargets()
 	old := r.currentLevel()
 	previousEdge := ""
 	if hero := r.state.Life.Actor(playerActorID); hero != nil && hero.Trip != nil {
@@ -148,6 +149,7 @@ func (r *Runtime) advanceLifeFrameBy(delta int64) error {
  r.calendarEncounterAfterFrame()
  // story memory: topics from heard barks, the talk's life (conversation.go)
  r.memoryAfterFrame()
+ r.advanceStoryRules()
  if err:=r.advanceCombatCare();err!=nil{return err}
  if err:=r.advanceMedicalCapsules();err!=nil{return err}
  if err:=r.advanceSanitaryServices();err!=nil{return err}

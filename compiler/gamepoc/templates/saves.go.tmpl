@@ -152,8 +152,9 @@ func (r *Runtime) growSavedWorld(s *state) ([]string, error) {
 	saved := &Runtime{world: r.world, state: *s}
 	floor := s.Life.GateModel(saved.liftingDeckLifeModel(*s, r.world.Life))
 	added, err := s.Life.Grow(r.world.Life, floor, saved.walkersDynamic(true, true))
-	if err != nil || len(added) == 0 {
-		return nil, err
+	if err != nil { return nil, err }
+	if len(added) == 0 {
+		return nil, r.backfillStoryPlacements(s)
 	}
 	owners := map[string]bool{}
 	for _, id := range added {
@@ -165,7 +166,7 @@ func (r *Runtime) growSavedWorld(s *state) ([]string, error) {
 	}
 	r.growNPCEconomy(s, g.Accounts)
 	r.growCrafting(s, owners)
-	return added, nil
+	return added, r.backfillStoryPlacements(s)
 }
 
 // noteSave writes a line about a slot to save-problems.log, once per slot, kind and text.

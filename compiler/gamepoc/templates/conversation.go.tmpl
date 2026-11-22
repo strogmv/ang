@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"maps"
 	"strings"
 
 	behavior "angelsdemons/server/internal/behavior"
@@ -26,6 +27,11 @@ import (
 // The calendar encounter owns the Prokhor week's conversations (calendar_encounter.go); world.memory.talks the rest.
 
 type memoryCatalog struct {
+	Quests map[string][]string `json:"quests"`
+	Rules []storyRule[memWhen, memDo] `json:"rules,omitempty"`
+	Gatherings []storyGathering[memWhen] `json:"gatherings,omitempty"`
+ BackfillPlacements []string `json:"backfill_placements,omitempty"`
+	MigratePlacements []storyPlacementMigration `json:"migrate_placements,omitempty"`
 	Facts             map[string]*memoryFactDef  `json:"facts"`
 	Topics            map[string]*memoryTopicDef `json:"topics"`
 	Journal *storyJournalRules `json:"journal"`
@@ -99,6 +105,7 @@ type memVoice struct {
 	When    *memWhen `json:"when,omitempty"`
 }
 type memoryTalkDef struct {
+ When *memWhen `json:"when,omitempty"`
 	Conversation string   `json:"conversation"`
 	People       []string `json:"people"`
 	Open         string   `json:"open"`
@@ -112,6 +119,12 @@ type memKnows struct {
 	}
 
 type memWhen struct {
+	Quest *storyQuestStep `json:"quest,omitempty"`
+	Hour *storyHours `json:"hour,omitempty"`
+	Present *storyPresence `json:"present,omitempty"`
+	HeroAt *storyLocation `json:"hero_at,omitempty"`
+	CRDMinor int64 `json:"crd_minor_at_least,omitempty"`
+	Placement string `json:"placement,omitempty"`
 	Fact     *memFactWhen `json:"fact,omitempty"`
 	NotFact  string       `json:"not_fact,omitempty"`
 	Topic    string       `json:"topic,omitempty"`
@@ -141,6 +154,7 @@ type memWhen struct {
 		Owner            string   `json:"owner"`
 		Item             string   `json:"item"`
 		ConditionBelow   *float64 `json:"condition_below,omitempty"`
+		Held bool `json:"held,omitempty"`
 		ConditionAtLeast *float64 `json:"condition_at_least,omitempty"`
 	} `json:"item,omitempty"`
 	World     string    `json:"world,omitempty"`
@@ -150,12 +164,19 @@ type memWhen struct {
 	Not       *memWhen  `json:"not,omitempty"`
 }
 type memFactWhen struct {
+	CalendarDaysSince int64 `json:"calendar_days_since,omitempty"`
+	HoursSince int64 `json:"hours_since,omitempty"`
 	ID          string            `json:"id"`
 	Args        map[string]string `json:"args,omitempty"`
 	WithinHours int64             `json:"within_hours,omitempty"`
 	BeforeToday bool              `json:"before_today,omitempty"`
 }
 type memDo struct {
+	Quest *storyQuestStep `json:"quest,omitempty"`
+	Transfer *storyTransfer `json:"transfer,omitempty"`
+	RemovePlacement string `json:"remove_placement,omitempty"`
+ PlacementCondition *storyPlacementCondition `json:"placement_condition,omitempty"`
+	RevealNode string `json:"reveal_node,omitempty"`
 	When  *memWhen          `json:"when,omitempty"`
 	Fact  string            `json:"fact,omitempty"`
 	Args  map[string]string `json:"args,omitempty"`
@@ -188,12 +209,15 @@ type conversationDef struct {
 	Events        map[string]*convEvent `json:"events"`
 }
 type convEntryDef struct {
+	Do []memDo `json:"do,omitempty"`
+	NoInterjection bool `json:"no_interjection,omitempty"`
 	ID    string     `json:"id"`
 	When  *memWhen   `json:"when,omitempty"`
 	Node  string     `json:"node"`
 	Lines []convLine `json:"lines"`
 }
 type convNode struct {
+	Do []memDo `json:"do,omitempty"`
 	AfterDecision bool `json:"after_decision,omitempty"`
 	Lines   []convLine   `json:"lines"`
 	Voices  []convVoice  `json:"voices"`
@@ -254,6 +278,9 @@ func (o convOption) question() bool { return o.Next == "" && o.Close == "" && !o
 const memoryMigrationVersion = 1
 
 type memoryState struct {
+ StoryVersion int `json:",omitempty"`
+	QuestSteps map[string]storyQuestStep `json:",omitempty"`
+	RulesFired map[string]int64 `json:",omitempty"`
 	Story storyMemory `json:",omitzero"`
 	Migrated int `json:",omitempty"`
 	// Once outcomes outlive the current log and node. Keys are conversation|person.
@@ -379,7 +406,7 @@ type talkTrade struct {
 }
 
 func (s memoryState) clone() memoryState {
-	out := memoryState{Open: s.Open, Serial: s.Serial, Migrated: s.Migrated, Story: s.Story.clone()}
+		out := memoryState{Open: s.Open, Serial: s.Serial, Migrated: s.Migrated, Story:s.Story.clone(), StoryVersion:s.StoryVersion, QuestSteps:maps.Clone(s.QuestSteps), RulesFired:maps.Clone(s.RulesFired)}
 	if s.Once != nil {
 		out.Once = map[string]memoryOnce{}
 		for key, h := range s.Once {
@@ -589,6 +616,8 @@ func (r *Runtime) memoryWrite(fact string, args map[string]string, c talkCtx) {
     if changed { rec.Revision++ }
 	rec.Count++
 	r.state.Memory.Facts[fact] = rec
+ r.story.dirty = true
+ r.story.meetingNext = 0
     def := m.Facts[fact]
     switch {
     case !c.worldOnly:
@@ -614,6 +643,8 @@ func (r *Runtime) memoryTopicFrom(topic, source string) {
 	}
 	if _, ok := r.state.Memory.Topics[topic]; !ok {
 		r.state.Memory.Topics[topic] = r.state.Life.Seconds
+		r.story.dirty = true
+		r.story.meetingNext = 0
         r.addStoryJournal(&r.state, topic, source, "", r.state.Life.Seconds)
 	}
 }
@@ -767,6 +798,10 @@ func (r *Runtime) memoryHolds(c talkCtx, w *memWhen) bool {
 		if f.WithinHours > 0 && now-rec.Second > f.WithinHours*3600 {
 			return false
 		}
+		if f.CalendarDaysSince > 0 && now/86400-rec.First/86400 < f.CalendarDaysSince ||
+			f.HoursSince > 0 && now-rec.First < f.HoursSince*3600 {
+			return false
+		}
 		if f.BeforeToday && rec.First >= now/86400*86400 {
 			return false
 		}
@@ -805,6 +840,34 @@ func (r *Runtime) memoryHolds(c talkCtx, w *memWhen) bool {
 			return false
 		}
 	}
+	if q := w.Quest; q != nil && r.state.Memory.QuestSteps[q.ID].Step != q.Step {
+		return false
+	}
+	if h := w.Hour; h != nil {
+		hour := r.state.Life.Seconds % 86400 / 3600
+		if hour < h.From || hour >= h.To {
+			return false
+		}
+	}
+	if w.HeroAt != nil && !r.storyActorAt(playerActorID, *w.HeroAt) {
+		return false
+	}
+	if p := w.Present; p != nil {
+		for _, id := range p.People {
+			if !r.storyActorAt(id, p.storyLocation) || !r.bodyCanSpeak(id) {
+				return false
+			}
+		}
+	}
+	if w.CRDMinor > 0 {
+		account, ok := r.peddlerAccount(playerActorID)
+		if !ok || account.Balance < w.CRDMinor {
+			return false
+		}
+	}
+	if w.Placement != "" && r.storyPlacementItem(w.Placement).ID == "" {
+		return false
+	}
 	if t := c.t; t != nil {
 		if w.Asked != "" && !t.chose(w.Asked) || w.NotAsked != "" && t.chose(w.NotAsked) {
 			return false
@@ -826,7 +889,13 @@ func (r *Runtime) memoryHolds(c talkCtx, w *memWhen) bool {
 		if it.Owner == "hero" {
 			owner = playerActorID
 		}
-		item, ok := r.memoryItem(c, owner, it.Item)
+		var item inv.Item
+		var ok bool
+		if it.Held {
+			item,ok=r.memoryHeld(it.Item)
+		} else {
+			item,ok=r.memoryItem(c, owner, it.Item)
+		}
 		if !ok {
 			return false
 		}
@@ -878,10 +947,14 @@ func (r *Runtime) memorySeenBy(c talkCtx, id string) bool {
 }
 
 // memoryDo applies effects in order; an effect whose thing is gone (a sold lamp) does nothing.
-func (r *Runtime) memoryDo(c talkCtx, list []memDo) {
+func (r *Runtime) memoryDo(c talkCtx, list []memDo) error {
+	if len(list) > 0 { r.story.dirty = true; r.story.meetingNext = 0 }
 	for _, d := range list {
 		if !r.memoryHolds(c, d.When) {
 			continue
+		}
+		if err := r.storyEffect(d); err != nil {
+			return err
 		}
 		switch {
 		case d.Fact != "":
@@ -916,6 +989,7 @@ func (r *Runtime) memoryDo(c talkCtx, list []memDo) {
 			}
 		}
 	}
+	return nil
 }
 
 // memoryOnTrade: the hero bought from this person; facts that a purchase writes (Prokhor: met{bought}).
@@ -952,7 +1026,11 @@ func (r *Runtime) talkSpeak(c talkCtx, lines []convLine) {
 		if !r.memoryHolds(c, l.When) {
 			continue
 		}
-		r.dialogueSay(&c.t.dialogueSession, dialogueEntry{Kind: "line", Speaker: c.person(l.Speaker), Text: r.lineText(c, l.Text, l.Variants)})
+		line := dialogueEntry{Kind: "line", Speaker: c.person(l.Speaker), Text: r.lineText(c, l.Text, l.Variants)}
+		if l.Speaker == "narrator" {
+			line.Kind, line.Speaker = "narration", ""
+		}
+		r.dialogueSay(&c.t.dialogueSession, line)
 	}
 }
 
@@ -969,6 +1047,7 @@ func (r *Runtime) talkEnter(c talkCtx, node string) {
 		}
 	}
 	c.t.Nodes = append(c.t.Nodes, node)
+	_ = r.memoryDo(c, n.Do)
 	r.talkSpeak(c, n.Lines)
 	for _, v := range n.Voices {
 		if c.t.voiced(v.ID) || r.dialogueSkill(v.Skill) < v.AtLeast || !r.memoryHolds(c, v.When) {
@@ -1049,7 +1128,8 @@ func (r *Runtime) talkOpen(conv, self string) error {
 	r.state.Memory.Open = key
 	c := talkCtx{conv: d, key: key, self: self, t: t}
 	r.talkThings(c)
-	if in := r.talkInterjection(c); in != nil {
+	preferred := r.talkEntry(c)
+	if in := r.talkInterjection(c); in != nil && (preferred == nil || !preferred.NoInterjection) {
 		if r.state.Memory.Said == nil {
 			r.state.Memory.Said = map[string]int64{}
 		}
@@ -1068,6 +1148,7 @@ func (r *Runtime) talkOpen(conv, self string) error {
 		return textError{Key: "error.encounter.unavailable"}
 	}
 	t.Entry = e.ID
+	_ = r.memoryDo(c, e.Do)
 	r.talkSpeak(c, e.Lines)
 	r.talkEnter(c, e.Node)
 	return nil
@@ -1190,11 +1271,15 @@ func (r *Runtime) talkChoose(id string) (string, bool, error) {
 		if o.question() && o.Check == nil && c.t.chose(o.ID) {
 			return "", false, nil
 		}
+		previous := c.t.dialogueSession.clone()
 		r.dialogueAnswer(&c.t.dialogueSession, o.ID, r.lineText(c, o.Text, o.Variants))
 		if o.Trade {
 			// the person's word about his goods, then the goods in place of the answers
 			r.talkSpeak(c, o.Reply)
-			r.memoryDo(c, o.Do)
+			if err := r.memoryDo(c, o.Do); err != nil {
+				c.t.dialogueSession = previous
+				return "", false, err
+			}
 			c.t.Trade = talkTrade{On: true}
 			return "", false, nil
 		}
@@ -1205,7 +1290,10 @@ func (r *Runtime) talkChoose(id string) (string, bool, error) {
 			reply, do, next, word = o.Fail.Reply, o.Fail.Do, o.Fail.Next, o.Fail.Close
 		}
 		r.talkSpeak(c, reply)
-		r.memoryDo(c, do)
+		if err := r.memoryDo(c, do); err != nil {
+			c.t.dialogueSession = previous
+			return "", false, err
+		}
 		switch {
 		case !failed && o.FollowUp != "":
 			r.talkClosed(c, word, false)
@@ -1245,7 +1333,7 @@ func (r *Runtime) talkOf(person string) (*memoryTalkDef, bool) {
 	}
 	for i := range m.Talks {
 		for _, p := range m.Talks[i].People {
-			if p == person {
+			if p == person && r.memoryHolds(talkCtx{self:person},m.Talks[i].When) {
 				return &m.Talks[i], true
 			}
 		}
@@ -1254,7 +1342,7 @@ func (r *Runtime) talkOf(person string) (*memoryTalkDef, bool) {
 	// (a person the content gives no name yet is not addressed: the column never shows a text key for a name)
 	if person != playerActorID && r.state.Life.Actor(person) != nil && r.talkNamed(person) {
 		for i := range m.Talks {
-			if m.Talks[i].Others {
+			if m.Talks[i].Others && r.memoryHolds(talkCtx{self:person},m.Talks[i].When) {
 				return &m.Talks[i], true
 			}
 		}
@@ -1425,8 +1513,8 @@ func (r *Runtime) talkAllowed(c talkCtx) bool {
 	if owned, ok := r.encounterTalkAllowed(c); owned {
 		return ok
 	}
-	_, talks := r.talkOf(c.self)
-	return talks && r.talkWithin(c.self, c.conv.Reach)
+	talk, available := r.talkOf(c.self)
+	return available && talk.Conversation==c.conv.ID && r.talkWithin(c.self, c.conv.Reach)
 }
 
 // talkClosed hands the closing word to the conversation's owner (the encounter turns the custody's into an outcome).
@@ -1832,6 +1920,7 @@ func (r *Runtime) sanitizeMemory(s *state) {
 		s.Memory = memoryState{}
 		return
 	}
+	r.migrateStoryPlacements(s)
 	people := map[string]bool{}
 	for _, a := range s.Life.Actors {
 		people[a.ID] = true
@@ -1967,6 +2056,9 @@ func (r *Runtime) sanitizeMemory(s *state) {
 
 // validateMemorySave: times within the game's clock and sizes within the content.
 func (r *Runtime) validateMemorySave(s state) error {
+	if err := r.validateStoryProgress(s); err != nil {
+		return err
+	}
 	if r.world.Memory == nil {
 		return nil
 	}

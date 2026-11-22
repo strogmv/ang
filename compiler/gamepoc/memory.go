@@ -22,10 +22,15 @@ import (
 
 // Memory is world.memory.
 type Memory struct {
-	Facts             map[string]*MemoryFact  `json:"facts"`
-	Topics            map[string]*MemoryTopic `json:"topics"`
-	Interjections     []Interjection          `json:"interjections"`
-	InterjectionRules struct {
+	Quests             map[string][]string       `json:"quests"`
+	Rules              []storyRule[When, Do]     `json:"rules,omitempty"`
+	Gatherings         []storyGathering[When]    `json:"gatherings,omitempty"`
+	BackfillPlacements []string                  `json:"backfill_placements,omitempty"`
+	MigratePlacements  []storyPlacementMigration `json:"migrate_placements,omitempty"`
+	Facts              map[string]*MemoryFact    `json:"facts"`
+	Topics             map[string]*MemoryTopic   `json:"topics"`
+	Interjections      []Interjection            `json:"interjections"`
+	InterjectionRules  struct {
 		FreshDays   int     `json:"fresh_days"`
 		HeardBelief float64 `json:"heard_belief"`
 	} `json:"interjection_rules"`
@@ -112,6 +117,7 @@ type Interjection struct {
 
 // MemoryTalk: who opens a shared conversation, and whether only when he has something to say (news).
 type MemoryTalk struct {
+	When         *When    `json:"when,omitempty"`
 	Conversation string   `json:"conversation"`
 	People       []string `json:"people"`
 	Open         string   `json:"open"`
@@ -128,12 +134,18 @@ type KnownFactWhen struct {
 
 // When is a condition: every field set holds; Any — one of; Not — negation.
 type When struct {
-	Fact     *FactWhen      `json:"fact,omitempty"`
-	NotFact  string         `json:"not_fact,omitempty"`
-	Topic    string         `json:"topic,omitempty"`
-	NotTopic string         `json:"not_topic,omitempty"`
-	Knows    *KnownFactWhen `json:"knows,omitempty"`
-	Trust    *struct {
+	Quest     *storyQuestStep `json:"quest,omitempty"`
+	Hour      *storyHours     `json:"hour,omitempty"`
+	Present   *storyPresence  `json:"present,omitempty"`
+	HeroAt    *storyLocation  `json:"hero_at,omitempty"`
+	CRDMinor  int64           `json:"crd_minor_at_least,omitempty"`
+	Placement string          `json:"placement,omitempty"`
+	Fact      *FactWhen       `json:"fact,omitempty"`
+	NotFact   string          `json:"not_fact,omitempty"`
+	Topic     string          `json:"topic,omitempty"`
+	NotTopic  string          `json:"not_topic,omitempty"`
+	Knows     *KnownFactWhen  `json:"knows,omitempty"`
+	Trust     *struct {
 		Who     string   `json:"who"`
 		AtLeast *float64 `json:"at_least,omitempty"`
 		Below   *float64 `json:"below,omitempty"`
@@ -163,10 +175,12 @@ type When struct {
 
 // FactWhen: the fact was written (with these arguments, recently, or first before today). CUE allows the bare id.
 type FactWhen struct {
-	ID          string            `json:"id"`
-	Args        map[string]string `json:"args,omitempty"`
-	WithinHours int               `json:"within_hours,omitempty"`
-	BeforeToday bool              `json:"before_today,omitempty"`
+	CalendarDaysSince int               `json:"calendar_days_since,omitempty"`
+	HoursSince        int               `json:"hours_since,omitempty"`
+	ID                string            `json:"id"`
+	Args              map[string]string `json:"args,omitempty"`
+	WithinHours       int               `json:"within_hours,omitempty"`
+	BeforeToday       bool              `json:"before_today,omitempty"`
 }
 
 func (f *FactWhen) UnmarshalJSON(b []byte) error {
@@ -187,6 +201,7 @@ func (f *FactWhen) UnmarshalJSON(b []byte) error {
 }
 
 type WhenItem struct {
+	Held             bool     `json:"held,omitempty"`
 	Owner            string   `json:"owner"`
 	Item             string   `json:"item"`
 	ConditionBelow   *float64 `json:"condition_below,omitempty"`
@@ -195,12 +210,17 @@ type WhenItem struct {
 
 // Do is one effect, with an optional condition.
 type Do struct {
-	When  *When             `json:"when,omitempty"`
-	Fact  string            `json:"fact,omitempty"`
-	Args  map[string]string `json:"args,omitempty"`
-	Topic string            `json:"topic,omitempty"`
-	Learn string            `json:"learn,omitempty"`
-	Trust *struct {
+	Quest              *storyQuestStep          `json:"quest,omitempty"`
+	Transfer           *storyTransfer           `json:"transfer,omitempty"`
+	RemovePlacement    string                   `json:"remove_placement,omitempty"`
+	PlacementCondition *storyPlacementCondition `json:"placement_condition,omitempty"`
+	RevealNode         string                   `json:"reveal_node,omitempty"`
+	When               *When                    `json:"when,omitempty"`
+	Fact               string                   `json:"fact,omitempty"`
+	Args               map[string]string        `json:"args,omitempty"`
+	Topic              string                   `json:"topic,omitempty"`
+	Learn              string                   `json:"learn,omitempty"`
+	Trust              *struct {
 		Who   string  `json:"who"`
 		Delta float64 `json:"delta"`
 	} `json:"trust,omitempty"`
@@ -230,12 +250,15 @@ type Conversation struct {
 	Waits         string                `json:"waits,omitempty"`
 }
 type ConvEntry struct {
-	ID    string     `json:"id"`
-	When  *When      `json:"when,omitempty"`
-	Node  string     `json:"node"`
-	Lines []ConvLine `json:"lines"`
+	Do             []Do       `json:"do,omitempty"`
+	NoInterjection bool       `json:"no_interjection,omitempty"`
+	ID             string     `json:"id"`
+	When           *When      `json:"when,omitempty"`
+	Node           string     `json:"node"`
+	Lines          []ConvLine `json:"lines"`
 }
 type ConvNode struct {
+	Do            []Do         `json:"do,omitempty"`
 	AfterDecision bool         `json:"after_decision,omitempty"`
 	Lines         []ConvLine   `json:"lines"`
 	Voices        []ConvVoice  `json:"voices"`
@@ -638,6 +661,9 @@ func (k *memoryChecker) when(where string, w *When, s *convScope, reader string)
 		k.read(false, id, reader)
 		return nil
 	}
+	if err := k.storyWhen(where, w); err != nil {
+		return err
+	}
 	if w.Fact != nil {
 		if err := fact(w.Fact.ID); err != nil {
 			return err
@@ -762,7 +788,7 @@ func (k *memoryChecker) do(where string, list []Do, s *convScope, writer string,
 	for i, d := range list {
 		at := fmt.Sprintf("%s.do[%d]", where, i)
 		n := 0
-		for _, set := range []bool{d.Fact != "", d.Topic != "", d.Learn != "", d.Trust != nil, d.GiveItem != nil, d.ItemCondition != nil} {
+		for _, set := range []bool{d.Fact != "", d.Topic != "", d.Learn != "", d.Trust != nil, d.GiveItem != nil, d.ItemCondition != nil, d.Quest != nil, d.Transfer != nil, d.RemovePlacement != "", d.PlacementCondition != nil, d.RevealNode != ""} {
 			if set {
 				n++
 			}
@@ -774,6 +800,9 @@ func (k *memoryChecker) do(where string, list []Do, s *convScope, writer string,
 			return fmt.Errorf("%s: arguments belong to a fact", at)
 		}
 		if err := k.when(at+".when", d.When, s, "условие: "+writer); err != nil {
+			return err
+		}
+		if err := k.storyDo(at, d, i); err != nil {
 			return err
 		}
 		self := s != nil && s.self
@@ -836,7 +865,7 @@ func (k *memoryChecker) lines(where string, lines []ConvLine, speakers map[strin
 			if s == nil || !s.self {
 				return fmt.Errorf("%s: self speaks only in a conversation opened with a person", at)
 			}
-		} else if !speakers[l.Speaker] {
+		} else if l.Speaker != "narrator" && !speakers[l.Speaker] {
 			return fmt.Errorf("%s: %s does not take part in this conversation", at, l.Speaker)
 		}
 		if err := k.variants(at, l.Text, l.Variants, s, reader); err != nil {
@@ -931,6 +960,9 @@ func (k *memoryChecker) conversation(c *Conversation) error {
 		if err := k.lines(at, e.Lines, speakers, s, reader); err != nil {
 			return err
 		}
+		if err := k.do(at, e.Do, s, reader+": "+e.ID, e.When); err != nil {
+			return err
+		}
 	}
 	if last := c.Entries[len(c.Entries)-1]; !c.Event && last.When != nil {
 		return fmt.Errorf("%s: no «usual» entry (the last without a condition); a conversation opened only in a window is event: true", where)
@@ -942,6 +974,9 @@ func (k *memoryChecker) conversation(c *Conversation) error {
 		n := c.Nodes[id]
 		at := where + "." + id
 		if err := k.lines(at, n.Lines, speakers, s, reader); err != nil {
+			return err
+		}
+		if err := k.do(at, n.Do, s, writer("узел "+id)); err != nil {
 			return err
 		}
 		for _, v := range n.Voices {
@@ -1024,7 +1059,10 @@ func (k *memoryChecker) conversation(c *Conversation) error {
 				if f.Next != "" && f.Close != "" {
 					return fmt.Errorf("%s.fail: goes on or closes, not both", oat)
 				}
-				if (o.Close == "") != (f.Close == "") {
+				// A retry may close on success and explicitly return to the
+				// same node on failure, keeping its other authored paths.
+				retryHere := o.Check.Kind == "retry" && o.Close != "" && f.Next == id
+				if (o.Close == "") != (f.Close == "") && !retryHere {
 					return fmt.Errorf("%s: a closing answer closes on failure too", oat)
 				}
 				if f.Close != "" {
@@ -1219,7 +1257,8 @@ func checkMemory(c *Compiled) error {
 		return nil
 	}
 	var life struct {
-		Actors []struct {
+		Locations map[string]struct{ Terrain []string }
+		Actors    []struct {
 			ID string `json:"id"`
 		} `json:"actors"`
 	}
@@ -1355,6 +1394,9 @@ func checkMemory(c *Compiled) error {
 	others := ""
 	for i, t := range m.Talks {
 		where := fmt.Sprintf("world.memory.talks[%d]", i)
+		if err := k.when(where+".when", t.When, nil, "условие: "+t.Conversation); err != nil {
+			return err
+		}
 		if t.Others {
 			if others != "" {
 				return fmt.Errorf("%s: %s already takes everyone else", where, others)
@@ -1521,6 +1563,9 @@ func checkMemory(c *Compiled) error {
 				return err
 			}
 		}
+	}
+	if err := k.checkStoryRules(life.Locations); err != nil {
+		return err
 	}
 	if err := k.checkWriters(); err != nil {
 		return err

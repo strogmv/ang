@@ -148,6 +148,7 @@ func (u *dialogueUsage) when(w *When) {
 func (u *dialogueUsage) effects(effects []Do) {
 	for _, d := range effects {
 		u.when(d.When)
+		u.read(d.Learn)
 	}
 }
 
@@ -168,9 +169,11 @@ func (u *dialogueUsage) conversation(c *Conversation) {
 	for _, entry := range c.Entries {
 		u.when(entry.When)
 		u.lines(entry.Lines)
+		u.effects(entry.Do)
 	}
 	for _, node := range c.Nodes {
 		u.lines(node.Lines)
+		u.effects(node.Do)
 		for _, voice := range node.Voices {
 			u.voices = append(u.voices, voice.Skill)
 			u.when(voice.When)

@@ -110,6 +110,7 @@ type LifeBrain struct {
 }
 // Host authority bridges real inventory to the kernel. It is never saved or cloned.
 type LifeBrainServices struct {
+ StoryTarget func(string) (LifeStep, bool)
  // Doc 09 (21.11): his own second to leave home this morning (id, now) and whether it holds him now (LifeModel.leaveHome;
  // the Life kernel supplies it when the host gives none).
  LeaveHome func(string,int64)(int64,bool)

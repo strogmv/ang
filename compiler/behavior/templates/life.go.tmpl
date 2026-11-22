@@ -385,6 +385,14 @@ func(s *LifeState)AdvanceWithTravelBy(m LifeModel,tick,delta int64,install Maint
     // would cut the path each time and the person would never leave.
     if a.Level==detour.Level&&a.Goal!=detour.At{if len(a.Path)>1{a.Path=a.Path[:1]};a.PendingPath=nil;a.Arrived=false;a.Goal=detour.At}}
   }
+  storyTargeting:=false
+  if !safety && !a.Manual && a.ID!=s.ControlledActorID && s.BrainServices.StoryTarget!=nil {
+   if target,ok:=s.BrainServices.StoryTarget(a.ID);ok {
+    if a.Level!=target.Level || a.Goal!=target.At || a.Activity!=target.Activity {a.Arrived=false}
+    brainStep=target
+    storyTargeting=true
+   }
+  }
   if safety{brainStep=a.Safety.target()}else if a.Brain.Target.Activity!="work"{a.IncidentDelayedWork=false}
   if s.advanceResidence(m,a,tick,delta){continue}
   if a.Trip!=nil{s.tryLifeArrival(m,a,tick);continue}
@@ -423,7 +431,7 @@ func(s *LifeState)AdvanceWithTravelBy(m LifeModel,tick,delta int64,install Maint
    if a.Position==a.Goal&&len(a.Path)==0{if !a.Arrived{a.Arrived=true;a.StartedAt=s.Seconds;a.Activity="rest";a.Label="На месте"};continue}
    if a.Arrived||len(a.Path)>0{continue}
   }
-  step:=person.Steps[a.Step];if (m.Brain.Enabled&&a.ID!=s.ControlledActorID&&!a.Manual)||safety{step=brainStep};repairStep,repairing:=s.maintenanceStep(m,a.ID);if repairing&&!safety{step=repairStep}
+  step:=person.Steps[a.Step];if (m.Brain.Enabled&&a.ID!=s.ControlledActorID&&!a.Manual)||safety||storyTargeting{step=brainStep};repairStep,repairing:=s.maintenanceStep(m,a.ID);if repairing&&!safety{step=repairStep}
   if manualGoal{step=LifeStep{Level:a.Level,At:a.Goal,Activity:"rest",Label:lifeManualMoveLabel}}
   if !safety&&(!m.Brain.Enabled||a.ID==s.ControlledActorID)&&!manualGoal&&!repairing&&a.OverrideLevel==""&&a.Arrived&&len(person.Steps)>1{
    next:=(a.Step+1)%len(person.Steps);day:=a.Day;if next==0{day++};due:=day*86400+person.Steps[next].AtMinute*60

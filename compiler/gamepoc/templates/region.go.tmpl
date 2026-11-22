@@ -12,12 +12,13 @@ type regionLink struct {ID string `json:"id"`;FromNode string `json:"from_node"`
 type regionCatalog struct {ID string `json:"id"`;Name string `json:"name"`;Decks []regionDeck `json:"decks"`;Nodes []regionNode `json:"nodes"`;Links []regionLink `json:"links"`;Rumours []regionRumour `json:"rumours,omitempty"`;RumourImages []regionRumourImage `json:"rumour_images,omitempty"`}
 // Initialized empty maps are valid durable knowledge, not missing state. Keep
 // their JSON fields so a save before the first discovered link reloads as {}.
-type regionKnowledge struct {Initialized bool `json:"initialized,omitempty"`;KnownNodes map[string]bool `json:"known_nodes"`;KnownLinks map[string]bool `json:"known_links"`;Visited map[string]int64 `json:"visited"`;Reports []regionReportMemory `json:"reports,omitempty"`;ActiveReports map[string]string `json:"active_reports,omitempty"`}
+type regionKnowledge struct {Initialized bool `json:"initialized,omitempty"`;RumouredNodes map[string]bool `json:"rumoured_nodes,omitempty"`;KnownNodes map[string]bool `json:"known_nodes"`;KnownLinks map[string]bool `json:"known_links"`;Visited map[string]int64 `json:"visited"`;Reports []regionReportMemory `json:"reports,omitempty"`;ActiveReports map[string]string `json:"active_reports,omitempty"`}
 
 func(k regionKnowledge)clone()regionKnowledge{
  out:=k
  if k.Reports!=nil{out.Reports=append([]regionReportMemory{},k.Reports...)}
  if k.ActiveReports!=nil{out.ActiveReports=map[string]string{};for id,v:=range k.ActiveReports{out.ActiveReports[id]=v}}
+ if k.RumouredNodes!=nil{out.RumouredNodes=map[string]bool{};for id,v:=range k.RumouredNodes{out.RumouredNodes[id]=v}}
  if k.KnownNodes!=nil{out.KnownNodes=map[string]bool{};for id,v:=range k.KnownNodes{out.KnownNodes[id]=v}}
  if k.KnownLinks!=nil{out.KnownLinks=map[string]bool{};for id,v:=range k.KnownLinks{out.KnownLinks[id]=v}}
  if k.Visited!=nil{out.Visited=map[string]int64{};for id,v:=range k.Visited{out.Visited[id]=v}}
@@ -47,11 +48,12 @@ func(r *Runtime)learnRegionTraversal(edgeID string){
 }
 func(r *Runtime)validateRegionKnowledge(s state)error{
  k:=s.Region
- if !k.Initialized{if len(k.KnownNodes)>0||len(k.KnownLinks)>0||len(k.Visited)>0||len(k.Reports)>0||len(k.ActiveReports)>0{return fmt.Errorf("uninitialized region knowledge")};return nil}
+ if !k.Initialized{if len(k.RumouredNodes)>0||len(k.KnownNodes)>0||len(k.KnownLinks)>0||len(k.Visited)>0||len(k.Reports)>0||len(k.ActiveReports)>0{return fmt.Errorf("uninitialized region knowledge")};return nil}
  if k.KnownNodes==nil||k.KnownLinks==nil||k.Visited==nil||r.world.Region.ID==""{return fmt.Errorf("missing region knowledge")}
  nodes:=map[string]bool{};links:=map[string]regionLink{}
  for _,n:=range r.world.Region.Nodes{nodes[n.ID]=true};for _,e:=range r.world.Region.Links{links[e.ID]=e}
  for id,v:=range k.KnownNodes{if !nodes[id]||!v{return fmt.Errorf("invalid known region node")}}
+ for id,v:=range k.RumouredNodes{if !nodes[id]||!v{return fmt.Errorf("invalid rumoured region node")}}
  for id,v:=range k.KnownLinks{e,ok:=links[id];if !ok||!v||!k.KnownNodes[e.FromNode]||!k.KnownNodes[e.ToNode]{return fmt.Errorf("invalid known region link")}}
  for id,at:=range k.Visited{if !k.KnownNodes[id]||at<0||at>s.Life.Seconds{return fmt.Errorf("invalid region visit")}}
  return r.validateRegionRumours(s)
@@ -90,7 +92,7 @@ func(r *Runtime)appendRegionMap(view *pb.PocLifeView,locales ...string){
  // A BFS once per projection supplies reachability for every destination.
  reachable:=map[string]bool{};if result.CurrentNode!=""{queue:=[]string{result.CurrentNode};reachable[result.CurrentNode]=true;for i:=0;i<len(queue);i++{for _,e:=range r.world.Region.Links{if !k.KnownLinks[e.ID]||!k.KnownNodes[e.FromNode]||!k.KnownNodes[e.ToNode]{continue};next:="";if e.FromNode==queue[i]{next=e.ToNode}else if e.ToNode==queue[i]{next=e.FromNode};if next!=""&&!reachable[next]{reachable[next]=true;queue=append(queue,next)}}}}
  for _,n:=range r.world.Region.Nodes{
-  if !k.KnownNodes[n.ID]{continue};knowledge:="known";if _,ok:=k.Visited[n.ID];ok{knowledge="visited"};current:=result.CurrentNode==n.ID
+  if !k.KnownNodes[n.ID]&&!k.RumouredNodes[n.ID]{continue};knowledge:="rumoured";if k.KnownNodes[n.ID]{knowledge="known"};if _,ok:=k.Visited[n.ID];ok{knowledge="visited"};current:=result.CurrentNode==n.ID
   canTravel:=false;if !current&&n.LevelID!=""&&hero.Trip==nil&&reachable[n.ID]{_,exists:=r.world.Life.Locations[n.LevelID];canTravel=exists&&r.world.Life.NextEdge(hero.Level,n.LevelID)!=nil}
   name:=r.localText(locale,"region.node."+n.ID+".name",n.Name);label:=n.Label;if label==""{label=name};label=r.localText(locale,"region.node."+n.ID+".label",label)
   result.Nodes=append(result.Nodes,&pb.PocRegionNode{Id:n.ID,Name:name,Label:label,Kind:n.Kind,DeckId:n.DeckID,X:n.X,Y:n.Y,Width:n.Width,Height:n.Height,Knowledge:knowledge,LevelId:n.LevelID,Current:current,CanTravel:canTravel,Description:r.localText(locale,"region.node."+n.ID+".description",n.Description)});visibleDecks[n.DeckID]=true
