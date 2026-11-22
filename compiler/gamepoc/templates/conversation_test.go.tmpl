@@ -355,6 +355,57 @@ func TestMemoryMarketAsksAfterProkhorWhileHeIsMissing(t *testing.T) {
 	}
 }
 
+func TestActOneMarketAkimOpening(t *testing.T) {
+	const aside = "interject.night_car.akim"
+	const water = "fact.prokhor.given_water"
+	const waterLine = "interject.water.akim"
+	for _, witnessed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("witnessed=%t", witnessed), func(t *testing.T) {
+			r := memoryDay(t, 5)
+			akim := akimAt(t, r)
+			if witnessed {
+				witnessFor(r, akim.Actor, water, 0)
+			} else {
+				r.memoryWrite(water, nil, talkCtx{self: r.world.CalendarEncounter.Actor, quiet: true})
+			}
+			if r.world.Memory.Facts[water].Visibility != "witnessed" || r.memoryKnows(akim.Actor, water) != witnessed {
+				t.Fatal("the water fact has the wrong visibility")
+			}
+			if r.dialogueText("ru", aside) != "четвёртый вагон отцепляют потому у нас их три" ||
+				r.dialogueText("en", aside) != "they unhitch the fourth car y'all that's why we only got three" {
+				t.Fatal("Akim's aside differs from the script")
+			}
+			tk := openWith(t, r, akim.Actor)
+			if witnessed {
+				if !tk.Interjected || len(tk.Lines) != 2 || tk.Lines[0].Text != waterLine || tk.Lines[1].Text != aside {
+					t.Fatalf("witness did not lead with the fresh fact: %+v", tk.Lines)
+				}
+				if err := choose(r, "bye"); err != nil {
+					t.Fatal(err)
+				}
+				tk = openWith(t, r, akim.Actor)
+			}
+			if tk.Interjected || len(tk.Lines) != 2 || tk.Lines[0].Text != "dlg.market.peddler_akim.greet" ||
+				tk.Lines[1].Speaker != akim.Actor || tk.Lines[1].Text != aside {
+				t.Fatalf("standing market aside and greeting: %+v", tk.Lines)
+			}
+			tick, gameTime := r.state.Tick, r.state.Life.Seconds
+			r.step()
+			if !r.talkHolds() || r.state.Tick != tick || r.state.Life.Seconds != gameTime {
+				t.Fatal("the world continued during the opening")
+			}
+			loaded := memoryRoundTripBytes(t, r, r.snapshotState())
+			if loaded.Memory.Open == "" || !reflect.DeepEqual(loaded.Memory.Talks[loaded.Memory.Open], tk) {
+				t.Fatal("the open market talk did not survive the save")
+			}
+			r.state = loaded
+			if err := choose(r, "bye"); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func TestMemoryInterjectionFreshestOnceAndStale(t *testing.T) {
 	r := memoryDay(t, 5)
 	akim := akimAt(t, r)

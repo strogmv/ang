@@ -18,9 +18,8 @@ import (
 // derived from it, and ANG checks that the Life profile the game starts from is exactly that derivation.
 //
 // The check of the brief: a skill is offered on the screen only if act one uses it at least min_act times and the first
-// hour at least min_first_hour times. ANG reads only CUE: while the act-one conversations are the writer's scripts, the
-// counts per script are CUE data (world.hero_file.usage.counts, written by the game's tools/hero-file/skill_uses.py from
-// design/dialogue/scripts/NN-*.md, whose own test keeps them equal to the scripts; doc 104 «Решения при сборке»). A
+// hour at least min_first_hour times. ANG combines authored CUE dialogue with the remaining Markdown counts written
+// by the game's tools/hero-file/skill_uses.py (doc 104 «Решения при сборке»). A
 // skill short of it fails the build; the counts go into design/hero-creation/v1/skill-uses.md.
 type HeroFile struct {
 	Skills       []string           `json:"skills"`
@@ -125,7 +124,8 @@ type HeroFileUsage struct {
 		Voices int `json:"voices"`
 	} `json:"counts"`
 	// script number -> topic or file fact (with its argument) -> how many times the script reads it
-	Reads map[string]map[string]int `json:"reads"`
+	Reads    map[string]map[string]int      `json:"reads"`
+	Dialogue map[string]heroFileUsageSource `json:"dialogue,omitempty"`
 }
 type HeroFileRecheck struct {
 	Level      string `json:"level"`
@@ -524,12 +524,14 @@ func (h *HeroFile) check(c *Compiled) error {
 			}
 		}
 	}
+	if err := h.Usage.addDialogue(c); err != nil {
+		return err
+	}
 	return h.checkUsage(names)
 }
 
 // checkReaders: every topic and recorded fact the past block gives has a reader in act one (doc 104 «Решения при
-// сборке»: a topic or fact nobody reads fails the build). The readers are the act-one scripts' reads (CUE
-// usage.reads); once act one is CUE, the conversations' conditions.
+// сборке»: a topic or fact nobody reads fails the build). The readers are the combined Markdown and CUE usage.
 func (h *HeroFile) checkReaders() error {
 	read := map[string]int{}
 	for _, number := range h.Usage.ActOne {
@@ -690,7 +692,7 @@ func (h *HeroFile) checkUsage(names map[string]string) error {
 		}
 	}
 	var report bytes.Buffer
-	fmt.Fprintf(&report, "# Навыки личного дела: применения в первом акте\n\nСгенерировано ANG (compiler/gamepoc/hero_file.go) из `world.hero_file.usage.counts` (сценарии %s; первый час — %s; счёт сценариев пишет `tools/hero-file/skill_uses.py`). Навык на экране «Личное дело» — только при ≥ %d применениях в акте и ≥ %d в первый час (док. 104 v2 п. 10).\n\n| навык | проверки | голоса | всего | первый час | по сценариям |\n|---|---|---|---|---|---|\n",
+	fmt.Fprintf(&report, "# Навыки личного дела: применения в первом акте\n\nСгенерировано ANG (compiler/gamepoc/hero_file.go) из условий и реплик CUE и оставшегося счёта сценариев (`tools/hero-file/skill_uses.py`). Сценарии %s, первый час — %s. Навык на экране «Личное дело» — только при ≥ %d применениях в акте и ≥ %d в первый час (док. 104 v2 п. 10).\n\n| навык | проверки | голоса | всего | первый час | по сценариям |\n|---|---|---|---|---|---|\n",
 		strings.Join([]string{h.Usage.ActOne[0], h.Usage.ActOne[len(h.Usage.ActOne)-1]}, "–"), strings.Join(h.Usage.FirstHour, ", "), h.Usage.MinAct, h.Usage.MinFirstHour)
 	var short []string
 	for _, s := range h.Skills {
