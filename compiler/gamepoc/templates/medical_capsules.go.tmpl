@@ -230,7 +230,7 @@ func (r *Runtime) medicalHoldPatients() {
 		}
 		if a := r.state.Life.Actor(id); a != nil {
 			a.CombatHold = true
-			a.Manual = true
+			r.lifeSetManual(a,true)
 			a.Body = nil
 			a.Path = nil
 			a.PendingPath = nil
@@ -255,7 +255,7 @@ func (r *Runtime) medicalApproach(p *medicalPatient, u medicalUnit) error {
 	beforeLife := r.state.Life.Clone()
 	a.CombatHold = false
 	a.RestFootprint = nil
-	a.Manual = true
+	r.lifeSetManual(a,true)
 	a.OverrideLevel = a.Level
 	a.OverrideAt = u.ScanCell
 	a.OverrideEdge = ""
@@ -263,7 +263,7 @@ func (r *Runtime) medicalApproach(p *medicalPatient, u medicalUnit) error {
 	a.PendingPath = nil
 	a.Path = path
 	a.Goal = u.ScanCell
-	a.MoveStartTick = r.lifeMotionTick()
+	a.MoveStartTick = r.lifeActorMotionTick(a)
 	a.Activity = "walking"
 	a.Label = "medical.phase.approach"
 	if a.ID == playerActorID && model.BodyCapable(a.Level) {
@@ -321,7 +321,7 @@ func (r *Runtime) medicalRequest(actorID, unitID string) error {
 		}
 	}
 	r.state.Medical.Serial = p.Serial
-	a.Manual = true
+	r.lifeSetManual(a,true)
 	r.state.Medical.Patients[actorID] = p
 	r.medicalHoldPatients()
 	return nil
@@ -468,7 +468,7 @@ func (r *Runtime) medicalRelease(actorID string) bool {
 	}
 	a.ServiceAttachment = ""
 	a.CombatHold = false
-	a.Manual = p.PriorManual
+	r.lifeSetManual(a,p.PriorManual)
 	a.OverrideLevel = ""
 	a.OverrideEdge = ""
 	a.Path = nil

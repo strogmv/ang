@@ -95,7 +95,25 @@ func TestLifeSixLevelRoundTripUsesEveryPhysicalExitAndSurvivesTransitSave(t *tes
  for _,pair:=range pairs[:4]{for _,id:=range []string{pair[0]+"_"+pair[1],pair[1]+"_"+pair[0]}{if !seen[id]{t.Fatalf("required physical transition%s was never crossed",id)}}}
 }
 func TestLifeTravelSeatsAndPhysicalOccupancy(t *testing.T){m:=lifeFixture();if err:=m.Validate();err!=nil{t.Fatal(err)};s:=m.Start();trips:=map[string]bool{};for tick:=int64(1);tick<=240;tick++{s.Advance(m,tick);if err:=s.Validate(m,tick);err!=nil{t.Fatalf("tick %d: %v",tick,err)};aboard:=map[int64]int{};for _,a:=range s.Actors{if a.Trip!=nil{trips[a.ID]=true;aboard[a.Trip.Departure]++;if aboard[a.Trip.Departure]>1{t.Fatal("exceeded train capacity")};if a.Level!="a"{t.Fatal("teleported before arrival")}}}};for _,a:=range s.Actors{if !trips[a.ID]||a.Level!="b"||a.Activity!="work"||a.WorkedSeconds==0{t.Fatalf("incomplete journey %+v",a)}}}
-func TestLifeClockDoesNotAccelerateMovement(t *testing.T){m:=lifeFixture();m.Actors=m.Actors[:1];slow:=m.Start();fast:=slow.Clone();slow.SecondsPerTick=1;fast.SecondsPerTick=120;for _,s:=range []*LifeState{&slow,&fast}{a:=&s.Actors[0];a.Manual=true;a.Arrived=false;a.Path=[]Cell{{2,1},{3,1}}};for tick:=int64(1);tick<=5;tick++{slow.Advance(m,tick);fast.Advance(m,tick);if slow.Actors[0].Position!=fast.Actors[0].Position{t.Fatal("calendar accelerated walking")}};if slow.Actors[0].Position!=(Cell{2,1}){t.Fatal("movement cadence changed")}}
+// The controlled actor's manual path keeps its physical cadence in a schedule-only world.
+func TestLifeClockDoesNotAccelerateMovement(t *testing.T){m:=lifeFixture();m.Actors=m.Actors[:1];slow:=m.Start();fast:=slow.Clone();slow.SecondsPerTick=1;fast.SecondsPerTick=120;for _,s:=range []*LifeState{&slow,&fast}{a:=&s.Actors[0];s.ControlledActorID=a.ID;a.Manual=true;a.Arrived=false;a.Path=[]Cell{{2,1},{3,1}}};for tick:=int64(1);tick<=5;tick++{slow.Advance(m,tick);fast.Advance(m,tick);if slow.Actors[0].Position!=fast.Actors[0].Position{t.Fatal("calendar accelerated walking")}};if slow.Actors[0].Position!=(Cell{2,1}){t.Fatal("movement cadence changed")}}
+func TestLifeScheduledWalkCoversTheSameDistanceInGameTime(t *testing.T){
+ for _,rate:=range []int64{1,10,30}{t.Run(fmt.Sprint(rate),func(t *testing.T){
+  m:=lifeFixture()
+  m.Actors=m.Actors[:1]
+  m.Actors[0].Steps=[]LifeStep{{Level:"a",At:Cell{0,0},Activity:"rest"},{Level:"a",At:Cell{40,0},Activity:"work",AtMinute:1}}
+  m.Locations["a"]=LifeLocation{Terrain:[]string{strings.Repeat(".",41)}}
+  s:=m.Start()
+  s.SecondsPerTick=rate
+  for tick:=int64(1);tick*rate<=180;tick++{
+   s.Advance(m,tick)
+   a:=s.Actor("one")
+   want:=Cell{int(max(0,tick*rate-60)/3),0}
+   if a.Position!=want||a.Arrived!=(tick*rate<60||tick*rate==180){t.Fatalf("game second %d: at %v arrived %t, want %v",s.Seconds,a.Position,a.Arrived,want)}
+  }
+ })}
+}
+
 func TestLifeSaveCloneAndInvalidState(t *testing.T){m:=lifeFixture();s:=m.Start();for tick:=int64(1);tick<100;tick++{s.Advance(m,tick)};raw,err:=json.Marshal(s);if err!=nil{t.Fatal(err)};var restored LifeState;if err=json.Unmarshal(raw,&restored);err!=nil{t.Fatal(err)};for tick:=int64(100);tick<250;tick++{s.Advance(m,tick);restored.Advance(m,tick)};if !reflect.DeepEqual(s,restored){t.Fatal("save/load diverged")};clone:=s.Clone();clone.Actors[0].Visits["a"]=99;if s.Actors[0].Visits["a"]==99{t.Fatal("clone aliases visits")};clone.Actors[0].Visits=nil;if clone.Validate(m,250)==nil{t.Fatal("missing visits accepted")}}
 
 func occupiedLifeLanding() (LifeModel, LifeState) {
@@ -307,7 +325,9 @@ func namedYieldFixture()(LifeModel,LifeState){
  return m,s
 }
 func TestLifeNamedYieldPreservesCadenceSaveAndGoal(t *testing.T){
- m,s:=namedYieldFixture();a:=s.Actor("two");origin,goal:=a.Position,a.Goal
+ m,s:=namedYieldFixture();
+ // A named yield starts at elapsed game second 10, which is also frame 10 at x1.
+ s.Tick,s.Seconds=10,m.StartSeconds+10;a:=s.Actor("two");origin,goal:=a.Position,a.Goal
  if !s.yieldPopulation(m,"a",origin,10){t.Fatal("named walker did not yield")}
  if a.Position!=origin||len(a.Path)!=1||a.Goal!=goal||a.MoveStartTick!=10||a.YieldUntil!=34{t.Fatalf("yield changed position/task: %+v",a)}
  raw,err:=json.Marshal(s);if err!=nil{t.Fatal(err)};var restored LifeState;if err=json.Unmarshal(raw,&restored);err!=nil{t.Fatal(err)}
@@ -384,7 +404,7 @@ func lifeYieldCorridorFixture()(LifeModel,LifeState,[]Cell){
  m:=lifeFixture();m.Locations["a"]=LifeLocation{Name:"A",Terrain:[]string{"#######","#.....#","####.##","#######"}}
  m.Actors[0].Steps=[]LifeStep{{Level:"a",At:Cell{2,1},Activity:"rest"}}
  m.Actors[1].Steps=[]LifeStep{{Level:"a",At:Cell{4,2},Activity:"work"}}
- s:=m.Start();s.ControlledActorID="one";s.Tick=10
+ s:=m.Start();s.ControlledActorID="one";s.Tick=10;s.Seconds=m.StartSeconds+10 // Pocket traversal and mid-step saves use the named walker's game clock.
  hero:=s.Actor("one");hero.Manual=true;hero.Arrived=false;hero.Goal=Cell{5,1}
  walker:=s.Actor("two");walker.Position=Cell{3,1};walker.Goal=Cell{4,2};walker.Arrived=false;walker.Activity="walking"
  return m,s,[]Cell{{3,1},{4,1},{5,1}}
@@ -407,6 +427,29 @@ func TestLifeYieldWalksToOffRoutePocketAndSavesBetweenSteps(t *testing.T){
  }
  if !saved||walker.Goal!=goal{t.Fatal("yield lost the original task")}
 }
+func TestLifeScheduleMotionMigratesMidYield(t *testing.T){
+ m,s,_:=lifeYieldCorridorFixture()
+ s.ScheduleMotion=false // old schedule-only saves stamped named movement in frames
+ s.Seconds=m.StartSeconds+60
+ hero:=s.Actor("one")
+ hero.Arrived=true
+ hero.Goal=hero.Position
+ hero.MoveStartTick=8
+ walker:=s.Actor("two")
+ walker.Activity="yielding"
+ walker.Path=[]Cell{{4,1},{4,2}}
+ walker.MoveStartTick,walker.YieldUntil,walker.YieldCooldownUntil=9,34,40
+ s.UseScheduleMotion(m)
+ if hero.MoveStartTick!=8||walker.MoveStartTick!=59||walker.YieldUntil!=84||walker.YieldCooldownUntil!=90{
+  t.Fatalf("legacy clock conversion changed a remaining interval: hero %d, walker %+v",hero.MoveStartTick,walker)
+ }
+ if err:=s.Validate(m,10);err!=nil{t.Fatal(err)}
+ s.Advance(m,11)
+ if walker.Position!=(Cell{3,1}){t.Fatal("loaded walker completed the first step early")}
+ s.Advance(m,12)
+ if walker.Position!=(Cell{4,1})||!reflect.DeepEqual(walker.Path,[]Cell{{4,2}}){t.Fatal("loaded walker lost the intermediate cell")}
+}
+
 func TestLifeYieldDoesNotParkOnRequestedRouteOrDisplaceDuty(t *testing.T){
  m,s,route:=lifeYieldCorridorFixture()
  m.Actors=append(m.Actors,LifePerson{ID:"duty",Name:"Duty",Steps:[]LifeStep{{Level:"a",At:Cell{4,2},Activity:"work"}}})

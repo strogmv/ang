@@ -92,6 +92,58 @@ func TestLifeHostileIntentReachesContactBeforeWaiting(t *testing.T){
 func cellHero(r *Runtime){r.world.Life.HeroBody=behavior.LifeHeroBodyModel{};r.canonicalWorld.Life.HeroBody=behavior.LifeHeroBodyModel{}}
 func lifeRuntimeFixture(t *testing.T)*Runtime{t.Helper();r,err:=New(t.TempDir(),"token");if err!=nil{t.Fatal(err)};cellHero(r);r.world.Life.Brain.Enabled=false;r.canonicalWorld.Life.Brain.Enabled=false;r.state.Active=true;r.state.Speed=1;r.initLife();r.state.Life.SecondsPerTick=30;return r}
 
+// A projected NPC segment uses the same calendar clock after a scene
+// hands out a manual route. The controlled actor keeps its physical clock.
+func TestLifeScheduleMotionProjectionFollowsItsClock(t *testing.T) {
+ r:=lifeRuntimeFixture(t)
+ npc:=r.state.Life.Actor("char.market_peddler_prokhor")
+ if npc==nil{t.Fatal("missing scripted walker")}
+ hero:=r.state.Life.Actor(playerActorID)
+ const elapsed, tick = 60, 20
+ r.state.Tick=tick
+ r.state.Life.Seconds=r.world.Life.StartSeconds+elapsed
+ for _,rate:=range []int64{1,10,30}{
+  r.state.Life.SecondsPerTick=rate
+  for _,manual:=range []bool{false,true}{
+   npc.Manual=manual
+   npc.MoveStartTick=r.lifeActorMotionTick(npc)-1
+   if got:=r.lifeActorDurationNS(npc.ID,3);got!=3*r.tickNS()/rate{t.Fatalf("rate %d manual %t: NPC step duration %d",rate,manual,got)}
+   if got:=r.lifeActorStartNS(npc,r.state.Life,tick);got!=tick*r.tickNS()-r.tickNS()/rate{t.Fatalf("rate %d manual %t: NPC step start %d",rate,manual,got)}
+  }
+  hero.Manual=false
+  hero.MoveStartTick=elapsed-1
+  r.lifeSetManual(hero,true)
+  if hero.MoveStartTick!=tick-1||r.lifeActorDurationNS(hero.ID,3)!=3*r.tickNS(){t.Fatalf("rate %d: controlled cadence or partial step changed",rate)}
+  r.lifeSetManual(hero,false)
+  if hero.MoveStartTick!=elapsed-1||r.lifeActorDurationNS(hero.ID,3)!=3*r.tickNS()/rate{t.Fatalf("rate %d: resumed schedule lost the partial step",rate)}
+ }
+}
+
+func TestLifeScheduleClockClearsMarketExitAfterLock(t *testing.T) {
+ for _,rate:=range []int64{10,30}{t.Run(fmt.Sprint(rate),func(t *testing.T){
+  r:=lifeRuntimeFixture(t)
+  r.state.Life.SecondsPerTick=rate
+  exit:=r.world.Life.Edge("market_station")
+  if exit==nil||exit.Exit!=(behavior.Cell{X:97,Y:1}){t.Fatalf("expected the monorail exit at (97,1): %+v",exit)}
+  const locked, opens = 22*3600+30*60, 30*3600
+  frames:=0
+  for r.state.Life.Seconds<opens{
+   r.step()
+   if r.state.Life.Seconds<locked||r.state.Life.Seconds>=opens{continue}
+   frames++
+   for _,a:=range r.state.Life.Actors{
+    if a.ID==playerActorID||a.Level!=exit.From||!a.OnFloor(){continue}
+    inApproach:=a.Position.X>=92&&a.Position.Y<=10
+    if inApproach||!a.Arrived&&a.Goal==exit.Exit{
+     t.Fatalf("x%d %s: %s stood at %v on the monorail exit route",rate,fmt.Sprint(r.state.Life.Seconds),a.ID,a.Position)
+    }
+   }
+  }
+  if frames==0{t.Fatal("the audit did not sample the locked hall")}
+  t.Logf("x%d: zero named walkers on the exit or its approach in %d locked-hall frames",rate,frames)
+ })}
+}
+
 func TestLifeMerchantRoleAndDebugActivityArePerClientTranslations(t *testing.T){
  r:=lifeRuntimeFixture(t);r.world.Config.DebugPerception=true
  const merchantID="char.market_zoya_lykova"

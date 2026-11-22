@@ -254,7 +254,7 @@ func(s *LifeState)anticipateControlledTraffic(m LifeModel,a *LifeActor,tick int6
  route:=a.Path;if len(route)==0{route=a.PendingPath}
  for i,at:=range route{if i>=m.courtesyLookahead()||*yieldBudget<=0{break};if !s.courtesyAware(m,a.ID,a.Level,at){continue}
   eligible:=false
-  for _,other:=range s.Actors{if other.Level==a.Level&&other.Position==at&&s.courtesyNamed(m,other,a.ID,tick){eligible=true;break}}
+  for _,other:=range s.Actors{if other.Level==a.Level&&other.Position==at&&s.courtesyNamed(m,other,a.ID,s.Seconds-m.StartSeconds){eligible=true;break}}
   if !eligible{for _,other:=range s.Population.Actors{if other.Level==a.Level&&other.Position==at&&s.courtesyPopulation(m,other,a.ID,tick){eligible=true;break}}}
   if !eligible{continue}
   // A direct empty side pocket avoids propagating an early request through an

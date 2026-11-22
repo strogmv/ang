@@ -208,8 +208,11 @@ func(r *Runtime)lifeEdgeName(locale string,e behavior.LifeEdge)string{return r.r
 func(r *Runtime)resetInstantTravel(){}
 // This planar fixture has no lifting deck; an accepted move has no queue to cancel.
 func(r *Runtime)cancelQueuedLiftingDeckRide(actorID string){}
-// Game-time motion clock of the full host; route privacy does not depend on it.
+// This route-only fixture has one clock. The full Life tests cover the
+// calendar-to-control handoff and movement timestamps.
 func(r *Runtime)lifeMotionTick()int64{return r.state.Tick}
+func(r *Runtime)lifeActorMotionTick(_ *behavior.LifeActor)int64{return r.lifeMotionTick()}
+func(r *Runtime)lifeSetManual(a *behavior.LifeActor, manual bool){a.Manual=manual}
 func(r *Runtime)syncLifeHero(){r.syncs++}
 func(r *Runtime)heroBodyNow(){}
 // No conversation is available in this route-only fixture: preserve fail-closed source privacy.

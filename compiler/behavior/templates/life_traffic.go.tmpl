@@ -48,8 +48,9 @@ func(s *LifeState) yieldCell(m LifeModel,level string,at Cell,tick int64,who str
  for _,index:=range s.traffic.cells[trafficCell{level,at}]{
   b:=s.traffic.bodies[index]
   if index<len(s.Actors){a:=s.Actors[index];repair,repairing:=s.maintenanceStep(m,a.ID);atWork:=repairing&&a.Level==repair.Level&&a.Position==repair.At
-   eligible:=(s.ControlledActorID!=""||autonomous)&&a.ID!=s.ControlledActorID&&a.ID!=who&&!a.Manual&&!a.Arrived&&a.Activity=="walking"&&a.Goal!=a.Position&&len(a.Path)==0&&tick>=a.YieldUntil&&tick>=a.YieldCooldownUntil&&!atWork&&s.courtesyNamedWilling(m,a,who)&&!s.courtesyFinishingAhead(m,who,a.ID,a.Level,a.Position,a.Goal)
-   courteous:=s.courtesyNamed(m,a,who,tick)
+   namedNow:=s.Seconds-m.StartSeconds
+   eligible:=(s.ControlledActorID!=""||autonomous)&&a.ID!=s.ControlledActorID&&a.ID!=who&&!a.Manual&&!a.Arrived&&a.Activity=="walking"&&a.Goal!=a.Position&&len(a.Path)==0&&namedNow>=a.YieldUntil&&namedNow>=a.YieldCooldownUntil&&!atWork&&s.courtesyNamedWilling(m,a,who)&&!s.courtesyFinishingAhead(m,who,a.ID,a.Level,a.Position,a.Goal)
+   courteous:=s.courtesyNamed(m,a,who,namedNow)
    if (eligible||courteous)&&at==b.position{if index>best{resident=lifeYieldResident{index,true,!eligible&&courteous};best=index;found=true}}else{hard=true}
   }else{j:=index-len(s.Actors);a:=s.Population.Actors[j];if s.courtesyPopulation(m,a,who,tick)&&at==b.position{if index>best{resident=lifeYieldResident{j,false,false};best=index;found=true}}else{hard=true}}
  };return hard,resident,found
@@ -243,7 +244,7 @@ func(s *LifeState)lifeOncoming(m LifeModel,a *LifeActor,path []Cell)bool{
 }
 // lifeStepNow: the start of a step asked of somebody else, due at once — if he comes later in this frame he takes it
 // in this frame (one frame of ×30 is ten steps; a step asked for the next frame made every knot ten times slower there).
-func(s *LifeState)lifeStepNow(m LifeModel,tick int64)int64{frame:=int64(1);if m.Brain.Enabled{frame=s.SecondsPerTick};return max(0,tick-frame+1-m.MoveTicks)}
+func(s *LifeState)lifeStepNow(m LifeModel,tick int64)int64{return max(0,tick-s.SecondsPerTick+1-m.MoveTicks)}
 // lifeDoor: a door of the level — a home's entry or return cell, an exit or an arrival of a way to another level. Nobody
 // steps aside into a door (a home's door in a dead end trapped the one who stood there and everybody going home).
 func(m LifeModel)lifeDoor(level string,c Cell)bool{
@@ -254,12 +255,12 @@ func(m LifeModel)lifeDoor(level string,c Cell)bool{
 // has moved this frame he takes the cells that freed (lifeFollowOn). At ×30 a frame is ten steps: a queue that moved
 // only when each one came after the one ahead of him in the frame's order crept a person a frame.
 func(s *LifeState)lifeFollowLater(i int){if s.traffic==nil{return};f:=&s.traffic.follow;if f.tick!=s.Tick{f.tick=s.Tick;f.index=f.index[:0]};for _,j:=range f.index{if j==i{return}};f.index=append(f.index,i)}
-func(s *LifeState)lifeFollowOn(m LifeModel,tick int64){
+func(s *LifeState)lifeFollowOn(m LifeModel){
  if s.traffic==nil||s.traffic.follow.tick!=s.Tick||len(s.traffic.follow.index)==0{s.lifeTrafficFrameDone();return};f:=&s.traffic.follow
  for pass:=0;pass<4;pass++{
   moved:=false
   for _,i:=range f.index{
-   s.trafficActor(i);a:=&s.Actors[i];pace:=m.NamedMoveTicks(a)
+   s.trafficActor(i);a:=&s.Actors[i];tick:=s.ActorMotionTick(m,s.Tick,a);pace:=m.NamedMoveTicks(a)
    for len(a.Path)>0&&tick>=a.MoveStartTick+pace{
     next:=a.Path[0];if s.lifeOncoming(m,a,a.Path){a.Path=nil;a.MoveStartTick=tick;break}
     if !m.WalksFor(a.Level,next,a.ID)||!m.Adjacent(a.Level,a.Position,next){a.Path=nil;a.MoveStartTick=tick;break}
@@ -270,7 +271,7 @@ func(s *LifeState)lifeFollowOn(m LifeModel,tick int64){
   if !moved{break}
  }
  // what is still due waits for the next frame like any blocked step
- for _,i:=range f.index{s.trafficActor(i);a:=&s.Actors[i];if len(a.Path)>0&&tick>=a.MoveStartTick+m.NamedMoveTicks(a){a.MoveStartTick=tick}}
+ for _,i:=range f.index{s.trafficActor(i);a:=&s.Actors[i];tick:=s.ActorMotionTick(m,s.Tick,a);if len(a.Path)>0&&tick>=a.MoveStartTick+m.NamedMoveTicks(a){a.MoveStartTick=tick}}
  f.index,f.tick=nil,0
 }
 // lifeTrafficFrameDone: the frame's own notes go (a loaded game, which never had them, goes on the same way).
@@ -281,7 +282,7 @@ func(s *LifeState)lifeSlotTaken(level string,at Cell,self string)bool{
 }
 // lifeYieldHold: an ordinary courtesy hold in motion ticks — eight steps, and at least two frames at the calendar's rate
 // (a hold shorter than a frame of ×30 ended before the other could step, and the one aside stepped back).
-func(m LifeModel)lifeYieldHold(secondsPerTick int64)int64{frame:=int64(1);if m.Brain.Enabled{frame=secondsPerTick};return max(8*m.MoveTicks,2*frame)}
+func(m LifeModel)lifeYieldHold(secondsPerTick int64)int64{return max(8*m.MoveTicks,2*secondsPerTick)}
 func lifeTurn(seconds int64,a,b string)bool{return (seconds/lifeGiveWayTurnSeconds%2==0)==(a>b)}
 // lifeWanted: the cell a person wants next: his accepted step, else the first cell of his way.
 func(s *LifeState)lifeWanted(m LifeModel,a *LifeActor)(Cell,bool){

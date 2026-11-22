@@ -292,7 +292,7 @@ func (r *Runtime) sanitaryHoldUsers() {
 			continue
 		}
 		if a := r.state.Life.Actor(id); a != nil {
-			a.Manual = true
+			r.lifeSetManual(a,true)
 			a.CombatHold = true
 			a.Body = nil
 			a.Path = nil
@@ -373,7 +373,7 @@ func (r *Runtime) sanitaryWalk(p *sanitaryUser, u sanitaryUnit, to behavior.Cell
 	}
 	before := r.state.Life.Clone()
 	a.CombatHold = false
-	a.Manual = true
+	r.lifeSetManual(a,true)
 	a.RestFootprint = nil
 	a.OverrideLevel = a.Level
 	a.OverrideAt = to
@@ -382,7 +382,7 @@ func (r *Runtime) sanitaryWalk(p *sanitaryUser, u sanitaryUnit, to behavior.Cell
 	a.Path = path
 	a.PendingPath = nil
 	a.Goal = to
-	a.MoveStartTick = r.lifeMotionTick()
+	a.MoveStartTick = r.lifeActorMotionTick(a)
 	a.Activity = "walking"
 	a.Label = label
 	if a.ID == playerActorID && m.BodyCapable(a.Level) {
@@ -429,7 +429,7 @@ func (r *Runtime) sanitaryRequest(id, unit string) error {
 		r.sanitaryWait(&p, *u)
 	}
 	a = r.state.Life.Actor(id)
-	a.Manual = true
+	r.lifeSetManual(a,true)
 	a.Brain.InterruptService()
 	sanitaryRestoreDutyBreak(a, p, false)
 	a.Brain.AdvanceServiceNeeds(r.world.Life.Brain, id, r.state.Life.Seconds, r.state.Seed, 0)
@@ -452,7 +452,7 @@ func (r *Runtime) sanitaryRelease(id string) {
 	}
 	a.ServiceAttachment = ""
 	a.CombatHold = false
-	a.Manual = p.PriorManual
+	r.lifeSetManual(a,p.PriorManual)
 	a.OverrideLevel = ""
 	a.OverrideEdge = ""
 	a.Path = nil

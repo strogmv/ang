@@ -376,7 +376,8 @@ func (r *Runtime) initPlayableScene() error {
 		return errors.New("playable scene actors missing")
 	}
 	r.state.Playable = playableSceneState{ID: d.ID, WaitUntil: r.state.Life.Seconds + d.PatrolPauseSeconds, Cooldowns: map[string]int64{}}
-	h.Manual, guard.Manual = true, false
+	r.lifeSetManual(h,true)
+ guard.Manual=false
 	r.state.Life.SecondsPerTick = 1
 	r.state.Life.EnsureHeroBody(r.state.Life.GateModel(r.world.Life))
 	r.syncLifeHero()
@@ -415,7 +416,7 @@ func (r *Runtime) advancePlayableScene() error {
 		a.OverrideLevel, a.OverrideAt, a.OverrideEdge = d.Level, at, ""
 		a.Goal, a.Arrived = at, false
 		a.Path, a.PendingPath = nil, nil
-		a.MoveStartTick = r.lifeMotionTick()
+		a.MoveStartTick = r.lifeActorMotionTick(a)
 		s.WaitUntil = 0
 	}
 	return nil

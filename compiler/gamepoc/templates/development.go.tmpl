@@ -50,7 +50,7 @@ func (r *Runtime) startPractice(station, rule string) error {
 	}
 	cfg, _ := r.world.Life.PracticeRule(rule)
 	hero := r.state.Life.Actor(playerActorID)
-	hero.Manual = true
+	r.lifeSetManual(hero,true)
 	hero.OverrideLevel = ""
 	hero.OverrideEdge = ""
 	hero.Activity = "practice"

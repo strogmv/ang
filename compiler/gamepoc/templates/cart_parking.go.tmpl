@@ -452,7 +452,7 @@ func (r *Runtime) cartRouteDetour(a *behavior.LifeActor, wanted behavior.LifeSte
 		s.LastCell = a.Position
 		a.Path = []behavior.Cell{s.ExitCell}
 		a.PendingPath = nil
-		a.MoveStartTick = r.lifeMotionTick()
+		a.MoveStartTick = r.lifeActorMotionTick(a)
 		a.Arrived = false
 		a.Goal = s.ExitCell
 		return r.cartStep(a, s.ExitCell, true), true

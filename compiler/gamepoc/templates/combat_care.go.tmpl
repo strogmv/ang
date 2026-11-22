@@ -97,7 +97,7 @@ func (r *Runtime) combatCareHold(c behavior.Combatant) {
 			a.Goal = a.Position
 			a.Activity = activity
 			a.Label = label
-			a.MoveStartTick = r.lifeMotionTick()
+			a.MoveStartTick = r.lifeActorMotionTick(a)
 		} else if was {
 			a.Arrived = c.ID == playerActorID
 			a.Activity = "rest"

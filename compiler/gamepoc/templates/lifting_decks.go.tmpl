@@ -354,9 +354,9 @@ func(r *Runtime)requestLiftingDeckCycle(id string)error{
 }
 
 func(r *Runtime)routeLiftingDeckRider(a *behavior.LifeActor,target behavior.Cell){
- a.Manual=true;a.OverrideLevel="";a.OverrideEdge="";a.Goal=target;a.Arrived=false
+ r.lifeSetManual(a,true);a.OverrideLevel="";a.OverrideEdge="";a.Goal=target;a.Arrived=false
  model:=r.state.Life.GateModel(r.world.Life);r.state.Life.EnsureHeroBody(model)
- if a.Body!=nil{r.state.Life.HeroBodyRouteTo(model,target)}else{a.Path=model.Space(a.Level,r.state.Life.BlockedCells(a.Level,a.ID)).Path(a.Position,target,behavior.Cell{},0);a.MoveStartTick=r.lifeMotionTick()}
+ if a.Body!=nil{r.state.Life.HeroBodyRouteTo(model,target)}else{a.Path=model.Space(a.Level,r.state.Life.BlockedCells(a.Level,a.ID)).Path(a.Position,target,behavior.Cell{},0);a.MoveStartTick=r.lifeActorMotionTick(a)}
 }
 func(r *Runtime)routeQueuedLowerLiftingDeckRiders(d liftingDeckDefinition){
  edge:=r.world.Life.Edge(d.ReturnEdge);if edge==nil||d.Lower==nil{return};g:=r.state.LiftingDecks[d.ID]

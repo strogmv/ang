@@ -1338,6 +1338,12 @@ func (r *Runtime) readSaveFile(slot string) (state, int64, error) {
 		if err := validator.validateEncounterSave(s); err != nil {return state{},0,err}
 		if err := validator.validateSavedResidents(s); err != nil {return state{},0,err}
 		if err := validator.validateSavedPlaces(s); err != nil {return state{},0,err}
+ if !validator.world.Life.Brain.Enabled&&!s.Life.ScheduleMotion {
+  hero:=s.Life.Actor(playerActorID)
+  oldMirror:=hero!=nil&&!hero.Manual&&s.MoveStartNS==hero.MoveStartTick*validator.tickNS()
+  s.Life.UseScheduleMotion(validator.world.Life)
+  if oldMirror{s.MoveStartNS=validator.lifeActorStartNS(hero,s.Life,s.Tick)}
+ }
  if err := validator.validateLifeSave(s); err != nil {
 			return s, 0, err
 		}

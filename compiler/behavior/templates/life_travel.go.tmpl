@@ -3,7 +3,7 @@ package behavior
 
 func(s *LifeState)ControlledTravelEdge(m LifeModel)*LifeEdge{
  a:=s.Actor(s.ControlledActorID);if a==nil{return nil};if a.Trip!=nil{return m.Edge(a.Trip.Edge)}
- if len(a.Path)>0||a.YieldUntil>m.MotionTick(s.Tick,s.Seconds){return nil};person:=m.Person(a.ID);if person==nil||a.Step<0||a.Step>=len(person.Steps){return nil}
+ if len(a.Path)>0||a.YieldUntil>s.Seconds-m.StartSeconds{return nil};person:=m.Person(a.ID);if person==nil||a.Step<0||a.Step>=len(person.Steps){return nil}
  target:=a.OverrideLevel;if target==""{if a.Manual||a.Arrived{return nil};target=person.Steps[a.Step].Level};if target==a.Level{return nil}
  edge:=m.NextEdge(a.Level,target);if a.OverrideEdge!=""{edge=m.Edge(a.OverrideEdge)};if edge==nil||edge.From!=a.Level||a.Position!=edge.Exit{return nil};return edge
 }
@@ -37,7 +37,7 @@ func(s *LifeState)SettleControlledArrival(){
 
 // Old saves may contain a due Trip whose landing became free later in the same
 // frame. Complete it at the already elapsed time rather than adding a fake second.
-func(s *LifeState)TryCompleteControlledArrival(m LifeModel)bool{a:=s.Actor(s.ControlledActorID);return a!=nil&&a.Trip!=nil&&s.tryLifeArrival(m,a,m.MotionTick(s.Tick,s.Seconds))}
+func(s *LifeState)TryCompleteControlledArrival(m LifeModel)bool{a:=s.Actor(s.ControlledActorID);return a!=nil&&a.Trip!=nil&&s.tryLifeArrival(m,a,s.ActorMotionTick(m,s.Tick,a))}
 func(s *LifeState)tryLifeArrival(m LifeModel,a *LifeActor,tick int64)bool{
  e:=m.Edge(a.Trip.Edge);if e==nil||s.Seconds<a.Trip.Arrival{return false}
  // A vehicle that carries its riders (a lifting deck) lets them off only once it has really arrived.

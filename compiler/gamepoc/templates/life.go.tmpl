@@ -94,7 +94,7 @@ func (r *Runtime) syncLifeHero() {
 	for _, at := range a.Path {
 		r.state.Path = append(r.state.Path, location(at))
 	}
-	r.state.MoveStartNS = r.lifeMotionStartNS(a.MoveStartTick, r.state.Life, r.state.Tick)
+	r.state.MoveStartNS = r.lifeActorStartNS(a, r.state.Life, r.state.Tick)
 }
 func (r *Runtime) lifeStep() error {
 	if err := r.advanceLifeFrameBy(r.state.Life.SecondsPerTick); err != nil {
@@ -228,7 +228,7 @@ func (r *Runtime) lifeViewRuntime() *Runtime {
 			}
 			agent.Path = append(agent.Path, location(at))
 		}
-		agent.MoveStartNS = r.lifeMotionStartNS(person.MoveStartTick, r.state.Life, r.state.Tick)
+		agent.MoveStartNS = r.lifeActorStartNS(&person, r.state.Life, r.state.Tick)
 		if person.Brain.Place.ID != "" && person.Activity == person.Brain.Target.Activity {
 			agent.Task = person.Brain.Target.Label
 		}
@@ -259,7 +259,7 @@ func (r *Runtime) sendLifeState(c *connection) {
 		return
 	}
 	terrain := v.world.Terrain
-	msg := &pb.PocGameState{Epoch: s.Epoch, Tick: s.Tick, GameSeconds: s.Life.Seconds, Seed: s.Seed, Paused: s.Paused, Speed: s.Speed, PlayerX: int32(s.Player.X), PlayerY: int32(s.Player.Y), PlayerName: s.PlayerName, Width: int32(len(terrain[0])), Height: int32(len(terrain)), Terrain: terrain, Active: s.Active, ContentHash: r.world.ContentHash, SimTimeNs: r.simNS(), MotionStartNs: s.MoveStartNS, MovementStepNs: r.lifeMotionDurationNS(r.lifeHeroMoveTicks()), LastMoveSeq: s.LastMoveSeq, ServerTickHz: r.tickHz, ServerStepUs: r.stepUS, ServerUptimeMs: time.Since(r.started).Milliseconds(), ServerLagMs: r.lagMS}
+	msg := &pb.PocGameState{Epoch: s.Epoch, Tick: s.Tick, GameSeconds: s.Life.Seconds, Seed: s.Seed, Paused: s.Paused, Speed: s.Speed, PlayerX: int32(s.Player.X), PlayerY: int32(s.Player.Y), PlayerName: s.PlayerName, Width: int32(len(terrain[0])), Height: int32(len(terrain)), Terrain: terrain, Active: s.Active, ContentHash: r.world.ContentHash, SimTimeNs: r.simNS(), MotionStartNs: s.MoveStartNS, MovementStepNs: r.lifeActorDurationNS(playerActorID, r.lifeHeroMoveTicks()), LastMoveSeq: s.LastMoveSeq, ServerTickHz: r.tickHz, ServerStepUs: r.stepUS, ServerUptimeMs: time.Since(r.started).Milliseconds(), ServerLagMs: r.lagMS}
 <<ANG if .GodotSettings ANG>> msg.Locale=r.validLocale(c.locale) <<ANG end ANG>>
 	for _, at := range s.Path {
 		msg.Path = append(msg.Path, &pb.PocPoint{X: int32(at.X), Y: int32(at.Y)})
@@ -269,7 +269,7 @@ func (r *Runtime) sendLifeState(c *connection) {
 	}
 	activities := r.lifeActivityBodies(hero.Level)
 	for _, agent := range v.state.Demo.Residents {
-		a := &pb.PocAgentState{Id: agent.ID, Name: r.localText(c.locale, "actor."+agent.ID+".name", agent.Name), X: int32(agent.Position.X), Y: int32(agent.Position.Y), Task: r.localText(c.locale, agent.Task, agent.Task), Role: r.localActivity(c.locale, agent.Role), MotionStartNs: agent.MoveStartNS, Running: r.lifeAgentRunning(agent.ID), MovementStepNs: r.lifeMotionDurationNS(r.lifeAgentMoveTicks(agent.ID))}
+		a := &pb.PocAgentState{Id: agent.ID, Name: r.localText(c.locale, "actor."+agent.ID+".name", agent.Name), X: int32(agent.Position.X), Y: int32(agent.Position.Y), Task: r.localText(c.locale, agent.Task, agent.Task), Role: r.localActivity(c.locale, agent.Role), MotionStartNs: agent.MoveStartNS, Running: r.lifeAgentRunning(agent.ID), MovementStepNs: r.lifeActorDurationNS(agent.ID, r.lifeAgentMoveTicks(agent.ID))}
 		for _, at := range agent.Path {
 			a.Path = append(a.Path, &pb.PocPoint{X: int32(at.X), Y: int32(at.Y)})
 		}
@@ -482,7 +482,7 @@ func (r *Runtime) lifeCommand(q *pb.PocLifeCommand) error {
 		r.resetInstantTravel()
 		hero.AdmissionDeniedEdge = ""
 		hero.PendingPath = nil
-		hero.Manual = false
+		r.lifeSetManual(hero,false)
 		hero.OverrideLevel = ""
 		hero.OverrideEdge = ""
 		hero.Arrived = false
@@ -498,7 +498,7 @@ func (r *Runtime) lifeCommand(q *pb.PocLifeCommand) error {
 		r.resetInstantTravel()
 		hero.AdmissionDeniedEdge = ""
 		hero.PendingPath = nil
-		hero.Manual = true
+		r.lifeSetManual(hero,true)
 		hero.OverrideLevel = edge.To
 		hero.OverrideAt = edge.Entry
 		hero.OverrideEdge = edge.ID
@@ -562,7 +562,7 @@ func (r *Runtime) lifeCommand(q *pb.PocLifeCommand) error {
 		r.resetInstantTravel()
 		hero.AdmissionDeniedEdge = ""
 		hero.PendingPath = nil
-		hero.Manual = true
+		r.lifeSetManual(hero,true)
 		hero.OverrideLevel = q.Destination
 		hero.OverrideEdge = ""
 		hero.OverrideAt = goal
@@ -635,14 +635,16 @@ func (r *Runtime) lifeWalkToPoint(target behavior.Cell, x, y float64, point, run
 	// Movement v2 (document 87): in a modular location the hero is a continuous body.
 	if model := r.state.Life.GateModel(r.world.Life); model.BodyCapable(hero.Level) {
 		r.heroBodyNow()
-		manual, level, edge, at, denied := hero.Manual, hero.OverrideLevel, hero.OverrideEdge, hero.OverrideAt, hero.AdmissionDeniedEdge
-		hero.Manual = true
+		manual, motionStart := hero.Manual, hero.MoveStartTick
+		level, edge, at, denied := hero.OverrideLevel, hero.OverrideEdge, hero.OverrideAt, hero.AdmissionDeniedEdge
+		r.lifeSetManual(hero,true)
 		hero.OverrideLevel = ""
 		hero.OverrideEdge = ""
 		hero.AdmissionDeniedEdge = ""
 		r.state.Life.EnsureHeroBody(model)
 		if !r.state.Life.RouteHeroBody(model, target, x, y, point, run, seq) {
-			hero.Manual, hero.OverrideLevel, hero.OverrideEdge, hero.OverrideAt, hero.AdmissionDeniedEdge = manual, level, edge, at, denied
+			hero.Manual, hero.MoveStartTick = manual, motionStart
+			hero.OverrideLevel, hero.OverrideEdge, hero.OverrideAt, hero.AdmissionDeniedEdge = level, edge, at, denied
 			r.state.Life.EnsureHeroBody(model)
 			r.syncLifeHero()
 			return false
@@ -664,8 +666,10 @@ func (r *Runtime) lifeWalkToPoint(target behavior.Cell, x, y float64, point, run
 	}
 	if moving {
 		route = append([]behavior.Cell{from}, route...)
-	} else {
-		hero.MoveStartTick = r.lifeMotionTick()
+	}
+	r.lifeSetManual(hero,true)
+	if !moving {
+		hero.MoveStartTick = r.lifeActorMotionTick(hero)
 	}
 	r.cancelQueuedLiftingDeckRide(playerActorID)
 	r.resetInstantTravel()
@@ -673,7 +677,6 @@ func (r *Runtime) lifeWalkToPoint(target behavior.Cell, x, y float64, point, run
 	hero.Path = route
 	hero.PendingPath = nil
 	hero.Goal = target
-	hero.Manual = true
 	hero.OverrideLevel = ""
 	hero.OverrideEdge = ""
 	hero.Arrived = false
@@ -712,7 +715,7 @@ func (r *Runtime) validateLifeSave(s state) error {
 			return errors.New("population active level differs from hero")
 		}
 	}
-	if len(s.Path) != len(hero.Path) || s.MoveStartNS != r.lifeMotionStartNS(hero.MoveStartTick, s.Life, s.Tick) {
+	if len(s.Path) != len(hero.Path) || s.MoveStartNS != r.lifeActorStartNS(hero, s.Life, s.Tick) {
 		return errors.New("invalid mirrored life motion")
 	}
 	for i, at := range s.Path {
@@ -851,6 +854,31 @@ func (r *Runtime) LifeDecisionLog() (named, population []behavior.LifeDecision) 
 func (r *Runtime) lifeMotionTick() int64 {
 	return r.world.Life.MotionTick(r.state.Tick, r.state.Life.Seconds)
 }
+func (r *Runtime) lifeActorMotionTick(a *behavior.LifeActor) int64 {
+ return r.state.Life.ActorMotionTick(r.world.Life,r.state.Tick,a)
+}
+// A change of control mode transports only the segment's elapsed time to
+// the new clock. Its already accepted first cell remains reserved.
+func (r *Runtime) lifeSetManual(a *behavior.LifeActor, manual bool) {
+ if r.world.Life.Brain.Enabled||a.ID!=r.state.Life.ControlledActorID||a.Manual==manual {
+  a.Manual=manual
+  return
+ }
+ old:=r.lifeActorMotionTick(a)
+ a.Manual=manual
+ a.MoveStartTick=max(0,a.MoveStartTick+r.lifeActorMotionTick(a)-old)
+ if !manual{a.Body=nil}
+}
+func (r *Runtime) lifeActorStartNS(a *behavior.LifeActor, s behavior.LifeState, tick int64) int64 {
+ if !s.ActorUsesScheduleMotion(r.world.Life,a){return a.MoveStartTick*r.tickNS()}
+ return r.lifeCalendarStartNS(a.MoveStartTick,s,tick)
+}
+func (r *Runtime) lifeActorDurationNS(id string, pace int64) int64 {
+ if !r.world.Life.Brain.Enabled {
+  if a:=r.state.Life.Actor(id);a!=nil&&r.state.Life.ActorUsesScheduleMotion(r.world.Life,a){return pace*r.tickNS()/r.state.Life.SecondsPerTick}
+ }
+ return r.lifeMotionDurationNS(pace)
+}
 func (r *Runtime) lifeMotionDurationNS(seconds int64) int64 {
 	n := seconds * r.tickNS()
 	if r.world.Life.Brain.Enabled {
@@ -862,7 +890,10 @@ func (r *Runtime) lifeMotionStartNS(start int64, s behavior.LifeState, tick int6
 	if !r.world.Life.Brain.Enabled {
 		return start * r.tickNS()
 	}
-	return tick*r.tickNS() - (r.world.Life.MotionTick(tick, s.Seconds)-start)*r.tickNS()/s.SecondsPerTick
+	return r.lifeCalendarStartNS(start,s,tick)
+}
+func (r *Runtime) lifeCalendarStartNS(start int64,s behavior.LifeState,tick int64)int64{
+ return tick*r.tickNS() - (s.Seconds-r.world.Life.StartSeconds-start)*r.tickNS()/s.SecondsPerTick
 }
 
 // demo-hub v5-yatai: the observable activity of a body at a seated place (seat, queue, staff post) for the presentation:
@@ -1057,7 +1088,7 @@ func (r *Runtime) heroSteer(c *connection, m *pb.PocHeroSteer) {
 		c.lastMoveSeq = m.InputSeq
 		model := r.state.Life.GateModel(r.world.Life)
 		r.heroBodyNow()
-		hero.Manual = true
+		r.lifeSetManual(hero,true)
 		hero.OverrideLevel = ""
 		hero.OverrideEdge = ""
 		hero.AdmissionDeniedEdge = ""

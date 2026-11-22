@@ -105,7 +105,7 @@ func (r *Runtime) stealthCommand(mode string) error {
 	if h.Body != nil && h.Sneaking {
 		h.Body.Run = false
 	}
-	h.Manual = true
+	r.lifeSetManual(h,true)
 	return nil
 }
 
