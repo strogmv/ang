@@ -231,7 +231,9 @@ func TestCombatInventoryEquipAuthoredKnifeFromBagMovesRealItemsAndCostsAP(t *tes
 	}
 	now := r.state.Inventory.Items[knife]
 	gun := r.state.Inventory.Items[ids["gun"]]
-	if now.Location.Store != inv.ActorStore(playerActorID) || now.Location.Slot != "hand.main" || now.Condition != old.Condition || gun.Location.Store != inv.ActorStore(playerActorID) || gun.Location.Slot != "" || r.state.Combat.Actor(playerActorID).Weapon.ID != "item.knife_simple" || r.state.Combat.Actor(playerActorID).AP != ap-r.world.CombatRuntime.Rules.EquipAP {
+	cost := r.world.CombatRuntime.Rules.EquipAP
+	if r.world.Inventory.Dress != nil { cost += r.world.Inventory.Dress.BackpackAP }
+	if now.Location.Store != inv.ActorStore(playerActorID) || now.Location.Slot != "hand.main" || now.Condition != old.Condition || gun.Location.Store != inv.ActorStore(playerActorID) || gun.Location.Slot != "" || r.state.Combat.Actor(playerActorID).Weapon.ID != "item.knife_simple" || r.state.Combat.Actor(playerActorID).AP != ap-cost {
 		t.Fatal("equip changed a tactical label without physical bag/hand movement and AP cost")
 	}
 	before := r.state.Inventory.Clone()

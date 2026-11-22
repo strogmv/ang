@@ -103,6 +103,7 @@ type CombatWeapon struct {
 	Bleed              int    `json:"bleed,omitempty"`
 }
 type CombatEquipmentOption struct {
+	AccessAP int
  Risk int
 	ID                               string
 	Weapon                           CombatWeapon
@@ -1556,7 +1557,7 @@ func (s *CombatState) Execute(space CombatSpace, r CombatRules, actorID string, 
 		if err := next.Validate(r); err != nil {
 			return err
 		}
-		cost = r.EquipAP
+		cost = r.EquipAP + equipment.AccessAP
 	case "reload":
 		if actor.Weapon.Magazine < 1 || actor.ReserveAmmo < 1 || actor.Ammo >= actor.Weapon.Magazine {
 			return errors.New("reload unavailable")
@@ -1985,7 +1986,7 @@ func (s CombatState) equipmentCandidates(space CombatSpace, r CombatRules, a Com
 		next.ReserveAmmo = option.ReserveAmmo
 		next.WeaponUsesRemaining = option.UsesRemaining
 		next.WeaponUsesLimited = true
-		next.AP -= r.EquipAP
+		next.AP -= r.EquipAP + option.AccessAP
 		if next.Validate(r) != nil {
 			continue
 		}

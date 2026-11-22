@@ -16,6 +16,8 @@ type Action struct {
 	ExpectedRevision                                                    uint64
 }
 type Access struct {
+	Replace  bool   // an occupied slot can be stowed in the same transaction
+	Pack     string // trusted destination for ordinary acquisitions and unequipping
 	Level    string
 	At       Cell
 	Known    func(Item) bool
@@ -116,6 +118,9 @@ func (s *State) Execute(m Model, a Action, access Access) (Result, error) {
 	move := Move{Item: item.ID, Quantity: a.Quantity, ExpectedRevision: item.Revision, Reservation: a.Reservation, To: Location{Kind: "store", Store: ActorStore(a.Actor)}}
 	switch a.Kind {
 	case "take":
+		if access.Pack != "" && !own && item.Location.Store != access.Pack {
+			move.To.Store = access.Pack
+		}
 		if item.Owner != "" && item.Owner != a.Actor && (access.Withdraw == nil || !access.Withdraw(item)) {
 			return Result{}, errors.New("withdrawal not authorized")
 		}
@@ -169,7 +174,23 @@ func (s *State) Execute(m Model, a Action, access Access) (Result, error) {
 			return Result{}, errors.New("item cannot be equipped")
 		}
 		move.To.Slot = d.EquipSlot
+		if access.Replace {
+			for _, other := range s.Items {
+				if other.ID == item.ID || other.Location != move.To {
+					continue
+				}
+				dest := access.Pack
+				if dest == "" || dest == ItemStore(item.ID) || dest == ItemStore(other.ID) {
+					dest = ActorStore(a.Actor)
+				}
+				tx.Moves = append(tx.Moves, Move{Item: other.ID, Quantity: 1, ExpectedRevision: other.Revision, To: Location{Kind: "store", Store: dest}})
+				break
+			}
+		}
 	case "unequip":
+		if access.Pack != "" && access.Pack != ItemStore(item.ID) {
+			move.To.Store = access.Pack
+		}
 		if !own || item.Location.Store != ActorStore(a.Actor) || item.Location.Slot == "" {
 			return Result{}, errors.New("item is not equipped")
 		}
@@ -190,7 +211,7 @@ func (s *State) Execute(m Model, a Action, access Access) (Result, error) {
 		return Result{}, errors.New("unknown inventory action")
 	}
 	if a.Kind != "use" {
-		tx.Moves = []Move{move}
+		tx.Moves = append(tx.Moves, move)
 	}
 	return s.Apply(m, tx)
 }

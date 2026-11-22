@@ -52,11 +52,12 @@ type Notice struct {
 	Second  int64  `json:"second"`
 }
 type State struct {
-	Actors  map[string]ActorState `json:"actors"`
-	Jobs    []Job                 `json:"jobs,omitempty"`
-	Serial  uint64                `json:"serial"`
-	Journal map[string][]Entry    `json:"journal,omitempty"`
-	Notice  Notice                `json:"notice"`
+	Actors      map[string]ActorState `json:"actors"`
+	Jobs        []Job                 `json:"jobs,omitempty"`
+	Serial      uint64                `json:"serial"`
+	Journal     map[string][]Entry    `json:"journal,omitempty"`
+	Notice      Notice                `json:"notice"`
+	LastSalvage *[]Made               `json:"last_salvage,omitempty"`
 	// stage 2: the hero before the law (cases, trust, hacked things, the system journal) and the market (swaps, clocks)
 	Law    LawState    `json:"law"`
 	Market MarketState `json:"market"`
@@ -84,6 +85,10 @@ func (a ActorState) Worker(id string) Worker {
 }
 func (s State) Clone() State {
 	out := State{Serial: s.Serial, Notice: s.Notice, Actors: map[string]ActorState{}}
+	if s.LastSalvage != nil {
+		found := append([]Made{}, (*s.LastSalvage)...)
+		out.LastSalvage = &found
+	}
 	for id, a := range s.Actors {
 		c := ActorState{Jobs: a.Jobs, Points: map[string]int64{}, Known: map[string]bool{}}
 		for k, v := range a.Points {

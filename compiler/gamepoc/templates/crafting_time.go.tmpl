@@ -197,6 +197,10 @@ func (r *Runtime) craftingFinish(k int) {
 	} else {
 		r.craftingRemove(k)
 	}
+	if !order && j.Worker == m.Hero.Actor && rec.Kind == "disassemble" {
+		found := append([]crafting.Made{}, j.Plan.Makes...)
+		r.state.Crafting.LastSalvage = &found
+	}
 	r.state.Crafting.Notice = notice
 }
 

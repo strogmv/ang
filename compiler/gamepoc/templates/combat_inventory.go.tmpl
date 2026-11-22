@@ -49,6 +49,9 @@ func(r *Runtime)combatEquipmentOptions(actor string)[]behavior.CombatEquipmentOp
   if definition.EquipSlot!="hand.main"&&definition.EquipSlot!="hand.off"{continue}
   if definition.EquipSlot=="hand.off"&&current.Location.Slot=="hand.main"{continue}
   option:=behavior.CombatEquipmentOption{ID:id,Weapon:weapon,Risk:r.world.CombatRuntime.WeaponRisk[weapon.ID],UsesRemaining:int(item.Condition/definition.WearPerUse)}
+  if actor == playerActorID && r.world.Inventory.Dress != nil && r.inDressPack(s, item) {
+    option.AccessAP = r.world.Inventory.Dress.BackpackAP
+  }
   if weapon.Magazine>0{option.Ammo=r.combatCount(s,actor,weapon.AmmoDefinition,func(i inv.Item)bool{return i.Location.Store==inv.ItemStore(id)});option.ReserveAmmo=r.combatReserveAmmo(s,actor,weapon.AmmoDefinition)}
   result=append(result,option)
  }
@@ -245,10 +248,11 @@ func(r *Runtime)combatArmorFromInventory(s inv.State,actor string)behavior.Comba
 	for _,id:=range combatItemKeys(s){
 		i:=s.Items[id];armor,ok:=r.world.CombatRuntime.Armor[i.Definition]
 		if !ok||i.Location.Kind!="store"||i.Location.Store!=inv.ActorStore(actor)||i.Location.Slot==""||!r.combatCarried(s,actor,i){continue}
-		armorResult.Head+=int(int64(armor.Head)*i.Condition/1000000)
-		armorResult.Torso+=int(int64(armor.Torso)*i.Condition/1000000)
-		armorResult.Arms+=int(int64(armor.Arms)*i.Condition/1000000)
-		armorResult.Legs+=int(int64(armor.Legs)*i.Condition/1000000)
+		armor = conditionedArmor(armor, i.Condition)
+		armorResult.Head+=armor.Head
+		armorResult.Torso+=armor.Torso
+		armorResult.Arms+=armor.Arms
+		armorResult.Legs+=armor.Legs
 	}
  return armorResult
 }

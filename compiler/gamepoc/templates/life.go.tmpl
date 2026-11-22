@@ -385,6 +385,7 @@ func (r *Runtime) sendLifeState(c *connection) {
 <<ANG if .GodotScreens ANG>> r.appendScreenTargets(msg);r.appendExitTargets(msg,c.locale) <<ANG end ANG>>
 	r.appendDevelopment(msg)
 	r.appendCrafting(msg, c.locale)
+	r.appendOpenDress(c, msg)
 	if !r.world.Config.DebugPerception {
 		markers := view.Markers
 		view.Markers = nil

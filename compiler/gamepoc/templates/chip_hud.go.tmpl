@@ -2,6 +2,7 @@
 package poc
 
 import (
+ inv "angelsdemons/server/internal/inventory"
 	"fmt"
 	"sort"
 	"strings"
@@ -254,6 +255,10 @@ func (r *Runtime) chipHudItemSlots() (slots []string, more int32) {
 	ids := make([]string, 0, 16)
 	for id, item := range s.Items {
 		if !item.Hidden && item.Quantity > 0 && r.carried(item) {
+			if r.world.Inventory.Dress != nil && item.Location.Store != inv.DressStore(playerActorID, heroBelt) {
+				if !dressWorn(item) { more++ }
+				continue
+			}
 			ids = append(ids, id)
 		}
 	}

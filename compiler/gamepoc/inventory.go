@@ -81,10 +81,26 @@ func inventoryModel(world, level cue.Value, levelID string, resolvedLife ...json
 			return m, err
 		}
 	}
+	if dress := policy.LookupPath(cue.ParsePath("dress")); dress.Exists() {
+		var d inv.DressPolicy
+		if err := dress.Decode(&d); err != nil {
+			return m, err
+		}
+		m.Dress = &d
+		const hero = "char.hero"
+		for kind, capacity := range map[string]inv.Capacity{"belt": d.Belt, "pockets": d.Pockets} {
+			id := inv.DressStore(hero, kind)
+			m.Stores[id] = inv.Store{ID: id, Name: "ui.dress." + kind, Kind: "actor", Anchor: inv.Anchor{Kind: "actor", Actor: hero}, Owner: hero, Capacity: capacity}
+		}
+	}
 	if err := objects(world.LookupPath(cue.ParsePath("items")), func(id string, v cue.Value) error {
 		definition := inv.Definition{ID: id, Name: readString(v, "name"), Carrier: readString(v, "carrier"), Mass: readInt(v, "physical.mass_g"), Volume: readInt(v, "physical.volume_ml"), StackLimit: readInt(v, "stack_limit"), ContainerVolume: readInt(v, "container.capacity_ml"), Currency: readString(v, "currency.unit"), Denomination: readInt(v, "currency.amount")}
 		definition.Weapon = v.LookupPath(cue.ParsePath("weapon")).Exists() || v.LookupPath(cue.ParsePath("use")).Exists()
 		definition.EquipSlot = readString(v, "equipment.slot")
+		definition.Purpose = readString(v, "purpose")
+		definition.StepLoudness = int(readInt(v, "equipment.step_loudness_permille"))
+		definition.Visibility = int(readInt(v, "equipment.visibility_permille"))
+		definition.ShowsCaste = readString(v, "equipment.shows_caste")
 		definition.UseEffect = readString(v, "use.effect")
 		definition.UseReach = int(readInt(v, "use.reach"))
 		definition.WearPerUse = int64(math.Round(readFloat(v, "use.wear_per_use", readFloat(v, "durable.wear_per_use", 0)) * 1000000))
@@ -331,6 +347,70 @@ func decodeRowsStrict[T any](v cue.Value, out *[]T) error {
 			return fmt.Errorf("row %d %q: %w", i, id.ID, err)
 		}
 		*out = append(*out, one)
+	}
+	return nil
+}
+
+// Equipment may only promise modifiers supported by the world's active simulation.
+func validateInventoryDress(c *Compiled) error {
+	policy := c.Inventory.Dress
+	if policy == nil {
+		return nil
+	}
+	consumers, err := heroFileConsumers(c)
+	if err != nil {
+		return err
+	}
+	if !consumers["step_loudness"] {
+		return fmt.Errorf("world.inventory.dress: weight has no step loudness consumer")
+	}
+	sources := make(map[string]inv.Source, len(c.Inventory.Sources))
+	for _, source := range c.Inventory.Sources {
+		sources[source.ID] = source
+	}
+	for scenario, initialBelt := range policy.InitialBelt {
+		if len(initialBelt) > policy.Belt.Stacks {
+			return fmt.Errorf("%s: initial belt exceeds its capacity", scenario)
+		}
+		seen := map[string]bool{}
+		for _, id := range initialBelt {
+			source, ok := sources[id]
+			if !ok || seen[id] || source.Owner != "char.hero" || source.Quantity != 1 || source.Definition == "" {
+				return fmt.Errorf("%s: initial belt requires a unique fixed hero item source %s", scenario, id)
+			}
+			seen[id] = true
+		}
+	}
+	slots := map[string]bool{}
+	for _, slot := range policy.Slots {
+		if slots[slot.ID] {
+			return fmt.Errorf("world.inventory.dress: duplicate slot %s", slot.ID)
+		}
+		slots[slot.ID] = true
+	}
+	if len(slots) != 10 {
+		return fmt.Errorf("world.inventory.dress: expected ten body slots")
+	}
+	for id, d := range c.Inventory.Definitions {
+		if _, _, ok := c.Crafting.PartOf(id); ok {
+			d.Purpose = "component"
+			c.Inventory.Definitions[id] = d
+		}
+		if d.Purpose == "" {
+			return fmt.Errorf("%s: missing inventory purpose", id)
+		}
+		if d.EquipSlot != "" && !slots[d.EquipSlot] {
+			return fmt.Errorf("%s: unknown equipment slot %s", id, d.EquipSlot)
+		}
+		if d.EquipSlot == "" && (d.StepLoudness != 0 || d.Visibility != 0 || d.ShowsCaste != "") {
+			return fmt.Errorf("%s: clothing effects require an equipment slot", id)
+		}
+		if d.StepLoudness != 0 && !consumers["step_loudness"] {
+			return fmt.Errorf("%s: step loudness has no consumer", id)
+		}
+		if (d.Visibility != 0 || d.ShowsCaste != "") && !consumers["visibility"] {
+			return fmt.Errorf("%s: visible clothing has no recognition consumer", id)
+		}
 	}
 	return nil
 }

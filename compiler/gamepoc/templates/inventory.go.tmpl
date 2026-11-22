@@ -61,6 +61,7 @@ func (r *Runtime) inventoryModelFor(life bool) inv.Model {
 // fixtures initialized from the capture inventory. Load and ticks never relocate
 // stores or loose items. Preserve runtime locks, item IDs, ownership and contents.
 func (r *Runtime) initLifeInventory() {
+ r.initDress()
 	for level, anchors := range r.world.PaintedInventoryAnchors {
 		for id, at := range anchors {
 			store, ok := r.state.Inventory.Stores[id]
@@ -130,12 +131,13 @@ func (r *Runtime) inventoryCommand(c *connection, q *pb.PocInventoryCommand) {
 		r.sendState(c)
 	}()
 	reject := func(message string) { result.Message = message }
-	if r.heroInCombat() {
-		reject(r.localText(c.locale, "error.combat_already_active", "error.combat_already_active"))
+		if !r.state.Active || q.Epoch != r.state.Epoch {
+		reject(r.localText(c.locale, "ui.screen.inventory.state_changed", "ui.screen.inventory.state_changed"))
 		return
 	}
-	if !r.state.Active || q.Epoch != r.state.Epoch {
-		reject(r.localText(c.locale, "ui.screen.inventory.state_changed", "ui.screen.inventory.state_changed"))
+	if r.dressCommand(c, q, result) { return }
+	if r.heroInCombat() {
+		reject(r.localText(c.locale, "error.combat_already_active", "error.combat_already_active"))
 		return
 	}
 	tag, e := inventoryTag(q)
@@ -247,7 +249,7 @@ func (r *Runtime) appendInventory(msg *pb.PocGameState, locales ...string) {
 				location += r.localText(locale, "ui.screen.inventory.carried_suffix", "ui.screen.inventory.carried_suffix")
 			}
 		}
-		item := &pb.PocStoredItem{Id: id, Name: r.localText(locale, d.Name, d.Name), Quantity: i.Quantity, Owner: i.Owner, Location: location, Revision: i.Revision, Carried: owned, CanTake: (!owned && (i.Owner == "" || i.Owner == playerActorID)) || (owned && i.Location.Store != inv.ActorStore(playerActorID)), CanDrop: owned}
+		item := &pb.PocStoredItem{Id: id, Name: r.localText(locale, d.Name, d.Name), Quantity: i.Quantity, Owner: i.Owner, Location: location, Revision: i.Revision, Carried: owned, CanTake: (!owned && (i.Owner == "" || i.Owner == playerActorID)) || (owned && i.Location.Store != inv.ActorStore(playerActorID)), CanDrop: owned, IconId: d.IconID, PurposeId: d.Purpose, Slot: i.Location.Slot}
 		if i.ForSale && !owned {
 			price, e := inv.Quote(d, 1)
 			from, _, ok := r.tradeAccounts(i.Owner, d.PriceUnit)

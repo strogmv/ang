@@ -322,6 +322,9 @@ type connection struct {
 	stop        chan struct{}
 	closed      bool
 	lastMoveSeq uint64
+ dressEpoch string
+ dressKey dressViewKey
+ dressView *pb.PocDressView
 	locale      string
 }
 type input struct {
@@ -358,6 +361,7 @@ type Runtime struct {
 	chipHudSelf *wounds.SelfView
 	// the inventory revision and game the saved HUD item slots were last written for (memory only)
 	chipHudSlotsAt chipHudSlotsKey
+	dressCache heroDressCache
 	// demo-hub v26-alive: the sound of the hall (memory only, soundscape.go.tmpl)
 	sound soundRuntime
 	// hall visitors (memory only, visitors.go.tmpl): the day's arrivals and the walked paths
@@ -662,8 +666,8 @@ func (r *Runtime) step() {
 	// story memory (owner 21.11, doc 09 «мир ждёт — весь шаг мира»): while the hero answers in an open talk the whole
 	// world step waits — no tick, no reservations, zones, cranes, Life or exploration; the talk counts its own real time
 	// (its answer and linger seconds, conversation.go), which a pause stops too
-	if r.state.Active && !r.state.Paused && r.state.Life.Enabled && r.talkHolds() {
-		r.talkTick()
+	if r.state.Active && !r.state.Paused && r.state.Life.Enabled && (r.talkHolds() || r.dressHolds()) {
+		if r.talkHolds() { r.talkTick() }
 		r.heldSteps++
 		return
 	}
@@ -953,6 +957,7 @@ func (r *Runtime) command(in input) {
 		r.sendState(c)
 	case "crafting":
 		err := r.craftingCommand(m.GetCraftingCommand(), c.locale)
+		c.dressView = nil
 		r.action(c, id, action, slot, err)
 		r.sendState(c)
 	case "hero_file":
@@ -1289,6 +1294,7 @@ func (r *Runtime) readSaveFile(slot string) (state, int64, error) {
  }
  if err:=r.validateWounds(s);err!=nil{return s,0,err}
  loadChipHudSlots(&s)
+ if err := r.migrateDress(&s); err != nil { return s, 0, err }
  // owner 02.11: the origin "prewar" is "heirloom" now; an older save loads with the new name
 	migrateSavedOrigins(&s)
 	// conversation like Disco Elysium: a save from before the game's own check value gets one from its epoch (dialogue.go)

@@ -117,6 +117,10 @@ func (s State) Validate(m Model) error {
 			}
 			children[i.Location.Store] = append(children[i.Location.Store], id)
 			if i.Location.Slot != "" {
+				st := s.Stores[i.Location.Store]
+				if st.Anchor.Kind != "actor" || i.Location.Store != ActorStore(st.Anchor.Actor) || i.Location.Slot != d.EquipSlot || i.Quantity != 1 {
+					return errors.New("invalid equipment slot")
+				}
 				key := i.Location.Store + "/" + i.Location.Slot
 				if slots[key] {
 					return errors.New("slot occupied")
@@ -172,6 +176,7 @@ func (s State) Validate(m Model) error {
 		memo[id] = n
 		return n, nil
 	}
+	extraMass := map[string]int64{}
 	for _, id := range sortedKeys(s.Stores) {
 		st := s.Stores[id]
 		if len(children[id]) > st.Capacity.Stacks {
@@ -197,8 +202,21 @@ func (s State) Validate(m Model) error {
 				return e
 			}
 		}
+		_, dressed := m.Stores[DressStore(st.Anchor.Actor, "belt")]
+		if st.Anchor.Kind == "actor" && dressed {
+			total, err := plus(extraMass[st.Anchor.Actor], weight)
+			if err != nil {
+				return err
+			}
+			extraMass[st.Anchor.Actor] = total
+		}
 		if weight > st.Capacity.Mass || volume > st.Capacity.Volume {
 			return fmt.Errorf("storage capacity exceeded: %s", id)
+		}
+	}
+	for actor, weight := range extraMass {
+		if main, ok := s.Stores[ActorStore(actor)]; ok && weight > main.Capacity.Mass {
+			return fmt.Errorf("carried mass capacity exceeded: %s", actor)
 		}
 	}
 	return nil

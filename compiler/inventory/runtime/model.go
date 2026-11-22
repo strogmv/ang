@@ -40,7 +40,29 @@ type Store struct {
 	Owner    string   `json:"owner,omitempty"`
 	Locked   bool     `json:"locked"`
 }
+type DressSlot struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+type DressPolicy struct {
+	Slots             []DressSlot         `json:"slots"`
+	Belt              Capacity            `json:"belt"`
+	Pockets           Capacity            `json:"pockets"`
+	BackpackAP        int                 `json:"backpack_ap"`
+	QuietMass         int64               `json:"quiet_mass_g"`
+	NoisePerKG        int                 `json:"noise_permille_per_kg"`
+	RequiredIconItems []string            `json:"required_icon_items,omitempty"`
+	InitialBelt       map[string][]string `json:"initial_belt,omitempty"`
+}
+
+func DressStore(actor, kind string) string { return ActorStore(actor) + "/" + kind }
+
 type Definition struct {
+	IconID           string `json:"icon_id,omitempty"`
+	Purpose          string `json:"purpose,omitempty"`
+	StepLoudness     int    `json:"step_loudness_permille,omitempty"`
+	Visibility       int    `json:"visibility_permille,omitempty"`
+	ShowsCaste       string `json:"shows_caste,omitempty"`
 	Weapon           bool   `json:"weapon"`
 	EquipSlot        string `json:"equip_slot"`
 	UseEffect        string `json:"use_effect"`
@@ -138,6 +160,7 @@ type ActionPolicy struct {
 	ConsentTicks int64 `json:"transfer_consent_ticks"`
 }
 type Model struct {
+	Dress           *DressPolicy           `json:"dress,omitempty"`
 	Deliveries      []Delivery             `json:"deliveries,omitempty"`
 	Shopfronts      []Shopfront            `json:"shopfronts,omitempty"`
 	Actions         ActionPolicy           `json:"actions"`

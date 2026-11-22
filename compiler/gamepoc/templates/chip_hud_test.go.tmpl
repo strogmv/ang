@@ -183,7 +183,7 @@ func TestChipHudItemSlotsKeepTheirPlace(t *testing.T) {
 	}
 	add := func(id string) {
 		r.state.Inventory.Items[id] = inv.Item{ID: id, Definition: "item.med_patch", Quantity: 1, Condition: 1000000,
-			Owner: playerActorID, Location: inv.Location{Kind: "store", Store: inv.ActorStore(playerActorID)}, Origin: "test.hud"}
+			Owner: playerActorID, Location: inv.Location{Kind: "store", Store: inv.DressStore(playerActorID, heroBelt)}, Origin: "test.hud"}
 		r.state.Inventory.Revision++
 	}
 	firstEmpty := func(slots []string) int {

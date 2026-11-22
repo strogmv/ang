@@ -1118,6 +1118,12 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	if err := out.DialogueRules.check(&out); err != nil {
 		return out, nil, err
 	}
+	if err := bindDressIcons(&out, filepath.Dir(project)); err != nil {
+		return out, nil, err
+	}
+	if err := validateInventoryDress(&out); err != nil {
+		return out, nil, err
+	}
 	if err := out.HeroFile.check(&out); err != nil {
 		return out, nil, err
 	}
@@ -1595,6 +1601,8 @@ func generatePOC(project string, legacyUnity bool) error {
 		"conversation.go.tmpl":                  filepath.Join(project, "internal/poc/conversation.gen.go"),
 		"conversation_test.go.tmpl":             filepath.Join(project, "internal/poc/conversation_generated_test.go"),
 		"dialogue.go.tmpl":                      filepath.Join(project, "internal/poc/dialogue.gen.go"),
+		"inventory_dress.go.tmpl":               filepath.Join(project, "internal/poc/inventory_dress.gen.go"),
+		"inventory_dress_test.go.tmpl":          filepath.Join(project, "internal/poc/inventory_dress_generated_test.go"),
 		"hero_file.go.tmpl":                     filepath.Join(project, "internal/poc/hero_file.gen.go"),
 		"hero_file_test.go.tmpl":                filepath.Join(project, "internal/poc/hero_file_generated_test.go"),
 		"dialogue_test.go.tmpl":                 filepath.Join(project, "internal/poc/dialogue_generated_test.go"),
