@@ -403,6 +403,7 @@ func New(data, token string) (*Runtime, error) {
 	if err := json.Unmarshal(compiledJSON, &r.world); err != nil {
 		return nil, err
 	}
+	r.indexStoryBarks()
 	if err := r.world.CombatRuntime.Validate(); err != nil {
 		return nil, err
 	}

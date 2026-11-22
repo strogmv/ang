@@ -222,7 +222,7 @@ func(r *Runtime)calendarEncounterAfterFrame(){
  }
  if s.Day<=e.FirstDays+e.MissingDays{
   // the missing days are a fact of the hall: public, written once on the first missing morning, on the market level
-  if _,ok:=r.state.Memory.Facts[e.Facts.Missing];!ok&&s.Phase=="missing"&&now%86400>=r.encounterHallOpening(){r.memoryWrite(e.Facts.Missing,nil,talkCtx{self:e.Actor,level:e.Level})}
+  if _,ok:=r.state.Memory.Facts[e.Facts.Missing];!ok&&s.Phase=="missing"&&now%86400>=r.encounterHallOpening(){r.memoryWrite(e.Facts.Missing,nil,talkCtx{self:e.Actor,level:e.Level,worldOnly:true})}
   return
  }
  if s.Phase=="return"&&r.encounterGuardAvailable()&&r.encounterAt(e.Actor,e.Meet)&&r.encounterAt(e.Guard,e.GuardAt)&&r.encounterNear(e.Guard,e.Reach)&&!r.heroInCombat(){
@@ -399,8 +399,10 @@ func (r *Runtime) migrateEncounterMemory(s *state) {
 		return
 	}
 	keep := r.state
-	r.state = *s
-	defer func() { *s = r.state; r.state = keep }()
+    story := s.Memory.Story.clone()
+    r.state = *s
+    // Backfill the knowledge ledger after the old encounter facts have been recovered.
+    defer func() { *s = r.state; s.Memory.Story = story; r.state = keep }()
 	v := &r.state.CalendarEncounter
 	if met := r.encounterMetFact(); met != "" && (v.Met || v.Bought) {
 		if _, ok := r.state.Memory.Facts[met]; !ok {

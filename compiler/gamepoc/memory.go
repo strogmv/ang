@@ -29,8 +29,9 @@ type Memory struct {
 		FreshDays   int     `json:"fresh_days"`
 		HeardBelief float64 `json:"heard_belief"`
 	} `json:"interjection_rules"`
-	Talks []MemoryTalk `json:"talks"`
-	Trade MemoryTrade  `json:"trade"`
+	Talks   []MemoryTalk       `json:"talks"`
+	Trade   MemoryTrade        `json:"trade"`
+	Journal *storyJournalRules `json:"journal,omitempty"`
 }
 
 // MemoryTrade is trade inside a talk (owner 21.11): an answer marked trade lists the person's goods as numbered rows of
@@ -60,19 +61,22 @@ type MemoryTrade struct {
 
 // MemoryFact is one significant event of the hero's story, defined ahead like an item (doc 103 §1).
 type MemoryFact struct {
-	Visibility      string              `json:"visibility"`
-	Recorded        bool                `json:"recorded"`
-	MemoryDays      int                 `json:"memory_days"`
-	Args            map[string][]string `json:"args"`
-	KnownBy         []string            `json:"known_by"`
-	SightCells      int                 `json:"sight_cells"`
-	HearingCells    int                 `json:"hearing_cells"`
-	Rumour          bool                `json:"rumour"`
-	Journal         string              `json:"journal,omitempty"`
-	Mention         string              `json:"mention,omitempty"`
-	ExternalWriters []string            `json:"external_writers"`
-	ExternalReaders []string            `json:"external_readers"`
-	OnTrade         *struct {
+	Visibility        string              `json:"visibility"`
+	Recorded          bool                `json:"recorded"`
+	MemoryDays        int                 `json:"memory_days"`
+	Args              map[string][]string `json:"args"`
+	KnownBy           []string            `json:"known_by"`
+	SightCells        int                 `json:"sight_cells"`
+	HearingCells      int                 `json:"hearing_cells"`
+	Rumour            bool                `json:"rumour"`
+	Journal           string              `json:"journal,omitempty"`
+	LegacyParticipant bool                `json:"legacy_participant,omitempty"`
+	RecordAccess      string              `json:"record_access,omitempty"`
+	Refutes           string              `json:"refutes,omitempty"`
+	Mention           string              `json:"mention,omitempty"`
+	ExternalWriters   []string            `json:"external_writers"`
+	ExternalReaders   []string            `json:"external_readers"`
+	OnTrade           *struct {
 		Seller string            `json:"seller"`
 		Args   map[string]string `json:"args"`
 	} `json:"on_trade,omitempty"`
@@ -115,17 +119,21 @@ type MemoryTalk struct {
 	Others bool `json:"others"`
 }
 
+// KnownFactWhen asks for one person's knowledge, with an optional belief threshold.
+type KnownFactWhen struct {
+	Who     string  `json:"who"`
+	Fact    string  `json:"fact"`
+	AtLeast float64 `json:"at_least,omitempty"`
+}
+
 // When is a condition: every field set holds; Any — one of; Not — negation.
 type When struct {
-	Fact     *FactWhen `json:"fact,omitempty"`
-	NotFact  string    `json:"not_fact,omitempty"`
-	Topic    string    `json:"topic,omitempty"`
-	NotTopic string    `json:"not_topic,omitempty"`
-	Knows    *struct {
-		Who  string `json:"who"`
-		Fact string `json:"fact"`
-	} `json:"knows,omitempty"`
-	Trust *struct {
+	Fact     *FactWhen      `json:"fact,omitempty"`
+	NotFact  string         `json:"not_fact,omitempty"`
+	Topic    string         `json:"topic,omitempty"`
+	NotTopic string         `json:"not_topic,omitempty"`
+	Knows    *KnownFactWhen `json:"knows,omitempty"`
+	Trust    *struct {
 		Who     string   `json:"who"`
 		AtLeast *float64 `json:"at_least,omitempty"`
 		Below   *float64 `json:"below,omitempty"`
@@ -191,6 +199,7 @@ type Do struct {
 	Fact  string            `json:"fact,omitempty"`
 	Args  map[string]string `json:"args,omitempty"`
 	Topic string            `json:"topic,omitempty"`
+	Learn string            `json:"learn,omitempty"`
 	Trust *struct {
 		Who   string  `json:"who"`
 		Delta float64 `json:"delta"`
@@ -650,8 +659,13 @@ func (k *memoryChecker) when(where string, w *When, s *convScope, reader string)
 		}
 	}
 	if w.Knows != nil {
-		if err := k.person(where, w.Knows.Who, s != nil && s.self); err != nil {
-			return err
+		if w.Knows.Who != "hero" {
+			if err := k.person(where, w.Knows.Who, s != nil && s.self); err != nil {
+				return err
+			}
+		}
+		if w.Knows.AtLeast < 0 || w.Knows.AtLeast > 1 {
+			return fmt.Errorf("%s: belief threshold outside (0,1]", where)
 		}
 		if err := fact(w.Knows.Fact); err != nil {
 			return err
@@ -748,7 +762,7 @@ func (k *memoryChecker) do(where string, list []Do, s *convScope, writer string,
 	for i, d := range list {
 		at := fmt.Sprintf("%s.do[%d]", where, i)
 		n := 0
-		for _, set := range []bool{d.Fact != "", d.Topic != "", d.Trust != nil, d.GiveItem != nil, d.ItemCondition != nil} {
+		for _, set := range []bool{d.Fact != "", d.Topic != "", d.Learn != "", d.Trust != nil, d.GiveItem != nil, d.ItemCondition != nil} {
 			if set {
 				n++
 			}
@@ -777,6 +791,11 @@ func (k *memoryChecker) do(where string, list []Do, s *convScope, writer string,
 				k.writers[len(k.writers)-1].conv = s.conv
 				k.writers[len(k.writers)-1].node = s.node
 			}
+		case d.Learn != "":
+			if !self || k.m.Facts[d.Learn] == nil {
+				return fmt.Errorf("%s: learn needs a conversation speaker and a declared fact", at)
+			}
+			k.read(true, d.Learn, "разговор "+writer)
 		case d.Topic != "":
 			if k.m.Topics[d.Topic] == nil {
 				return fmt.Errorf("%s: unknown topic %s", at, d.Topic)
@@ -1235,6 +1254,9 @@ func checkMemory(c *Compiled) error {
 	if m.InterjectionRules.FreshDays < 1 || m.InterjectionRules.HeardBelief <= 0 || m.InterjectionRules.HeardBelief >= 1 {
 		return fmt.Errorf("world.memory.interjection_rules: fresh days and the heard belief")
 	}
+	if err := k.checkStoryJournal(); err != nil {
+		return err
+	}
 	// facts: the visibility and who knows at once agree; texts localized; outside writers and readers count
 	for _, id := range sortedKeys(m.Facts) {
 		f := m.Facts[id]
@@ -1301,10 +1323,12 @@ func checkMemory(c *Compiled) error {
 	for _, id := range sortedKeys(m.Topics) {
 		t := m.Topics[id]
 		where := "world.memory.topics." + id
-		if err := k.text(where, t.Journal); err != nil {
-			return err
+		if t.Journal != "" {
+			if err := k.text(where, t.Journal); err != nil {
+				return err
+			}
+			k.read(false, id, "журнал "+t.Journal)
 		}
-		k.read(false, id, "журнал "+t.Journal)
 		for _, line := range t.FromBarks {
 			if c.Barks == nil {
 				return fmt.Errorf("%s: heard barks need the barks catalog", where)
@@ -1471,8 +1495,10 @@ func checkMemory(c *Compiled) error {
 		switch {
 		case in.Waits != "":
 			reader = "ждёт: " + reader
-		case in.Belief == "heard":
+		case in.Belief == "heard" && m.Journal == nil:
 			reader = "слух, шаг 2: " + reader
+		case in.Belief == "heard" && !m.Facts[in.Fact].Rumour:
+			return fmt.Errorf("%s: heard interjection needs a fact that travels as a rumour", where)
 		}
 		k.read(true, in.Fact, reader)
 		if err := k.when(where+".when", in.When, nil, reader); err != nil {

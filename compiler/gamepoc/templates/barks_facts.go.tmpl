@@ -22,7 +22,7 @@ func (r *Runtime) barkFacts(level string) []barks.Fact {
 			out = append(out, barks.Fact{Event: event, Subject: subject, Level: lvl, Since: since})
 		}
 	}
-	if e:=r.world.CalendarEncounter;e!=nil&&r.state.CalendarEncounter.Phase=="missing" {add("peddler.prokhor_missing","",e.Level,now)}
+	if e:=r.world.CalendarEncounter;e!=nil&&r.state.CalendarEncounter.Phase=="missing" && r.state.Memory.Facts[e.Facts.Missing].Count>0 {add("peddler.prokhor_missing","",e.Level,now)}
  // gates: locked for the night, warning or lowering
 	if loc, ok := r.world.Life.Locations[level]; ok {
 		for _, d := range loc.Gates {

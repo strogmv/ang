@@ -27,12 +27,14 @@ type Fact struct {
 
 // Frame is the world the engine reads: the game clock, the tick, the seed, the hero and the people of his level.
 type Frame struct {
-	Now    int64
-	Tick   int64
-	Seed   int64
-	Hero   Actor
-	Actors []Actor
-	Facts  []Fact
+	Now       int64
+	Tick      int64
+	Seed      int64
+	Hero      Actor
+	Actors    []Actor
+	Facts     []Fact
+	Remark    func(Actor) (StoryRemark, bool)
+	StoryLine func(string) bool
 }
 
 func factKey(f Fact) string { return f.Event + "|" + f.Subject + "|" + f.Level }
@@ -154,7 +156,7 @@ func (m Model) Step(s *State, f Frame) []Speech {
 		total := 0
 		for j := range pack.Lines {
 			l := &pack.Lines[j]
-			if l.AtOnce() {
+			if l.AtOnce() || f.StoryLine != nil && f.StoryLine(l.ID) {
 				continue // a reaction is said by stepAtOnce, never drawn by the hazard
 			}
 			if last, said := s.Lines[l.ID]; said && f.Now < last+l.CooldownSeconds {
@@ -311,7 +313,7 @@ func (m Model) talkersFit(e Exchange, a, b Actor) bool {
 
 // stepTalks: the turns due of the exchanges in progress, then at most one new exchange (doc 94 §21, demo-hub v26-alive).
 func (m Model) stepTalks(s *State, f Frame, actors []Actor, byID map[string]Actor, elapsed, day int64) []Speech {
-	if len(m.Exchanges) == 0 {
+	if len(m.Exchanges) == 0 && f.Remark == nil {
 		return nil
 	}
 	var started []Speech
@@ -370,6 +372,10 @@ func (m Model) stepTalks(s *State, f Frame, actors []Actor, byID map[string]Acto
 	if chance := elapsed * 1000000 / m.Talk.MeanWaitSeconds; chance < 1000000 && int64(Roll(f.Seed, "barks.talk", f.Hero.Level, f.Tick)%1000000) >= chance {
 		return started
 	}
+	if remark, ok := m.storyRemark(s, f, actors, byID, day); ok {
+		return append(started, remark)
+	}
+
 	type cand struct {
 		e    *Exchange
 		a, b Actor

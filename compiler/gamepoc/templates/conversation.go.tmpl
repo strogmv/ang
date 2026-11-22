@@ -28,6 +28,7 @@ import (
 type memoryCatalog struct {
 	Facts             map[string]*memoryFactDef  `json:"facts"`
 	Topics            map[string]*memoryTopicDef `json:"topics"`
+	Journal *storyJournalRules `json:"journal"`
 	Interjections     []interjectionDef          `json:"interjections"`
 	InterjectionRules struct {
 		FreshDays   int64   `json:"fresh_days"`
@@ -67,12 +68,17 @@ type memoryFactDef struct {
 	SightCells   int                 `json:"sight_cells"`
 	HearingCells int                 `json:"hearing_cells"`
 	Rumour       bool                `json:"rumour"`
+    Journal string `json:"journal"`
+    LegacyParticipant bool `json:"legacy_participant"`
+    RecordAccess string `json:"record_access"`
+    Refutes string `json:"refutes"`
 	OnTrade      *struct {
 		Seller string            `json:"seller"`
 		Args   map[string]string `json:"args"`
 	} `json:"on_trade,omitempty"`
 }
 type memoryTopicDef struct {
+	Journal string `json:"journal"`
 	FromBarks    []string `json:"from_barks"`
 	HearingCells int      `json:"hearing_cells"`
 }
@@ -99,15 +105,18 @@ type memoryTalkDef struct {
 	// the talk of everyone else the hero can address (a person no talk names)
 	Others bool `json:"others"`
 }
+type memKnows struct {
+		Who  string `json:"who"`
+		Fact string `json:"fact"`
+		AtLeast float64 `json:"at_least"`
+	}
+
 type memWhen struct {
 	Fact     *memFactWhen `json:"fact,omitempty"`
 	NotFact  string       `json:"not_fact,omitempty"`
 	Topic    string       `json:"topic,omitempty"`
 	NotTopic string       `json:"not_topic,omitempty"`
-	Knows    *struct {
-		Who  string `json:"who"`
-		Fact string `json:"fact"`
-	} `json:"knows,omitempty"`
+	Knows *memKnows `json:"knows,omitempty"`
 	Trust *struct {
 		Who     string   `json:"who"`
 		AtLeast *float64 `json:"at_least,omitempty"`
@@ -151,6 +160,7 @@ type memDo struct {
 	Fact  string            `json:"fact,omitempty"`
 	Args  map[string]string `json:"args,omitempty"`
 	Topic string            `json:"topic,omitempty"`
+	Learn string `json:"learn,omitempty"`
 	Trust *struct {
 		Who   string  `json:"who"`
 		Delta float64 `json:"delta"`
@@ -244,6 +254,7 @@ func (o convOption) question() bool { return o.Next == "" && o.Close == "" && !o
 const memoryMigrationVersion = 1
 
 type memoryState struct {
+	Story storyMemory `json:",omitzero"`
 	Migrated int `json:",omitempty"`
 	// Once outcomes outlive the current log and node. Keys are conversation|person.
 	Once map[string]memoryOnce `json:",omitempty"`
@@ -266,6 +277,7 @@ type memoryFact struct {
 	// Life people who knew it at once (witnesses, the level, named)
 	Witnesses []string `json:",omitempty"`
 	Count     int
+	Revision  int `json:",omitempty"`
 }
 
 // memoryArgs accepts the pre-set save representation as well as sorted value sets.
@@ -367,7 +379,7 @@ type talkTrade struct {
 }
 
 func (s memoryState) clone() memoryState {
-	out := memoryState{Open: s.Open, Serial: s.Serial, Migrated: s.Migrated}
+	out := memoryState{Open: s.Open, Serial: s.Serial, Migrated: s.Migrated, Story: s.Story.clone()}
 	if s.Once != nil {
 		out.Once = map[string]memoryOnce{}
 		for key, h := range s.Once {
@@ -428,6 +440,8 @@ type talkCtx struct {
 	seen map[string]bool
 	// only the named people know (a fact replayed from an older save: nobody's place then is known)
 	quiet bool
+    worldOnly bool
+    origin *behavior.Cell
 }
 
 func talkKey(conv, self string) string { return conv + "|" + self }
@@ -460,20 +474,27 @@ func (c talkCtx) person(id string) string {
 // memoryKnows (step 1): the person was a witness of the fact (it is still in his memory), or the fact is in the dome's
 // record and he is silver; belief 1. Rumours with a belief below 1 are step 2.
 func (r *Runtime) memoryKnows(who, fact string) bool {
+    return r.storyBelief(who, fact) == 1
+}
+
+func (r *Runtime) memoryWitnessBelief(who, fact string) float64 {
 	m := r.world.Memory
 	if m == nil {
-		return false
+		return 0
 	}
 	def, rec := m.Facts[fact], r.state.Memory.Facts[fact]
 	if def == nil || rec.Count == 0 || r.state.Life.Seconds-rec.Second > def.MemoryDays*86400 {
-		return false
+		return 0
 	}
 	for _, w := range rec.Witnesses {
 		if w == who {
-			return true
+			return 1
 		}
 	}
-	return def.Recorded && barkCatalog.Castes[who] == "silver"
+    if def.Recorded && barkCatalog.Castes[who] == "silver" {
+        return 1
+    }
+    return 0
 }
 
 // memoryWitnesses: who knows the fact at once — the named people, everyone on the hero's level for a public fact, whoever
@@ -502,25 +523,22 @@ func (r *Runtime) memoryWitnesses(def *memoryFactDef, c talkCtx) []string {
 		sort.Strings(out)
 		return out
 	}
-	for i := range r.state.Life.Actors {
-		a := &r.state.Life.Actors[i]
-		if a.ID == playerActorID || a.Level != level || !a.OnFloor() {
+    origin := c.origin
+    if origin == nil && !c.worldOnly && hero != nil && hero.OnFloor() && hero.Level == level {
+        origin = &hero.Position
+    }
+    for i := range r.state.Life.Actors {
+        a := &r.state.Life.Actors[i]
+        if a.ID == playerActorID || a.Level != level || !a.OnFloor() {
 			continue
 		}
 		if def.Visibility == "public" {
 			add(a.ID)
 			continue
 		}
-		if hero == nil || !hero.OnFloor() || hero.Level != level {
-			continue
-		}
-		d := behavior.Distance(a.Position, hero.Position)
-		switch {
-		case def.HearingCells > 0 && d <= def.HearingCells:
-			add(a.ID)
-		case def.SightCells > 0 && d <= def.SightCells && r.combatObserverSees(a.Level, a.ID, a.Position, hero.Position):
-			add(a.ID)
-		}
+        if origin != nil && r.storyWitnesses(a.ID, level, a.Position, *origin, def) {
+            add(a.ID)
+        }
 	}
 	sort.Strings(out)
 	return out
@@ -536,6 +554,8 @@ func (r *Runtime) memoryWrite(fact string, args map[string]string, c talkCtx) {
 		r.state.Memory.Facts = map[string]memoryFact{}
 	}
 	rec, ok := r.state.Memory.Facts[fact]
+    changed := false
+    rec.Revision = max(1, rec.Revision)
 	if !ok {
 		rec.First = r.state.Life.Seconds
 	}
@@ -550,6 +570,7 @@ func (r *Runtime) memoryWrite(fact string, args map[string]string, c talkCtx) {
 		}
 		for k, v := range args {
 			if !memoryIn(rec.Args[k], v) {
+                changed = ok
 				rec.Args[k] = append(rec.Args[k], v)
 				sort.Strings(rec.Args[k])
 			}
@@ -565,11 +586,26 @@ func (r *Runtime) memoryWrite(fact string, args map[string]string, c talkCtx) {
 		}
 	}
 	sort.Strings(rec.Witnesses)
+    if changed { rec.Revision++ }
 	rec.Count++
 	r.state.Memory.Facts[fact] = rec
+    def := m.Facts[fact]
+    switch {
+    case !c.worldOnly:
+        r.learnStoryFact(&r.state, fact, storySaw, 1, rec.Second)
+    case !c.quiet && c.origin != nil:
+        if hero := r.state.Life.Actor(playerActorID); hero != nil && hero.OnFloor() && hero.Level == rec.Level &&
+            r.storyWitnesses(hero.ID, rec.Level, hero.Position, *c.origin, def) {
+            r.learnStoryFact(&r.state, fact, storySaw, 1, rec.Second)
+        }
+    }
 }
 
 func (r *Runtime) memoryTopic(topic string) {
+    r.memoryTopicFrom(topic, storyTold)
+}
+
+func (r *Runtime) memoryTopicFrom(topic, source string) {
 	if m := r.world.Memory; m == nil || m.Topics[topic] == nil {
 		return
 	}
@@ -578,6 +614,7 @@ func (r *Runtime) memoryTopic(topic string) {
 	}
 	if _, ok := r.state.Memory.Topics[topic]; !ok {
 		r.state.Memory.Topics[topic] = r.state.Life.Seconds
+        r.addStoryJournal(&r.state, topic, source, "", r.state.Life.Seconds)
 	}
 }
 
@@ -743,9 +780,16 @@ func (r *Runtime) memoryHolds(c talkCtx, w *memWhen) bool {
 	if _, ok := r.state.Memory.Topics[w.NotTopic]; w.NotTopic != "" && ok {
 		return false
 	}
-	if w.Knows != nil && !r.memoryKnows(c.person(w.Knows.Who), w.Knows.Fact) {
-		return false
-	}
+    if k := w.Knows; k != nil {
+        belief := r.storyBelief(c.person(k.Who), k.Fact)
+        threshold := k.AtLeast
+        if threshold == 0 && k.Who != "hero" {
+            threshold = 1 // the existing NPC form asked for firsthand knowledge
+        }
+        if belief <= 0 || belief < threshold {
+            return false
+        }
+    }
 	if t := w.Trust; t != nil {
 		v := r.state.Life.RelationTo(r.world.Life, c.person(t.Who), playerActorID)
 		if t.AtLeast != nil && v < *t.AtLeast || t.Below != nil && v >= *t.Below {
@@ -843,7 +887,9 @@ func (r *Runtime) memoryDo(c talkCtx, list []memDo) {
 		case d.Fact != "":
 			r.memoryWrite(d.Fact, d.Args, c)
 		case d.Topic != "":
-			r.memoryTopic(d.Topic)
+            r.memoryTopic(d.Topic)
+        case d.Learn != "":
+            r.learnStoryFromSpeaker(c.self, d.Learn)
 		case d.Trust != nil:
 			who := c.person(d.Trust.Who)
 			old := r.state.Life.RelationTo(r.world.Life, who, playerActorID)
@@ -945,14 +991,14 @@ func (r *Runtime) talkInterjection(c talkCtx) *interjectionDef {
 	bestAt := int64(-1)
 	for i := range m.Interjections {
 		in := &m.Interjections[i]
-		if in.Speaker != c.self || in.Belief != "witness" {
+		if in.Speaker != c.self {
 			continue
 		}
 		if _, said := r.state.Memory.Said[c.self+"|"+in.Fact]; said {
 			continue
 		}
 		rec, ok := r.state.Memory.Facts[in.Fact]
-		if !ok || r.state.Life.Seconds-rec.Second > m.InterjectionRules.FreshDays*86400 || !r.memoryKnows(c.self, in.Fact) || !r.memoryHolds(c, in.When) {
+		if !ok || r.state.Life.Seconds-rec.Second > m.InterjectionRules.FreshDays*86400 || !r.storyLineBelief(c.self, in.Fact, in.Belief) || !r.memoryHolds(c, in.When) {
 			continue
 		}
 		if rec.Second > bestAt || rec.Second == bestAt && best != nil && in.ID < best.ID {
@@ -1009,6 +1055,7 @@ func (r *Runtime) talkOpen(conv, self string) error {
 		}
 		r.state.Memory.Said[self+"|"+in.Fact] = r.state.Life.Seconds
 		t.Interjected = true
+		r.learnStoryFromSpeaker(self, in.Fact)
 		r.dialogueSay(&t.dialogueSession, dialogueEntry{Kind: "line", Speaker: self, Text: in.Text})
 		if v := in.Voice; v != nil && r.dialogueSkill(v.Skill) >= v.AtLeast && r.memoryHolds(c, v.When) {
 			r.dialogueSay(&t.dialogueSession, dialogueEntry{Kind: "voice", Skill: v.Skill, Text: v.Text})
@@ -1394,24 +1441,7 @@ func (r *Runtime) memoryAfterFrame() {
 	if m == nil {
 		return
 	}
-	if hero := r.state.Life.Actor(playerActorID); hero != nil && hero.OnFloor() {
-		topics := make([]string, 0, len(m.Topics))
-		for id := range m.Topics {
-			topics = append(topics, id)
-		}
-		sort.Strings(topics)
-		for _, sp := range r.state.Barks.Visible(r.state.Tick) {
-			for _, id := range topics {
-				t := m.Topics[id]
-				if !memoryIn(t.FromBarks, sp.Line) {
-					continue
-				}
-				if level, at, ok := r.barkActorAt(sp.Speaker); ok && level == hero.Level && behavior.Distance(at, hero.Position) <= t.HearingCells {
-					r.memoryTopic(id)
-				}
-			}
-		}
-	}
+	r.storyTopicsFromBarks()
 	key := r.state.Memory.Open
 	t := r.state.Memory.Talks[key]
 	switch {
@@ -1798,6 +1828,7 @@ func (r *Runtime) talkTradeCommand(c talkCtx, action, id string) error {
 func (r *Runtime) sanitizeMemory(s *state) {
 	m := r.world.Memory
 	if m == nil {
+        r.sanitizeStoryBarks(s)
 		s.Memory = memoryState{}
 		return
 	}
@@ -1930,6 +1961,8 @@ func (r *Runtime) sanitizeMemory(s *state) {
 		s.Memory.Open = ""
 	}
 	r.migrateEncounterMemory(s)
+	r.sanitizeStory(s, people)
+	r.sanitizeStoryBarks(s)
 }
 
 // validateMemorySave: times within the game's clock and sizes within the content.
@@ -1979,5 +2012,5 @@ func (r *Runtime) validateMemorySave(s state) error {
 	if len(s.Memory.Talks) > 4096 || len(s.Memory.Said) > 4096 {
 		return errors.New("saved memory: too large")
 	}
-	return nil
+	return r.validateStory(s)
 }

@@ -92,6 +92,7 @@ func (r *Runtime) barkFrame() (barks.Frame, bool) {
 		}
 	}
 	f.Facts = r.barkFacts(hero.Level)
+	r.storyBarkFrame(&f, hero)
 	return f, true
 }
 
@@ -112,7 +113,7 @@ func (r *Runtime) barkActorAt(id string) (string, behavior.Cell, bool) {
 func (r *Runtime) advanceBarks() {
 	r.barkCombatFrame() // the fight's shouts (barks_combat.gen.go, doc 96)
 	if f, ok := r.barkFrame(); ok {
-		barkCatalog.Step(&r.state.Barks, f)
+		r.storyStartedBarks(barkCatalog.Step(&r.state.Barks, f))
 	}
 }
 
@@ -181,7 +182,7 @@ func (r *Runtime) appendBarks(view *pb.PocLifeView, msg *pb.PocGameState, hero *
 	tickNS := int64(time.Second) / int64(r.world.Config.TickHz)
 	speech := map[string]*pb.PocBark{}
 	for _, sp := range r.state.Barks.Visible(r.state.Tick) {
-		if !r.barkCanSpeak(sp.Speaker) {
+		if !r.barkCanSpeak(sp.Speaker) || sp.Kind == "fact" && !r.storyHeroHears(hero, sp.Speaker, sp.HearingCells) {
 			continue
 		}
 		b := &pb.PocBark{Serial: sp.Serial, Kind: sp.Kind, SpeakerId: sp.Speaker, LineKey: sp.Line, To: sp.To, Caste: sp.Caste, Gesture: sp.Gesture, Sign: sp.Sign, Sfx: sp.Sfx,

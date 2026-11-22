@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -492,12 +493,20 @@ func (r *Runtime) heroFileRemember() {
 	if w == nil || r.world.Memory == nil {
 		return
 	}
-	for _, e := range w.Episodes {
-		delete(r.state.Memory.Topics, e.Topic)
-		delete(r.state.Memory.Facts, e.Fact)
-	}
+    mem := &r.state.Memory
+    replaced := map[string]bool{}
+    for _, e := range w.Episodes {
+        replaced[e.Topic], replaced[e.Fact] = true, true
+        delete(mem.Topics, e.Topic)
+        delete(mem.Facts, e.Fact)
+        delete(mem.Story.Hero, e.Fact)
+    }
+    mem.Story.Journal = slices.DeleteFunc(mem.Story.Journal, func(row storyEntry) bool { return replaced[row.ID] })
+    if len(mem.Story.Journal) == 0 {
+        mem.Story.Serial, mem.Story.Read = 0, 0
+    }
 	for _, topic := range r.heroFileTopics() {
-		r.memoryTopic(topic)
+		r.memoryTopicFrom(topic, storyRecord)
 	}
 	for _, fact := range r.heroFileFacts() {
 		r.memoryWrite(fact, nil, talkCtx{quiet: true})

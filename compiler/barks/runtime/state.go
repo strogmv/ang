@@ -9,26 +9,28 @@ import (
 // line), reply (an answer line), gesture (a silent answer), combat (a shout), sign (a beast: sound and mark, no words),
 // thought (the hero sees through a lie: drawn in the HUD, never over the enemy), talk (a turn of an exchange: To is the other person, Gesture the talk gesture of the view).
 type Speech struct {
-	Serial   uint64 `json:"serial"`
-	Kind     string `json:"kind"`
-	Line     string `json:"line"`
-	Key      string `json:"key,omitempty"`
-	Speaker  string `json:"speaker"`
-	Caste    string `json:"caste,omitempty"`
-	To       string `json:"to,omitempty"`
-	Place    string `json:"place,omitempty"`
-	Gesture  string `json:"gesture,omitempty"`
-	Sign     string `json:"sign,omitempty"`
-	Sfx      string `json:"sfx,omitempty"`
-	Level    string `json:"level,omitempty"` // a combatant outside Life: where he shouted from
-	At       Cell   `json:"at"`
-	Start    int64  `json:"start"` // tick
-	RevealMS int64  `json:"reveal_ms"`
-	FixMS    int64  `json:"fix_ms,omitempty"`
-	HoldMS   int64  `json:"hold_ms"`
-	FadeMS   int64  `json:"fade_ms"`
-	Until    int64  `json:"until"` // tick: gone
-	Second   int64  `json:"second"`
+	Serial       uint64 `json:"serial"`
+	Kind         string `json:"kind"`
+	Line         string `json:"line"`
+	Key          string `json:"key,omitempty"`
+	Speaker      string `json:"speaker"`
+	Caste        string `json:"caste,omitempty"`
+	To           string `json:"to,omitempty"`
+	Place        string `json:"place,omitempty"`
+	Gesture      string `json:"gesture,omitempty"`
+	Sign         string `json:"sign,omitempty"`
+	Sfx          string `json:"sfx,omitempty"`
+	Level        string `json:"level,omitempty"` // a combatant outside Life: where he shouted from
+	At           Cell   `json:"at"`
+	Start        int64  `json:"start"` // tick
+	RevealMS     int64  `json:"reveal_ms"`
+	FixMS        int64  `json:"fix_ms,omitempty"`
+	HoldMS       int64  `json:"hold_ms"`
+	FadeMS       int64  `json:"fade_ms"`
+	Until        int64  `json:"until"` // tick: gone
+	Second       int64  `json:"second"`
+	StoryFact    string `json:"story_fact,omitempty"`
+	HearingCells int    `json:"hearing_cells,omitempty"`
 }
 
 // PackClock: the last line of a place, the hour it counted in, and until when the exchange (line + answer) holds the floor.
@@ -179,6 +181,10 @@ func (m Model) ValidateState(s State, now, tick int64) error {
 		case "talk":
 			if _, _, ok := m.TurnOf(a.Line); !ok {
 				return fmt.Errorf("barks state: unknown active turn %s", a.Line)
+			}
+		case "fact":
+			if a.StoryFact == "" || a.Key == "" || a.Key != a.Line || a.HearingCells < 1 || a.HearingCells > 30 {
+				return fmt.Errorf("barks state: invalid fact line %s", a.Line)
 			}
 		case "combat", "sign", "thought":
 			if _, ok := m.CombatLine(a.Line); !ok && a.Kind != "thought" {

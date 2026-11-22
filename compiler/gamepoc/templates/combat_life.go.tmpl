@@ -307,6 +307,9 @@ func (r *Runtime) combatWorldPlaceNoise(level string, at behavior.Cell) int {
 	return ambient
 }
 func (r *Runtime) combatWorldHeard(observer combatLifeObserver, from behavior.Cell, loudness float64) (behavior.Heard, bool) {
+    return r.combatWorldHear(observer, from, loudness, false)
+}
+func (r *Runtime) combatWorldHear(observer combatLifeObserver, from behavior.Cell, loudness float64, directOnly bool) (behavior.Heard, bool) {
 	c := r.world.CombatLife
 	if r.combatWorldDistance(observer.Level, observer.At, from) > c.HearingRangeMM {
 		return behavior.Heard{}, false
@@ -318,6 +321,7 @@ func (r *Runtime) combatWorldHeard(observer combatLifeObserver, from behavior.Ce
 		b, _, _, _ = v.Locate(observer.At)
 	}
 	walls := r.combatWorldSoundWalls(observer.Level, from, observer.At)
+    if directOnly && walls != 0 { return behavior.Heard{}, false }
 	ambient := r.combatWorldPlaceNoise(observer.Level, observer.At)
 	heard, ok := p.Hear(behavior.Sound{Origin: a, Loudness: loudness}, b, 1, walls, ambient)
 	if ok {

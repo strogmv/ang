@@ -535,9 +535,14 @@ func TestDialogueAnswersChangeTheWorldByTheirData(t *testing.T) {
 			if !r.optionShown(ctx, o) {
 				// an answer for people who know each other: the acquaintance first
 				r.memoryWrite(r.encounterMetFact(), map[string]string{"how": "greeted"}, talkCtx{self: e.Actor})
-				if o.When != nil && o.When.Fact != nil && !r.optionShown(ctx, o) {
-					r.memoryWrite(o.When.Fact.ID, nil, ctx)
-				}
+				if w := o.When; w != nil && !r.optionShown(ctx, o) {
+                    switch {
+                    case w.Fact != nil:
+                        r.memoryWrite(w.Fact.ID, nil, ctx)
+                    case w.Knows != nil && w.Knows.Who == "hero":
+                        r.memoryWrite(w.Knows.Fact, nil, ctx)
+                    }
+                }
 				if !r.optionShown(ctx, o) {
 					t.Fatalf("answer %s is not offered here", o.ID)
 				}

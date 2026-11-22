@@ -47,7 +47,7 @@ func (r *Runtime) initLifeState(life behavior.LifeState) {
 	r.initPeddlers()
 	r.initVisitors()
 	r.state.Busker = buskerState{}
- r.state.Memory = memoryState{Migrated:memoryMigrationVersion}
+ r.state.Memory = memoryState{Migrated:memoryMigrationVersion, Story:storyMemory{Migrated:storyMigrationVersion}}
  r.initCalendarEncounter()
 	r.initCrafting()
 	r.initBarks()
@@ -372,6 +372,7 @@ func (r *Runtime) sendLifeState(c *connection) {
 <<ANG if .GodotScreens ANG>> r.appendScreenTrade(msg,c.locale);r.appendScreenServices(msg,c.locale) <<ANG end ANG>>
  view.CartParkingJson=r.cartParkingJSON(hero,msg.PlayerView)
  r.appendConversation(msg,c.locale)
+ r.appendStoryJournal(msg,c.locale)
  r.appendBuskerConversation(msg,c.locale)
 	r.appendCraft(view, hero, msg.PlayerView)
 	r.appendGoodsDress(view, hero, msg.PlayerView)
@@ -415,6 +416,7 @@ func (r *Runtime) sendLifeState(c *connection) {
 }
 func (r *Runtime) lifeCommand(q *pb.PocLifeCommand) error {
  // story memory: the column closed (Esc) always reaches the talk, before any guard — a held world must not stay frozen
+ if q.Action=="journal_open" || q.Action=="journal_read_record" {return r.storyJournalCommand(q)}
  if q.Action=="conversation_leave"{return r.conversationCommand(q)}
  if q.Action=="sanitary_request"||q.Action=="sanitary_cancel"{return r.sanitaryCommand(q)}
  if r.sanitaryReserved(playerActorID){return textError{Key:"sanitary.error.busy"}}
