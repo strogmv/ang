@@ -68,6 +68,11 @@ func main() {
 			fmt.Fprintln(os.Stderr, "location-sdk:", err)
 			os.Exit(1)
 		}
+	case "quest":
+		if err := runQuest(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "quest:", err)
+			os.Exit(1)
+		}
 	case "game-poc":
 		project := "."
 		if len(os.Args) > 2 {
@@ -182,6 +187,7 @@ func printUsage() {
 	fmt.Println("\nUsage:")
 	fmt.Println("  ang init [dir] [--template saas|ecommerce|marketplace] [--lang go] [--db postgres]")
 	fmt.Println("  ang validate  Validate CUE models and architecture")
+	fmt.Println("  ang quest export|compare|validate  Export and review a CUE quest workspace")
 	fmt.Println("  ang game-poc <backend>  Generate a CUE-driven local Go/Unity proof of concept")
 	fmt.Println("  ang location-sdk -out <directory> <CUE package>  Compile reusable location modules and inspect geometry")
 	fmt.Println("  ang godot -layout <id> -models <JSON> -out <directory> <CUE package>  Generate world placements and a Godot scene")
