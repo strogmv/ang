@@ -73,6 +73,10 @@ func TestDressWearPreviewAndTakeOff(t *testing.T) {
 		t.Fatalf("missing wearable comparison/action: %v", row)
 	}
 	with := row.Actions[0]
+	wantNoise := fmt.Sprintf(r.dressText(c.locale, "wear_louder"), float64(before.noise)/10, float64(with.NoisePermille)/10)
+	if with.EffectLine != wantNoise || row.LocationLine != r.dressText(c.locale, "location.backpack") || row.CurrentLabel == "" {
+		t.Fatalf("incomplete equip preview: %v", row)
+	}
 	if result := dressWire(t, r, c, with.Id, boots); !result.Ok {
 		t.Fatal(result.Message)
 	}
@@ -111,6 +115,17 @@ func TestDressCapacityRefusalIsAtomic(t *testing.T) {
 	}
 	item := dressSupply(t, r, "test.dress.extra", "item.med_patch", r.dressPack(r.state.Inventory))
 	before := r.state.Inventory.Clone()
+	var preview *pb.PocDressAction
+	for _, option := range r.dressRow("ru", item, r.dressEffects(r.state.Inventory, inv.Item{}), 0).Actions {
+		if option.Id == "dress_belt" {
+			preview = option
+		}
+	}
+	if preview == nil || preview.Refusal != r.dressText("ru", "fit_belt") ||
+		preview.SpaceLine != fmt.Sprintf(r.dressText("ru", "free_slots"), 0, 0) ||
+		!reflect.DeepEqual(before, r.state.Inventory) {
+		t.Fatalf("invalid read-only belt refusal: %v", preview)
+	}
 	result := dressWire(t, r, c, "dress_belt", item)
 	if result.Ok || result.Message != r.dressText("ru", "capacity") || !reflect.DeepEqual(before, r.state.Inventory) {
 		t.Fatalf("capacity failed to refuse atomically: %v", result)
@@ -138,7 +153,8 @@ func TestDressBackpackAccessCostsPoints(t *testing.T) {
 	ap := hero.AP
 	cost := r.world.CombatRuntime.Rules.EquipAP + r.world.Inventory.Dress.BackpackAP
 	row := r.dressRow(c.locale, item, r.dressEffects(r.state.Inventory, inv.Item{}), r.state.Combat.Turn)
-	if len(row.Actions) == 0 || int(row.Actions[0].ApCost) != cost {
+	if len(row.Actions) == 0 || int(row.Actions[0].ApCost) != cost ||
+		row.Actions[0].ApAfterLine != fmt.Sprintf(r.dressText(c.locale, "ap_after"), ap-cost) {
 		t.Fatalf("prehint AP: %v", row)
 	}
 	if result := dressWire(t, r, c, "dress_equip", item); !result.Ok {
@@ -146,6 +162,92 @@ func TestDressBackpackAccessCostsPoints(t *testing.T) {
 	}
 	if hero.AP != ap-cost {
 		t.Fatalf("charged %d, expected %d", ap-hero.AP, cost)
+	}
+	hero.AP = 0
+	row = r.dressRow(c.locale, r.state.Inventory.Items[item.ID], r.dressEffects(r.state.Inventory, inv.Item{}), r.state.Combat.Turn)
+	if row.Actions[0].Refusal != r.dressText(c.locale, "ap") || row.Actions[0].ApAfterLine != "" {
+		t.Fatalf("unaffordable option advertised remaining AP: %v", row.Actions[0])
+	}
+}
+
+func TestDressSpaceAndStowMatchCommit(t *testing.T) {
+	r, c := dressFixture(t)
+	pack := r.dressPack(r.state.Inventory)
+	pockets := inv.DressStore(playerActorID, heroPockets)
+	knife := dressSupply(t, r, "test.dress.space", "item.knife_simple", pack)
+	before := r.state.Inventory.Clone()
+	find := func(item inv.Item, id string) *pb.PocDressAction {
+		t.Helper()
+		for _, option := range r.dressRow("en", item, r.dressEffects(r.state.Inventory, inv.Item{}), 0).Actions {
+			if option.Id == id {
+				return option
+			}
+		}
+		t.Fatalf("action %s missing", id)
+		return nil
+	}
+	move := find(knife, "dress_pockets")
+	if move.Refusal != "" || move.SpaceLine == "" || !reflect.DeepEqual(before, r.state.Inventory) {
+		t.Fatalf("expected read-only pockets preview: %v", move)
+	}
+	v1, _ := dressFreeSpace(before, r.world.Inventory, pockets)
+	if result := dressWire(t, r, c, move.Id, knife); !result.Ok {
+		t.Fatal(result.Message)
+	}
+	v2, _ := dressFreeSpace(r.state.Inventory, r.world.Inventory, pockets)
+	if v2 != v1-r.world.Inventory.Definitions[knife.Definition].Volume ||
+		move.SpaceLine != fmt.Sprintf(r.dressText("en", "free_volume"), float64(v1)/1000, float64(v2)/1000) {
+		t.Fatalf("space projection differs from actual transaction: %v", move)
+	}
+	if result := dressWire(t, r, c, "dress_drop", r.state.Inventory.Items[knife.ID]); !result.Ok {
+		t.Fatal(result.Message)
+	}
+	dropped := r.state.Inventory.Items[knife.ID]
+	beforePickup := r.dressEffects(r.state.Inventory, inv.Item{})
+	pickup := find(dropped, "dress_take")
+	if pickup.Refusal != "" || pickup.SpaceLine == "" || pickup.StowLine == "" {
+		t.Fatalf("pickup lacks a legal destination: %v", pickup)
+	}
+	if result := dressWire(t, r, c, pickup.Id, dropped); !result.Ok {
+		t.Fatal(result.Message)
+	}
+	afterPickup := r.dressEffects(r.state.Inventory, inv.Item{})
+	limit := float64(r.world.Inventory.Stores[inv.ActorStore(playerActorID)].Capacity.Mass) / 1000
+	if pickup.LoadLine != fmt.Sprintf(r.dressText("en", "load_delta"), float64(beforePickup.mass)/1000, float64(afterPickup.mass)/1000, limit) {
+		t.Fatalf("pickup weight differs from commit: %v", pickup)
+	}
+	// The worn backpack itself has contents and moves to general carried storage.
+	bag := r.state.Inventory.Items[r.state.Inventory.Stores[pack].Anchor.Item]
+	stow := find(bag, "dress_unequip")
+	if stow.Refusal != "" || !strings.Contains(stow.StowLine, r.dressText("en", "location.carried")) ||
+		!strings.Contains(stow.StowLine, r.dressText("en", "stow_contents")) {
+		t.Fatalf("missing stow destination or content disposition: %v", stow)
+	}
+}
+
+func TestDressKnownRequestUsesPlacementAndQuestStep(t *testing.T) {
+	r, _ := dressFixture(t)
+	if len(r.world.Inventory.Dress.Requests) == 0 {
+		t.Fatal("missing authored inventory request")
+	}
+	for origin, request := range r.world.Inventory.Dress.Requests {
+		i := inv.Item{ID: "test.request", Origin: origin, Owner: playerActorID}
+		if r.dressTask("ru", i) != "" {
+			t.Fatal("recipient exposed before quest")
+		}
+		r.storySetQuest(storyQuestStep{ID: request.Quest, Step: request.Steps[0]})
+		for _, locale := range []string{"ru", "en"} {
+			name := r.localText(locale, request.RecipientKey, "")
+			want := fmt.Sprintf(r.dressText(locale, "task_for"), name)
+			if got := r.dressTask(locale, i); name == "" || got != want {
+				t.Fatalf("known request has no localized recipient: %q, want %q", got, want)
+			}
+		}
+		i.Origin = "test.other-placement"
+		if r.dressTask("en", i) != "" {
+			t.Fatal("unrelated item inherited the request")
+		}
+		delete(r.state.Memory.QuestSteps, request.Quest)
 	}
 }
 
@@ -279,10 +381,10 @@ func TestDressShowsCommittedSalvage(t *testing.T) {
 	for _, item := range plan.Makes {
 		names = append(names, fmt.Sprintf("%s ×%d", r.craftingItemName("ru", item.Definition), item.Quantity))
 	}
-	if len(names) == 0 {
-		names = append(names, r.dressText("ru", "salvage_empty"))
+	want := r.dressText("ru", "received_empty")
+	if len(names) > 0 {
+		want = fmt.Sprintf(r.dressText("ru", "received"), strings.Join(names, ", "))
 	}
-	want := fmt.Sprintf(r.dressText("ru", "salvage_result"), strings.Join(names, ", "))
 	if msg.Inventory.Dress.SalvageResult != want {
 		t.Fatalf("salvage receipt: got %s, want %s", msg.Inventory.Dress.SalvageResult, want)
 	}
@@ -464,44 +566,56 @@ func TestDressLoadsPreviousBuildSaveAndRetainsHudIndices(t *testing.T) {
 }
 
 func TestDressLegacyStarterKnifeUsesOnlyAFreeBeltCell(t *testing.T) {
- for _, full := range []bool{false,true} {
-  t.Run(fmt.Sprint(full),func(t *testing.T){
-   r,_,_:=combatLifeFixture(t,true)
-   legacy:=r.snapshotState()
-   pack:=r.dressPack(legacy.Inventory)
-   knife:=inv.InstanceID("level.c7_market/place.c7_hero_backpack_knife",0,0)
-   item:=legacy.Inventory.Items[knife]
-   if item.Location.Store!=inv.DressStore(playerActorID,heroBelt){t.Fatal("default hero starter knife is not on the belt")}
-   item.Location=inv.Location{Kind:"store",Store:pack}
-   legacy.Inventory.Items[knife]=item
-   legacy.HudSlots=nil
-   if full {
-    for n:=0;n<r.world.Inventory.Dress.Belt.Stacks;n++ {
-     id:=fmt.Sprintf("test.legacy.belt.%d",n)
-     dressSupply(t,r,id,"item.med_patch",pack)
-     legacy.Inventory.Items[id]=r.state.Inventory.Items[id]
-     legacy.HudSlots=append(legacy.HudSlots,id)
-    }
-   }
-   delete(legacy.Inventory.Stores,inv.DressStore(playerActorID,heroBelt))
-   delete(legacy.Inventory.Stores,inv.DressStore(playerActorID,heroPockets))
-   if err:=r.migrateDress(&legacy);err!=nil{t.Fatal(err)}
-   onBelt:=legacy.Inventory.Items[knife].Location.Store==inv.DressStore(playerActorID,heroBelt)
-   if onBelt==full {t.Fatalf("full belt %t: knife on belt %t",full,onBelt)}
-  })
- }
+	for _, full := range []bool{false, true} {
+		t.Run(fmt.Sprint(full), func(t *testing.T) {
+			r, _, _ := combatLifeFixture(t, true)
+			legacy := r.snapshotState()
+			pack := r.dressPack(legacy.Inventory)
+			knife := inv.InstanceID("level.c7_market/place.c7_hero_backpack_knife", 0, 0)
+			item := legacy.Inventory.Items[knife]
+			if item.Location.Store != inv.DressStore(playerActorID, heroBelt) {
+				t.Fatal("default hero starter knife is not on the belt")
+			}
+			item.Location = inv.Location{Kind: "store", Store: pack}
+			legacy.Inventory.Items[knife] = item
+			legacy.HudSlots = nil
+			if full {
+				for n := 0; n < r.world.Inventory.Dress.Belt.Stacks; n++ {
+					id := fmt.Sprintf("test.legacy.belt.%d", n)
+					dressSupply(t, r, id, "item.med_patch", pack)
+					legacy.Inventory.Items[id] = r.state.Inventory.Items[id]
+					legacy.HudSlots = append(legacy.HudSlots, id)
+				}
+			}
+			delete(legacy.Inventory.Stores, inv.DressStore(playerActorID, heroBelt))
+			delete(legacy.Inventory.Stores, inv.DressStore(playerActorID, heroPockets))
+			if err := r.migrateDress(&legacy); err != nil {
+				t.Fatal(err)
+			}
+			onBelt := legacy.Inventory.Items[knife].Location.Store == inv.DressStore(playerActorID, heroBelt)
+			if onBelt == full {
+				t.Fatalf("full belt %t: knife on belt %t", full, onBelt)
+			}
+		})
+	}
 }
 
 func TestDressAstraConditionAndNoiseAreServerWords(t *testing.T) {
- r, _ := dressFixture(t)
- item := dressSupply(t, r, "test.dress.condition", "item.work_boots", r.dressPack(r.state.Inventory))
- item.Condition = 420000
- r.state.Inventory.Items[item.ID] = item
- row := r.dressRow("ru", item, r.dressEffects(r.state.Inventory, inv.Item{}), 0)
- if row.ConditionLine != "Состояние: 42 %" { t.Fatal(row.ConditionLine) }
- view := &pb.PocInventoryView{}
- r.appendDress(view, "en")
- expected := r.dressText("en", "step_quiet")
- if view.Dress.NoisePermille > 1000 { expected = r.dressText("en", "step_loud") }
- if view.Dress.NoiseLine != expected { t.Fatal(view.Dress.NoiseLine) }
+	r, _ := dressFixture(t)
+	item := dressSupply(t, r, "test.dress.condition", "item.work_boots", r.dressPack(r.state.Inventory))
+	item.Condition = 420000
+	r.state.Inventory.Items[item.ID] = item
+	row := r.dressRow("ru", item, r.dressEffects(r.state.Inventory, inv.Item{}), 0)
+	if row.ConditionLine != "Состояние: 42 %" {
+		t.Fatal(row.ConditionLine)
+	}
+	view := &pb.PocInventoryView{}
+	r.appendDress(view, "en")
+	expected := r.dressText("en", "step_quiet")
+	if view.Dress.NoisePermille > 1000 {
+		expected = r.dressText("en", "step_loud")
+	}
+	if view.Dress.NoiseLine != expected {
+		t.Fatal(view.Dress.NoiseLine)
+	}
 }

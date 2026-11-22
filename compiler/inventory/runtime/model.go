@@ -44,15 +44,21 @@ type DressSlot struct {
 	ID    string `json:"id"`
 	Label string `json:"label"`
 }
+type DressRequest struct {
+	Quest        string   `json:"quest"`
+	Steps        []string `json:"steps"`
+	RecipientKey string   `json:"recipient_key"`
+}
 type DressPolicy struct {
-	Slots             []DressSlot         `json:"slots"`
-	Belt              Capacity            `json:"belt"`
-	Pockets           Capacity            `json:"pockets"`
-	BackpackAP        int                 `json:"backpack_ap"`
-	QuietMass         int64               `json:"quiet_mass_g"`
-	NoisePerKG        int                 `json:"noise_permille_per_kg"`
-	RequiredIconItems []string            `json:"required_icon_items,omitempty"`
-	InitialBelt       map[string][]string `json:"initial_belt,omitempty"`
+	Slots             []DressSlot             `json:"slots"`
+	Belt              Capacity                `json:"belt"`
+	Pockets           Capacity                `json:"pockets"`
+	BackpackAP        int                     `json:"backpack_ap"`
+	QuietMass         int64                   `json:"quiet_mass_g"`
+	NoisePerKG        int                     `json:"noise_permille_per_kg"`
+	RequiredIconItems []string                `json:"required_icon_items,omitempty"`
+	InitialBelt       map[string][]string     `json:"initial_belt,omitempty"`
+	Requests          map[string]DressRequest `json:"requests,omitempty"`
 }
 
 func DressStore(actor, kind string) string { return ActorStore(actor) + "/" + kind }

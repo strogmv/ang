@@ -7,6 +7,7 @@ import (
 	inv "angelsdemons/server/internal/inventory"
 	pb "angelsdemons/server/internal/transport/grpc/pb/game/v1"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -255,7 +256,7 @@ func (r *Runtime) dressComparison(locale string, before, after dressEffects) str
 		lines = append(lines, r.dressText(locale, "caste_tag."+after.caste))
 	}
 	if len(lines) == 0 {
-		return r.dressText(locale, "same")
+		return ""
 	}
 	return strings.Join(lines, " · ")
 }
@@ -439,17 +440,144 @@ func (r *Runtime) dressCommand(c *connection, q *pb.PocInventoryCommand, result 
 	return true
 }
 
+func (r *Runtime) dressLocation(locale string, s inv.State, i inv.Item) string {
+	key := "nearby"
+	switch {
+	case dressWorn(i):
+		key = "worn"
+		if strings.HasPrefix(i.Location.Slot, "hand.") {
+			key = "hand"
+		} else if i.Location.Slot == "feet" {
+			key = "feet"
+		}
+	case r.combatCarried(s, playerActorID, i):
+		key = r.dressGroup(s, i)
+		if key == heroBackpack && !r.inDressPack(s, i) {
+			key = "carried"
+		}
+	}
+	return r.dressText(locale, "location."+key)
+}
+
+func (r *Runtime) dressTask(locale string, i inv.Item) string {
+	request, ok := r.world.Inventory.Dress.Requests[i.Origin]
+	if !ok || i.Owner != playerActorID || !slices.Contains(request.Steps, r.state.Memory.QuestSteps[request.Quest].Step) {
+		return ""
+	}
+	recipient := r.localText(locale, request.RecipientKey, "")
+	if recipient == "" {
+		return ""
+	}
+	return fmt.Sprintf(r.dressText(locale, "task_for"), recipient)
+}
+
+// Only direct items use a store's volume; nested contents use their own store.
+func dressFreeSpace(s inv.State, m inv.Model, store string) (int64, int) {
+	capacity := s.Stores[store].Capacity
+	for _, item := range s.Items {
+		if item.Location.Kind == "store" && item.Location.Store == store {
+			capacity.Volume -= m.Definitions[item.Definition].Volume * item.Quantity
+			capacity.Stacks--
+		}
+	}
+	return capacity.Volume, capacity.Stacks
+}
+
+func dressDestination(a inv.Action, access inv.Access, i inv.Item) string {
+	switch a.Kind {
+	case "put":
+		return a.Store
+	case "take", "unequip":
+		if access.Pack != "" && access.Pack != inv.ItemStore(i.ID) {
+			return access.Pack
+		}
+		return inv.ActorStore(playerActorID)
+	}
+	return ""
+}
+
+func (r *Runtime) dressActionInfo(locale string, v *pb.PocDressAction, a inv.Action, access inv.Access, i, current inv.Item, before, after dressEffects, trial inv.State, reason string) {
+	s := r.state.Inventory
+	m := r.world.Inventory
+	stowed := inv.Item{}
+	if reason == "" {
+		switch a.Kind {
+		case "unequip":
+			stowed = trial.Items[i.ID]
+		case "equip":
+			stowed = trial.Items[current.ID]
+		}
+	}
+	dest := dressDestination(a, access, i)
+	if stowed.ID != "" {
+		dest = stowed.Location.Store
+		v.StowLine = fmt.Sprintf(r.dressText(locale, "stow_item"), r.screenInventoryName(locale, stowed.Definition), r.dressLocation(locale, trial, stowed))
+		for _, child := range trial.Items {
+			if child.Location.Store == inv.ItemStore(stowed.ID) {
+				v.StowLine += " · " + r.dressText(locale, "stow_contents")
+				break
+			}
+		}
+	}
+	if _, ok := s.Stores[dest]; ok {
+		volumeBefore, slotsBefore := dressFreeSpace(s, m, dest)
+		volumeAfter, slotsAfter := dressFreeSpace(trial, m, dest)
+		if dest == inv.DressStore(playerActorID, heroBelt) {
+			v.SpaceLine = fmt.Sprintf(r.dressText(locale, "free_slots"), slotsBefore, slotsAfter)
+		} else {
+			v.SpaceLine = fmt.Sprintf(r.dressText(locale, "free_volume"), float64(volumeBefore)/1000, float64(volumeAfter)/1000)
+		}
+	}
+	if a.Kind == "take" {
+		if reason == "" {
+			v.StowLine = fmt.Sprintf(r.dressText(locale, "pickup_place"), r.dressLocation(locale, trial, trial.Items[i.ID]))
+		}
+		limit := float64(m.Stores[inv.ActorStore(playerActorID)].Capacity.Mass) / 1000
+		if reason == "" {
+			v.LoadLine = fmt.Sprintf(r.dressText(locale, "load_delta"), float64(before.mass)/1000, float64(after.mass)/1000, limit)
+		} else {
+			v.LoadLine = fmt.Sprintf(r.dressText(locale, "load_limit"), float64(before.mass)/1000, limit)
+		}
+	}
+	if reason != "" {
+		v.Refusal = r.dressText(locale, reason)
+		return
+	}
+	if a.Kind == "equip" && after.noise != before.noise {
+		key := "wear_louder"
+		if after.noise < before.noise {
+			key = "wear_quieter"
+		}
+		v.EffectLine = fmt.Sprintf(r.dressText(locale, key), float64(before.noise)/10, float64(after.noise)/10)
+	}
+	if r.heroInCombat() {
+		v.ApAfterLine = fmt.Sprintf(r.dressText(locale, "ap_after"), r.state.Combat.Actor(playerActorID).AP-int(v.ApCost))
+	}
+}
+
 func (r *Runtime) dressRow(locale string, i inv.Item, before dressEffects, turn int64) *pb.PocDressRow {
 	s := r.state.Inventory
 	d := r.world.Inventory.Definitions[i.Definition]
 	row := &pb.PocDressRow{Id: i.ID, Label: r.localText(locale, d.Name, d.Name), Purpose: r.dressText(locale, "purpose."+d.Purpose), PurposeId: d.Purpose, IconId: d.IconID, Revision: i.Revision, Quantity: i.Quantity}
 	row.ConditionLine = fmt.Sprintf(r.dressText(locale, "condition"), float64(i.Condition)/10000)
+	row.LocationLine = r.dressLocation(locale, s, i)
+	row.TaskLine = r.dressTask(locale, i)
 	worn := dressWorn(i)
+	var current inv.Item
 	if d.EquipSlot != "" {
 		if worn && i.Condition > 0 {
 			a := conditionedArmor(r.world.CombatRuntime.Armor[i.Definition], i.Condition)
 			row.EffectMark = r.dressComparison(locale, dressEffects{noise: 1000, visible: 1000}, dressEffects{armor: a, noise: defaultDressFactor(d.StepLoudness), visible: defaultDressFactor(d.Visibility), caste: d.ShowsCaste})
 		} else if !worn {
+			row.CurrentLabel = r.dressText(locale, "empty_slot")
+			for _, item := range s.Items {
+				if dressWorn(item) && item.Location.Slot == d.EquipSlot {
+					current = item
+					row.CurrentLabel = r.screenInventoryName(locale, item.Definition)
+					row.CurrentCondition = fmt.Sprintf(r.dressText(locale, "condition"), float64(item.Condition)/10000)
+					break
+				}
+			}
 			row.Comparison = r.dressComparison(locale, before, r.dressEffects(s, i))
 		}
 	}
@@ -475,23 +603,33 @@ func (r *Runtime) dressRow(locale string, i inv.Item, before dressEffects, turn 
 		q.Sequence = s.Cursors[playerActorID].Sequence + 1
 		a, access, reason := r.dressAction(q, i)
 		cost := r.dressCost(s, i, action)
-		label := r.dressText(locale, "act."+action)
-		if cost > 0 {
+		labelKey := action
+		if strings.HasPrefix(d.EquipSlot, "hand.") {
+			switch action {
+			case "equip":
+				labelKey = "hold"
+			case "unequip":
+				labelKey = "stow"
+			}
+		}
+		label := r.dressText(locale, "act."+labelKey)
+		if r.heroInCombat() {
 			label = fmt.Sprintf(r.dressText(locale, "cost"), label, cost)
 		}
 		v := &pb.PocDressAction{Id: q.Action, Label: label, ApCost: int32(cost)}
 		effect := before
+		trial := s // Execute clones before validating and committing.
 		if reason == "" {
-			trial := s // Execute clones before validating and committing.
 			if _, err := trial.Execute(r.inventoryModelFor(r.state.Life.Enabled), a, access); err != nil {
 				reason = dressInventoryRefusal(err)
+				if reason == "capacity" && a.Kind == "put" && strings.HasSuffix(err.Error(), ": "+a.Store) {
+					reason = "fit_" + action
+				}
 			} else {
 				effect = r.dressEffects(trial, inv.Item{})
 			}
 		}
-		if reason != "" {
-			v.Refusal = r.dressText(locale, reason)
-		}
+		r.dressActionInfo(locale, v, a, access, i, current, before, effect, trial, reason)
 		v.WeightLine = r.dressWeight(locale, effect)
 		v.MassG, v.NoisePermille = effect.mass, int32(effect.noise)
 		row.Actions = append(row.Actions, v)
@@ -518,11 +656,21 @@ type dressViewKey struct {
 	captured             bool
 	turn                 int64
 	ap                   int
+	requestSteps         string
 	able, canHold        bool
 }
 
 // An open column holds the world outside combat. In a fight the view may be
 // republished every tick, but the previews change only with their inputs.
+func (r *Runtime) dressRequestSteps() string {
+	var steps []string
+	for origin, request := range r.world.Inventory.Dress.Requests {
+		steps = append(steps, origin+"="+r.state.Memory.QuestSteps[request.Quest].Step)
+	}
+	slices.Sort(steps)
+	return strings.Join(steps, "|")
+}
+
 func (r *Runtime) appendOpenDress(c *connection, msg *pb.PocGameState) {
 	if !r.dressOpen(c) || msg.Inventory == nil {
 		return
@@ -531,6 +679,7 @@ func (r *Runtime) appendOpenDress(c *connection, msg *pb.PocGameState) {
 		revision: r.state.Inventory.Revision,
 		epoch:    r.state.Epoch, locale: c.locale, level: r.currentLevel(), position: r.state.Player,
 		fighting: r.heroInCombat(), paused: r.state.Paused, captured: r.state.Demo.Captured,
+		requestSteps: r.dressRequestSteps(),
 	}
 	if key.fighting {
 		key.turn = r.state.Combat.Turn
@@ -552,10 +701,14 @@ func (r *Runtime) appendDress(view *pb.PocInventoryView, locale string) {
 	before := r.dressEffects(s, inv.Item{})
 	d := &pb.PocDressView{WeightLine: r.dressWeight(locale, before), MassG: before.mass, NoisePermille: int32(before.noise)}
 	noiseKey := "step_quiet"
-	if before.noise > 1000 { noiseKey = "step_loud" }
+	if before.noise > 1000 {
+		noiseKey = "step_loud"
+	}
 	d.NoiseLine = r.dressText(locale, noiseKey)
 	if r.heroInCombat() {
+		d.Fighting = true
 		d.Turn = r.state.Combat.Turn
+		d.ApLine = fmt.Sprintf(r.dressText(locale, "ap_now"), r.state.Combat.Actor(playerActorID).AP)
 	}
 	if before.caste != "" {
 		identity := r.accessZoneCaste(playerActorID)
@@ -658,10 +811,10 @@ func (r *Runtime) appendDressCraft(msg *pb.PocGameState, locale string) {
 		for _, part := range *found {
 			parts = append(parts, fmt.Sprintf("%s ×%d", r.craftingItemName(locale, part.Definition), part.Quantity))
 		}
-		if len(parts) == 0 {
-			parts = append(parts, r.dressText(locale, "salvage_empty"))
+		view.SalvageResult = r.dressText(locale, "received_empty")
+		if len(parts) > 0 {
+			view.SalvageResult = fmt.Sprintf(r.dressText(locale, "received"), strings.Join(parts, ", "))
 		}
-		view.SalvageResult = fmt.Sprintf(r.dressText(locale, "salvage_result"), strings.Join(parts, ", "))
 	}
 	things := make(map[string]*pb.PocCraftingThing, len(msg.Crafting.Things))
 	for _, thing := range msg.Crafting.Things {
@@ -676,7 +829,11 @@ func (r *Runtime) appendDressCraft(msg *pb.PocGameState, locale string) {
 			r.dressCraftRow(locale, row, item, things[item.ID], msg.Crafting.Busy)
 			if r.heroInCombat() {
 				available := row.Actions[:0]
-				for _, action := range row.Actions { if action.Refusal == "" { available = append(available, action) } }
+				for _, action := range row.Actions {
+					if action.Id != "salvage" && action.Id != "recipes" {
+						available = append(available, action)
+					}
+				}
 				row.Actions = available
 			}
 		}
@@ -705,6 +862,17 @@ func (r *Runtime) dressCraftRow(locale string, row *pb.PocDressRow, item inv.Ite
 			continue
 		}
 		yields = append(yields, r.dressSalvageHint(locale, recipe, w))
+		if len(row.SalvageParts) == 0 && m.Knows(w, recipe) && m.TierOf(w, recipe.Discipline) >= recipe.Tier {
+			for _, y := range recipe.Yields[:min(4, len(recipe.Yields))] {
+				part, _ := m.Part(y.Class)
+				label := r.craftingText(locale, part.Name)
+				if y.Min == y.Max {
+					row.SalvageParts = append(row.SalvageParts, fmt.Sprintf("%s ×%d", label, y.Min))
+				} else {
+					row.SalvageParts = append(row.SalvageParts, fmt.Sprintf("%s ×%d–%d", label, y.Min, y.Max))
+				}
+			}
+		}
 		if view == nil || !m.Open(w, recipe) {
 			continue
 		}
