@@ -161,6 +161,7 @@ type Space struct {
  // Dynamic formation constraints apply to the next step. Future steps are
  // checked again as teammates move, rather than freezing their positions.
  FirstStepAllowed func(Cell)bool
+ StepAllowed func(Cell,Cell)bool
  RequireGoalView bool
  // Multi-deck links (document 80): extra undirected neighbours of a cell,
  // e.g. a stair end and its landing in another band of the navigation plane.
@@ -175,7 +176,7 @@ func(s Space) Path(from,to,target Cell,minDistance int)[]Cell {
  for head:=0;head<len(queue)&&head<limit;head++{
   at:=queue[head];links:=s.Links[at]
   for k:=0;k<len(cardinal)+len(links);k++{
-   var next Cell;if k<len(cardinal){d:=cardinal[k];next=Cell{at.X+d.X,at.Y+d.Y}}else{next=links[k-len(cardinal)]};if _,seen:=prev[next];seen||!s.CanStand(next)||(Distance(next,target)<minDistance&&Distance(next,target)<=Distance(at,target)){continue}
+   var next Cell;if k<len(cardinal){d:=cardinal[k];next=Cell{at.X+d.X,at.Y+d.Y}}else{next=links[k-len(cardinal)]};if _,seen:=prev[next];seen||!s.CanStand(next)||s.StepAllowed!=nil&&!s.StepAllowed(at,next)||(Distance(next,target)<minDistance&&Distance(next,target)<=Distance(at,target)){continue}
    if at==from&&s.FirstStepAllowed!=nil&&!s.FirstStepAllowed(next){continue}
    prev[next]=at
    if next==to{var path []Cell;for next!=from{path=append(path,next);next=prev[next]};for i,j:=0,len(path)-1;i<j;i,j=i+1,j-1{path[i],path[j]=path[j],path[i]};return path}

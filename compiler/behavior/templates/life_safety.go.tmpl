@@ -56,6 +56,8 @@ type LifeSafetyOverride struct {
 	Activity    string `json:"activity"`
 	Reason      string `json:"reason"`
 	EncounterID string `json:"encounter_id"`
+	ExitEdge string `json:"exit_edge,omitempty"`
+	ThreatLevel string `json:"threat_level,omitempty"`
 	// Baseline fixes (21.11, plan 8): the cause is a sound with nobody seen — an unnamed noise. Its gait is the situation
 	// "<activity>_noise" (a guard walks to a bell or a step he heard, he runs only once he has seen a person, been
 	// touched or an alarm is up).
@@ -76,10 +78,41 @@ func (s *LifeSafetyOverride) validate(m LifeModel, level string, seconds int64) 
 	if s.Level != level || !m.Walks(level, s.Goal) || s.Until < 1 || s.Until > seconds+86400 || (s.Activity != "shelter" && s.Activity != "investigate") || s.LabelKey == "" || len(s.LabelKey) > 128 || s.Reason == "" || len(s.Reason) > 256 || len(s.EncounterID) > 256 {
 		return fmt.Errorf("invalid life safety override")
 	}
+	if s.ExitEdge != "" {
+		e := m.Edge(s.ExitEdge)
+		if e == nil || e.From != level || e.Exit != s.Goal || e.Mode != "walk" || e.Vehicle {
+			return fmt.Errorf("invalid life safety exit")
+		}
+	}
+	if s.ThreatLevel != "" {
+		if _, ok := m.Locations[s.ThreatLevel]; !ok || s.Activity != "shelter" || s.EncounterID == "" {
+			return fmt.Errorf("invalid safety threat level")
+		}
+	}
 	return nil
 }
-func (s *LifeSafetyOverride) target() LifeStep {
+func (s *LifeSafetyOverride) target(m LifeModel) LifeStep {
+	if s.ExitEdge != "" {
+		if e := m.Edge(s.ExitEdge); e != nil {
+			return LifeStep{Level: e.To, At: e.Entry, Activity: s.Activity, Label: s.LabelKey}
+		}
+	}
 	return LifeStep{Level: s.Level, At: s.Goal, Activity: s.Activity, Label: s.LabelKey}
+}
+func (s *LifeSafetyOverride) landed(level string, at Cell) {
+	if s != nil && s.ExitEdge != "" {
+		s.Level, s.Goal, s.ExitEdge = level, at, ""
+	}
+}
+func (m LifeModel) allowsSafetyStep(s *LifeSafetyOverride, from, to Cell) bool {
+	return s == nil || m.SafetyStep == nil || m.SafetyStep(s, from, to)
+}
+func (m LifeModel) safetySpace(level string, blocked map[Cell]bool, id string, safety *LifeSafetyOverride) Space {
+	space := m.SpaceFor(level, blocked, id)
+	if safety != nil && m.SafetyStep != nil {
+		space.StepAllowed = func(from, to Cell) bool { return m.SafetyStep(safety, from, to) }
+	}
+	return space
 }
 
 // InterruptService stops a physical service when the host incapacitates its actor.

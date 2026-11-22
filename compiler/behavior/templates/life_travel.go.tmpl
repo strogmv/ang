@@ -42,7 +42,7 @@ func(s *LifeState)tryLifeArrival(m LifeModel,a *LifeActor,tick int64)bool{
  e:=m.Edge(a.Trip.Edge);if e==nil||s.Seconds<a.Trip.Arrival{return false}
  // A vehicle that carries its riders (a lifting deck) lets them off only once it has really arrived.
  if m.ArrivalHold!=nil&&m.ArrivalHold(a.ID,*e){return false}
- entry,free:=s.lifeArrivalCell(m,*e,a.ID);if !free{return false};a.Level=e.To;a.Position=entry;a.Goal=entry
+ entry,free:=s.lifeArrivalCell(m,*e,a.ID);if !free{return false};a.Level=e.To;a.Position=entry;a.Goal=entry;a.Safety.landed(a.Level,entry)
  if a.OverrideLevel==e.To&&a.OverrideAt==e.Entry{a.OverrideAt=entry;a.OverrideEdge=""};a.Trip=nil;a.Path=nil;a.PendingPath=nil;a.MoveStartTick=tick;a.WaitingDeparture=0;a.Visits[e.To]++;s.note(m.Person(a.ID).Name+": прибыл — "+m.Locations[e.To].Name);return true
 }
 

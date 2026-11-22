@@ -181,7 +181,7 @@ func(s LifeState)lanePathBy(m LifeModel,space Space,level string,from,to Cell,st
     if pi:=int(sc.prev[ai]);pi>=0{back:=Cell{pi%w,pi/w};if a0:=(Cell{at.X-back.X,at.Y-back.Y});a0.X*d.X+a0.Y*d.Y==0{if e,o:=l.penalty(next,a0);e>extra{extra,own=e,o}}}
     if strict&&!own&&next!=to{continue};step+=extra
    }else{next=links[k-len(cardinal)]}
-   ni:=index(next);if ni<0||sc.done[ni]==cur||!space.CanStand(next){continue}
+   ni:=index(next);if ni<0||sc.done[ni]==cur||!space.CanStand(next) || space.StepAllowed != nil && !space.StepAllowed(at, next){continue}
    if crowd!=nil&&next!=to&&crowd(next){step+=lifeCrowdStepCost}
    if seen(ni)&&int(sc.dist[ni])<=cost+step{continue}
    sc.stamp[ni],sc.dist[ni],sc.prev[ni]=cur,int32(cost+step),int32(ai);buckets[(cost+step)%span]=append(buckets[(cost+step)%span],int32(ni));pending++
@@ -263,7 +263,7 @@ func(s *LifeState)lifeFollowOn(m LifeModel){
    s.trafficActor(i);a:=&s.Actors[i];tick:=s.ActorMotionTick(m,s.Tick,a);pace:=m.NamedMoveTicks(a)
    for len(a.Path)>0&&tick>=a.MoveStartTick+pace{
     next:=a.Path[0];if s.lifeOncoming(m,a,a.Path){a.Path=nil;a.MoveStartTick=tick;break}
-    if !m.WalksFor(a.Level,next,a.ID)||!m.Adjacent(a.Level,a.Position,next){a.Path=nil;a.MoveStartTick=tick;break}
+    if !m.allowsSafetyStep(a.Safety,a.Position,next)||!m.WalksFor(a.Level,next,a.ID)||!m.Adjacent(a.Level,a.Position,next){a.Path=nil;a.MoveStartTick=tick;break}
     if s.occupied(a.Level,next,a.ID){if !s.lifeFollows(m,a,next){a.Path=nil;a.MoveStartTick=tick};break}
     a.WalkedMM+=m.lifeStepMM(a.Level,a.Position,next);a.Position=next;a.Path=a.Path[1:];a.MoveStartTick+=pace;if a.GiveWayTo==""{a.BlockedSince=0};moved=true
    }

@@ -117,6 +117,7 @@ func (r *Runtime) advanceLifeFrameBy(delta int64) error {
  if err:=r.advancePlayableScene();err!=nil{return err}
 	r.state.Life.Seed = r.state.Seed
  r.combatLifeBeforeFrame()
+ r.combatFlightBeforeFrame(delta)
  r.calendarEncounterBeforeFrame()
  // the hero's personal file: since when he stands, the first check on the first night in the dorm (hero_file.go)
  r.heroFileBeforeFrame()

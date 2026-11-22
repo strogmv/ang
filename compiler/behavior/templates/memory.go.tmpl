@@ -21,6 +21,8 @@ type MemoryPolicy struct {
 // Cause until someone sees the source; a seen fact has Radius 0.
 type Fact struct {
  Subject,Kind,Source,Cause string
+ Other,Level string `json:",omitempty"`
+ CurrentUntil int64 `json:",omitempty"`
  Value bool
  Position Cell
  Radius int
@@ -57,7 +59,7 @@ func(m *Memory) Record(f Fact,p MemoryPolicy)string{
  m.Facts=append(m.Facts,f);m.sortFacts();return "added"
 }
 func(m *Memory) sortFacts(){sort.SliceStable(m.Facts,func(i,j int)bool{a,b:=m.Facts[i],m.Facts[j];if a.Priority!=b.Priority{return a.Priority>b.Priority};if a.Kind!=b.Kind{return a.Kind<b.Kind};return a.Subject<b.Subject})}
-func(m *Memory) Expire(tick int64){kept:=m.Facts[:0];for _,f:=range m.Facts{if tick<f.ExpiresTick{kept=append(kept,f)}};for i:=len(kept);i<len(m.Facts);i++{m.Facts[i]=Fact{}};m.Facts=kept}
+func(m *Memory) Expire(tick int64){kept:=m.Facts[:0];for _,f:=range m.Facts{if tick<f.ExpiresTick||tick<f.CurrentUntil{kept=append(kept,f)}};for i:=len(kept);i<len(m.Facts);i++{m.Facts[i]=Fact{}};m.Facts=kept}
 func(m *Memory) Forget(subject,kind string){kept:=m.Facts[:0];for _,f:=range m.Facts{if f.Subject!=subject||f.Kind!=kind{kept=append(kept,f)}};m.Facts=kept}
 // Lookup distinguishes unknown from known-false.
 func(m Memory) Lookup(subject,kind string)(Fact,string){

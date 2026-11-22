@@ -16,7 +16,15 @@ type combatResponder struct {
 	Report               bool     `json:"report"`
 	Levels               []string `json:"levels"`
 }
+type combatFlightPolicy struct {
+	DangerMM int `json:"danger_mm"`
+	MarginMM int `json:"margin_mm"`
+	CalmSeconds int64 `json:"calm_seconds"`
+	MemorySeconds int64 `json:"memory_seconds"`
+	RouteCells int `json:"route_cells"`
+}
 type combatLifeCatalog struct {
+	Flight combatFlightPolicy `json:"civilian_flight"`
  SurrenderDropsWeapon bool `json:"surrender_drops_weapon"`
 
 	FinishConsumesIntent           bool `json:"finish_consumes_intent"`
@@ -44,6 +52,10 @@ func (c combatLifeCatalog) Validate(l behavior.LifeModel, combat combatCatalog) 
 	}
 	if c.SightRangeMM < 1 || c.SightRangeMM > 100000 || c.HearingRangeMM < 1 || c.HearingRangeMM > 100000 || c.ThreatMemorySeconds < 1 || c.ThreatMemorySeconds > 86400 || c.SafetySeconds < 1 || c.SafetySeconds > 3600 || c.MaxWitnesses < 1 || c.MaxWitnesses > 512 || c.MaxSafetyCells < 1 || c.MaxSafetyCells > 4096 || !(c.HostileAtOrBelow >= -1 && c.HostileAtOrBelow < 0) || !(c.MeleeLoudness > 0 && c.MeleeLoudness <= c.ShotLoudness && c.ShotLoudness <= 1) {
 		return fmt.Errorf("invalid combat life policy")
+	}
+	f := c.Flight
+	if f.DangerMM < 1 || f.DangerMM > 100000 || f.MarginMM < 1 || f.MarginMM > 100000 || f.CalmSeconds < 60 || f.CalmSeconds > 3600 || f.MemorySeconds <= f.CalmSeconds || f.MemorySeconds > 86400 || f.RouteCells < 256 || f.RouteCells > 16384 {
+		return fmt.Errorf("invalid civilian flight policy")
 	}
 	for id, targets := range c.Aggressors {
 		if l.Person(id) == nil || len(targets) == 0 {
@@ -234,7 +246,13 @@ func (r *Runtime) combatWorldRemember(observer string, f behavior.Fact) {
 	}
 	m := s.Memories[observer]
 	if s.MemoryLevels[observer] != pose.Level {
-		m = behavior.Memory{}
+		kept := m.Facts[:0]
+		for _, fact := range m.Facts {
+			if fact.Kind == combatFightFact {
+				kept = append(kept, fact)
+			}
+		}
+		m.Facts = kept
 	}
 	s.MemoryLevels[observer] = pose.Level
 	m.Record(f, r.combatWorldMemoryPolicy())
@@ -400,7 +418,7 @@ func (r *Runtime) combatLifeAfterFrame() error {
 			if err := r.combatWorldRespond(observer, f); err != nil {
 				return err
 			}
-		} else if r.state.Combat.Active && r.state.Combat.Actor(f.Subject) != nil {
+		} else if r.combatFlightDuty(id, observer.Level) && r.state.Combat.Active && r.state.Combat.Actor(f.Subject) != nil {
 			source, exists := r.combatWorldActor(f.Subject)
 			if exists && r.combatWorldVisible(observer, source.At) {
 				r.combatWorldSafety(observer, source.At, "shelter")
@@ -487,6 +505,9 @@ func (r *Runtime) combatLifeAfterAction(previous behavior.CombatState) error {
 			s.ProcessedSequence = event.Sequence
 		}
 		if event.Type != "attack" && event.Type != "throw" && event.Type != "explosion" {
+			if event.Type == "move" {
+				r.combatFlightObserve()
+			}
 			continue
 		}
 		attacker := r.state.Combat.Actor(event.ActorID)
@@ -535,8 +556,19 @@ func (r *Runtime) combatLifeAfterAction(previous behavior.CombatState) error {
 				} else {
 					r.combatWorldSafety(observer, dangerAt, "investigate")
 				}
-			} else {
-				r.combatWorldSafety(observer, dangerAt, "shelter")
+			} else if !r.combatFlightDuty(observer.ID, observer.Level) && r.flightObservedLevel(observer.Level) {
+				actor, target := "", ""
+				if seenFrom {
+					actor = event.ActorID
+				}
+				if seenTo {
+					target = event.TargetID
+				}
+				radius := 0
+				if !seenFrom && !seenTo {
+					radius = heard.Radius
+				}
+				r.rememberFight(observer, dangerAt, actor, target, radius)
 			}
 		}
 		// A witness can call an existing local responder through actual hearing.
@@ -732,6 +764,16 @@ func (r *Runtime) validateCombatWorld(s state) error {
 
 		level := r.world.Life.Locations[w.MemoryLevels[id]]
 		for _, f := range m.Facts {
+			if f.Kind == combatFightFact {
+				place, exists := r.world.Life.Locations[f.Level]
+				if !exists || !f.Value || (f.Source != id && f.Source != "sound") || f.Source == "sound" && (f.Cause != "" || f.Other != "") ||
+					f.Radius < 0 || f.Radius > 65536 || f.Strength != 1 || f.CurrentUntil <= f.ObservedTick || f.CurrentUntil > s.Life.Seconds + c.Flight.CalmSeconds || f.Cause != "" && !known(f.Cause) || f.Other != "" && !known(f.Other) ||
+					f.Position.Y < 0 || f.Position.Y >= len(place.Terrain) || f.Position.X < 0 || f.Position.X >= len(place.Terrain[f.Position.Y]) ||
+					!strings.HasPrefix(f.Subject, "encounter.") || f.ExpiresTick > f.ObservedTick+c.Flight.MemorySeconds {
+					return fmt.Errorf("invalid remembered fight")
+				}
+				continue
+			}
 			if !f.Value || !(f.Strength >= 0 && f.Strength <= 1) || f.Radius < 0 || f.Radius > 65536 || f.Position.Y < 0 || f.Position.Y >= len(level.Terrain) || f.Position.X < 0 || f.Position.X >= len(level.Terrain[f.Position.Y]) || f.Kind == "combat.noise" && !strings.HasPrefix(f.Subject, "noise.") || f.Kind != "combat.assault" && f.Kind != "combat.noise" && f.Kind != "combat.throw" || f.ObservedTick > s.Life.Seconds || f.ExpiresTick > f.ObservedTick+c.ThreatMemorySeconds || f.Kind == "combat.assault" && (!known(f.Subject) || !known(f.Cause) || !known(f.Source)) || f.Kind == "combat.noise" && (f.Cause != "" || f.Source != "sound") || f.Kind == "combat.throw" && (f.Cause != "" || !known(f.Subject) || !known(f.Source)) {
 				return fmt.Errorf("invalid combat world observation")
 			}
@@ -804,4 +846,214 @@ func (r *Runtime) combatLifeTryDisengage() bool {
 	}
 	r.syncCombatLife()
 	return true
+}
+
+const combatFightFact = "combat.fight"
+
+func (r *Runtime) flightObservedLevel(level string) bool {
+	h := r.state.Life.Actor(playerActorID)
+	return h != nil && h.OnFloor() && h.Level == level
+}
+
+func (r *Runtime) combatFlightDuty(id, level string) bool {
+	if role, ok := r.world.CombatLife.Responders[id]; ok && r.combatResponderInLevel(role, level) {
+		return true
+	}
+	if r.world.TurretWatch != nil {
+		for _, post := range r.world.TurretWatch.Posts {
+			if post.LevelID == level && post.guard(id) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (r *Runtime) combatFlightSafety(id string) *behavior.LifeSafetyOverride {
+	if a := r.state.Life.Actor(id); a != nil {
+		return a.Safety
+	}
+	if a := r.populationTrainActor(id); a != nil {
+		return a.Safety
+	}
+	return nil
+}
+
+func (r *Runtime) combatFlightDanger(level string, threat, at behavior.Cell) bool {
+	p := r.world.CombatLife.Flight
+	d := r.combatWorldDistance(level, at, threat)
+	return d <= p.DangerMM || d <= p.DangerMM+p.MarginMM && r.combatSight(level, at, threat)
+}
+
+func (r *Runtime) combatFlightStep(s *behavior.LifeSafetyOverride, from, to behavior.Cell) bool {
+	if s.ThreatLevel == "" || s.Level != s.ThreatLevel || !r.combatFlightDanger(s.Level, s.ThreatAt, to) {
+		return true
+	}
+	// A witness already inside can seek the edge. Someone outside cannot re-enter.
+	// Equal distance steps let a walker pass a corner instead of freezing there.
+	return r.combatFlightDanger(s.Level, s.ThreatAt, from) &&
+		r.combatWorldDistance(s.Level, to, s.ThreatAt) >= r.combatWorldDistance(s.Level, from, s.ThreatAt)
+}
+
+func (r *Runtime) rememberFight(o combatLifeObserver, at behavior.Cell, actor, target string, radius int) {
+	if o.ID == playerActorID || r.state.Combat.Actor(o.ID) != nil {
+		return
+	}
+	id := r.state.Combat.ID
+	now := r.state.Life.Seconds
+	old, knowledge := r.state.CombatWorld.Memories[o.ID].Lookup(id, combatFightFact)
+	if actor == "" && knowledge == behavior.KnowledgeTrue && old.Cause != "" {
+		// Hearing does not displace an identified sighting with an uncertain location.
+		at, actor, radius = old.Position, old.Cause, old.Radius
+	}
+	if target == "" {
+		target = old.Other
+	}
+	source := o.ID
+	if actor == "" && target == "" {
+		source = "sound"
+	}
+	until := now + r.world.CombatLife.Flight.CalmSeconds
+	r.combatWorldRemember(o.ID, behavior.Fact{
+		Subject: id, Kind: combatFightFact, Level: o.Level, Source: source, Cause: actor, Other: target,
+		Value: true, Position: at, Radius: radius, ObservedTick: now,
+		CurrentUntil: until, ExpiresTick: now + r.world.CombatLife.Flight.MemorySeconds, Strength: 1, Priority: 101,
+	})
+	current := r.combatFlightSafety(o.ID)
+	if current != nil && current.EncounterID == id && current.ThreatLevel == o.Level {
+		current.Until = max(current.Until, until)
+		if current.ThreatAt == at {
+			return
+		}
+		current.ThreatAt = at
+		if !r.combatFlightDanger(o.Level, at, current.Goal) {
+			return
+		}
+	}
+	safety := r.combatFlightRefuge(o, at)
+	safety.Until, safety.EncounterID = until, id
+	_ = r.state.Life.ApplySafety(r.state.Life.GateModel(r.lifeTravelModel()), o.ID, safety)
+}
+
+// Find a local routine refuge or a walkable exit in order of travel distance.
+// A work-only pocket belongs to the seller and must also provide actual cover.
+// With no reachable authored destination, wait at the first safe floor cell.
+func (r *Runtime) combatFlightRefuge(o combatLifeObserver, at behavior.Cell) behavior.LifeSafetyOverride {
+	model := r.state.Life.GateModel(r.world.Life)
+	space := model.SpaceFor(o.Level, nil, o.ID)
+	safety := behavior.LifeSafetyOverride{Level: o.Level, ThreatLevel: o.Level, Goal: o.At, ThreatAt: at,
+		LabelKey: "life.combat.seek_safety", Activity: "shelter", Reason: "locally perceived violence"}
+	exits := map[behavior.Cell]string{}
+	for _, e := range model.Edges {
+		if e.From == o.Level && e.Mode == "walk" && !e.Vehicle && e.ClosedReasonKey == "" && exits[e.Exit] == "" {
+			exits[e.Exit] = e.ID
+		}
+	}
+	routine := map[behavior.Cell]bool{}
+	if person := model.Person(o.ID); person != nil {
+		for _, step := range person.Steps {
+			if step.Level == o.Level && (step.Activity == "sleep" || step.Activity == "rest") {
+				routine[step.At] = true
+			}
+		}
+	}
+	blocked := r.state.Life.BlockedCells(o.Level, o.ID)
+	claims := map[behavior.Cell]bool{}
+	for _, a := range r.state.Life.Actors {
+		if a.ID != o.ID && a.Level == o.Level && a.Safety != nil {
+			claims[a.Safety.Goal] = true
+		}
+	}
+	for _, a := range r.state.Life.Population.Actors {
+		if a.ID != o.ID && a.Level == o.Level && a.Safety != nil {
+			claims[a.Safety.Goal] = true
+		}
+	}
+	queue := []behavior.Cell{o.At}
+	seen := map[behavior.Cell]bool{o.At: true}
+	found := false
+	covered := false
+	for head := 0; head < len(queue) && head < r.world.CombatLife.Flight.RouteCells; head++ {
+		cell := queue[head]
+		if !r.combatFlightDanger(o.Level, at, cell) && !claims[cell] && !blocked[cell] {
+			concealed := r.combatWorldDistance(o.Level, cell, at) > r.world.CombatLife.SightRangeMM || !r.combatSight(o.Level, at, cell)
+			if !found || concealed && !covered {
+				safety.Goal, found, covered = cell, true, concealed
+			}
+			coveredWork := concealed && model.WorkArea(o.Level, cell) != nil
+			if coveredWork || routine[cell] && (cell != o.At || concealed) || exits[cell] != "" {
+				safety.Goal, safety.ExitEdge = cell, exits[cell]
+				return safety
+			}
+		}
+		if !found && r.combatWorldDistance(o.Level, at, cell) > r.combatWorldDistance(o.Level, at, safety.Goal) && !blocked[cell] && !claims[cell] {
+			safety.Goal = cell
+		}
+		for _, next := range model.StepNeighbours(o.Level, cell) {
+			if seen[next] || !space.CanStand(next) || !r.combatFlightStep(&safety, cell, next) {
+				continue
+			}
+			seen[next] = true
+			queue = append(queue, next)
+		}
+	}
+	return safety
+}
+
+func (r *Runtime) combatFlightBeforeFrame(delta int64) {
+	s := &r.state.Combat
+	if !r.world.CombatLife.Enabled || !s.Active || !r.flightObservedLevel(s.LevelID) {
+		return
+	}
+	r.combatFlightObserve()
+	// Conservatively postpone return through the known danger while this fight
+	// is in progress. A hold extends the deadline, without adding a sighting.
+	until := r.state.Life.Seconds + delta + r.world.CombatLife.Flight.CalmSeconds
+	for id, memory := range r.state.CombatWorld.Memories {
+		for i := range memory.Facts {
+			fact := &memory.Facts[i]
+			if fact.Kind == combatFightFact && fact.Subject == s.ID && fact.Level == s.LevelID {
+				fact.CurrentUntil = until
+				if safety := r.combatFlightSafety(id); safety != nil && safety.EncounterID == s.ID && safety.ThreatLevel == s.LevelID {
+					safety.Until = until
+				}
+			}
+		}
+	}
+}
+
+func (r *Runtime) combatFlightObserve() {
+	s := &r.state.Combat
+	if !s.Active || !r.flightObservedLevel(s.LevelID) {
+		return
+	}
+	// Arrival alone does not disclose violence. An actual exchange must have
+	// happened and the newcomer must see the opposing people.
+	for i := len(s.Events)-1; i >= 0; i-- {
+		e := s.Events[i]
+		if e.Type != "attack" && e.Type != "throw" && e.Type != "explosion" {
+			continue
+		}
+		source, target := s.Actor(e.ActorID), s.Actor(e.TargetID)
+		if source == nil || target == nil || source.Team == target.Team {
+			continue
+		}
+		for _, o := range r.combatWorldObservers(s.LevelID, source.Position) {
+			if s.Actor(o.ID) != nil || r.combatFlightDuty(o.ID, o.Level) || !r.combatWorldVisible(o, source.Position) {
+				continue
+			}
+			old, known := r.state.CombatWorld.Memories[o.ID].Lookup(s.ID, combatFightFact)
+			if known == behavior.KnowledgeTrue && old.Cause == source.ID && old.Position == source.Position && r.state.Life.Seconds-old.ObservedTick < r.world.CombatLife.Flight.CalmSeconds {
+				continue
+			}
+			if targetSeen := r.combatWorldVisible(o, target.Position); targetSeen || known == behavior.KnowledgeTrue {
+				targetID := ""
+				if targetSeen {
+					targetID = target.ID
+				}
+				r.rememberFight(o, source.Position, source.ID, targetID, 0)
+			}
+		}
+		break
+	}
 }

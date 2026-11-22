@@ -439,7 +439,7 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
           if !(a.Brain.SeatedAt>0&&day>=c.LeaveFrom&&day<c.SeatedUntil){a.Brain.leaveClosed(homeward,seconds);brainTarget=homeward}
          }
         }
-        if safety{brainTarget=a.Safety.target()}
+        if safety{brainTarget=a.Safety.target(l)}
 		if a.Trip != nil {
 			edge := l.Edge(a.Trip.Edge)
 			if edge == nil {
@@ -465,6 +465,10 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
 			a.Level = edge.To
 			a.Position = entry
 			a.Goal = entry
+			a.Safety.landed(a.Level, entry)
+			if a.Safety != nil {
+				brainTarget = a.Safety.target(l)
+			}
 			a.Path = nil
 			a.MoveStartTick = tick
 			a.Trip = nil
@@ -525,7 +529,7 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
 		if l.Brain.Enabled && a.Materialized && len(a.Path) > 0 && a.MoveStartTick+pace < tick-frame+1 { a.MoveStartTick = tick-frame+1-pace }
 		for a.Materialized && len(a.Path) > 0 && tick >= a.MoveStartTick+pace {
 			next := a.Path[0]
-			if l.Adjacent(a.Level,a.Position,next) && populationCellFree(l, a.Level, next, occupied, a.ID) {
+			if l.allowsSafetyStep(a.Safety, a.Position, next) && l.Adjacent(a.Level, a.Position, next) && populationCellFree(l, a.Level, next, occupied, a.ID) {
 				populationUnreserve(occupied, a.Level, a.Position, a.ID)
 				a.Position = next
 				a.Path = a.Path[1:]
@@ -559,6 +563,9 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
 		goal := a.Goal
 		if a.Level != target.Level {
 			edge = l.NextEdge(a.Level, target.Level)
+			if safety && a.Safety.ExitEdge != "" {
+				edge = l.Edge(a.Safety.ExitEdge)
+			}
 			if edge == nil {
 				a.Activity = "waiting_route"
 				a.ColdReadyAt = seconds + p.ColdStepSeconds
@@ -654,7 +661,7 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
 				continue
 			}
 			avoid:=map[Cell]bool(nil);if environment.NewPathAvoid!=nil{avoid=environment.NewPathAvoid(*a)}
-            space:=l.SpaceFor(a.Level,avoid,"");space.Occupied=func(at Cell)bool{id:=occupied[a.Level][at];return id!=""&&id!=a.ID}
+            space:=l.safetySpace(a.Level,avoid,"",a.Safety);space.Occupied=func(at Cell)bool{id:=occupied[a.Level][at];return id!=""&&id!=a.ID}
             a.Path=space.Path(a.Position,goal,Cell{},0)
 			a.MoveStartTick = tick
 			if len(a.Path) > 0 {
