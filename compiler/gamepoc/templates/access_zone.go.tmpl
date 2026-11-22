@@ -122,6 +122,12 @@ func (r *Runtime) accessZoneGuard(z accessZone, id string) bool {
 // accessZoneCaste: the caste of a person, from the one source the world keeps (the persons' archetypes and the
 // population profiles, as the barks and the wound chips read it); a hall visitor by the look of his kind.
 func (r *Runtime) accessZoneCaste(id string) string {
+	if id == playerActorID {
+		if status := r.storyOfficialStatus(); status != "" { return status }
+	}
+	if d := r.world.Start; d != nil {
+		if p, ok := d.Promotions[id]; ok && r.state.Memory.Facts[p.Fact].Count > 0 { return p.Status }
+	}
 	if c := barkCatalog.Castes[id]; c != "" {
 		return c
 	}

@@ -8,6 +8,7 @@ import (
 	"html"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -66,6 +67,7 @@ type MemoryTrade struct {
 
 // MemoryFact is one significant event of the hero's story, defined ahead like an item (doc 103 §1).
 type MemoryFact struct {
+	ReplaceArgs       bool                `json:"replace_args,omitempty"`
 	Visibility        string              `json:"visibility"`
 	Recorded          bool                `json:"recorded"`
 	MemoryDays        int                 `json:"memory_days"`
@@ -134,18 +136,20 @@ type KnownFactWhen struct {
 
 // When is a condition: every field set holds; Any — one of; Not — negation.
 type When struct {
-	Quest     *storyQuestStep `json:"quest,omitempty"`
-	Hour      *storyHours     `json:"hour,omitempty"`
-	Present   *storyPresence  `json:"present,omitempty"`
-	HeroAt    *storyLocation  `json:"hero_at,omitempty"`
-	CRDMinor  int64           `json:"crd_minor_at_least,omitempty"`
-	Placement string          `json:"placement,omitempty"`
-	Fact      *FactWhen       `json:"fact,omitempty"`
-	NotFact   string          `json:"not_fact,omitempty"`
-	Topic     string          `json:"topic,omitempty"`
-	NotTopic  string          `json:"not_topic,omitempty"`
-	Knows     *KnownFactWhen  `json:"knows,omitempty"`
-	Trust     *struct {
+	FileTrait    string          `json:"file_trait,omitempty"`
+	FileStrength string          `json:"file_strength,omitempty"`
+	Quest        *storyQuestStep `json:"quest,omitempty"`
+	Hour         *storyHours     `json:"hour,omitempty"`
+	Present      *storyPresence  `json:"present,omitempty"`
+	HeroAt       *storyLocation  `json:"hero_at,omitempty"`
+	CRDMinor     int64           `json:"crd_minor_at_least,omitempty"`
+	Placement    string          `json:"placement,omitempty"`
+	Fact         *FactWhen       `json:"fact,omitempty"`
+	NotFact      string          `json:"not_fact,omitempty"`
+	Topic        string          `json:"topic,omitempty"`
+	NotTopic     string          `json:"not_topic,omitempty"`
+	Knows        *KnownFactWhen  `json:"knows,omitempty"`
+	Trust        *struct {
 		Who     string   `json:"who"`
 		AtLeast *float64 `json:"at_least,omitempty"`
 		Below   *float64 `json:"below,omitempty"`
@@ -236,11 +240,32 @@ type Do struct {
 }
 
 // Conversation is world.conversations[id] (#Conversation).
+// StoryStart binds the normal file-confirmation entry point to an authored event.
+type StoryStart struct {
+	Promotions   map[string]StoryPromotion `json:"promotions,omitempty"`
+	Scenario     string                    `json:"scenario"`
+	Conversation string                    `json:"conversation"`
+	Speaker      string                    `json:"speaker"`
+	Level        string                    `json:"level"`
+	At           storyCell                 `json:"at"`
+	Marks        []storyCell               `json:"marks,omitempty"`
+	HeroStatus   string                    `json:"hero_status"`
+	StatusFact   string                    `json:"status_fact"`
+	AbilityFact  string                    `json:"ability_fact"`
+}
+
+type StoryPromotion struct {
+	Status string `json:"status"`
+	Fact   string `json:"fact"`
+}
+
 type Conversation struct {
-	ID       string   `json:"id"`
-	Event    bool     `json:"event"`
-	Speakers []string `json:"speakers"`
-	Reach    int      `json:"reach"`
+	StageLevel    string            `json:"stage_level,omitempty"`
+	NamedSpeakers map[string]string `json:"named_speakers,omitempty"`
+	ID            string            `json:"id"`
+	Event         bool              `json:"event"`
+	Speakers      []string          `json:"speakers"`
+	Reach         int               `json:"reach"`
 	// the talk's clock (owner 21.11): while the column is open the world waits; these are real seconds of the open talk
 	AnswerSeconds int                   `json:"answer_seconds,omitempty"`
 	LingerSeconds int                   `json:"linger_seconds"`
@@ -258,21 +283,25 @@ type ConvEntry struct {
 	Lines          []ConvLine `json:"lines"`
 }
 type ConvNode struct {
-	Do            []Do         `json:"do,omitempty"`
-	AfterDecision bool         `json:"after_decision,omitempty"`
-	Lines         []ConvLine   `json:"lines"`
-	Voices        []ConvVoice  `json:"voices"`
-	Options       []ConvOption `json:"options"`
+	TailLines     []ConvLine           `json:"tail_lines,omitempty"`
+	KeepStage     bool                 `json:"keep_stage,omitempty"`
+	Stage         map[string]storyCell `json:"stage,omitempty"`
+	Do            []Do                 `json:"do,omitempty"`
+	AfterDecision bool                 `json:"after_decision,omitempty"`
+	Lines         []ConvLine           `json:"lines"`
+	Voices        []ConvVoice          `json:"voices"`
+	Options       []ConvOption         `json:"options"`
 }
 type ConvVariant struct {
 	When When   `json:"when"`
 	Text string `json:"text"`
 }
 type ConvLine struct {
-	Speaker  string        `json:"speaker"`
-	Text     string        `json:"text"`
-	When     *When         `json:"when,omitempty"`
-	Variants []ConvVariant `json:"variants"`
+	Actors   map[string]string `json:"actors,omitempty"`
+	Speaker  string            `json:"speaker"`
+	Text     string            `json:"text"`
+	When     *When             `json:"when,omitempty"`
+	Variants []ConvVariant     `json:"variants"`
 }
 type ConvVoice struct {
 	ID       string        `json:"id"`
@@ -284,6 +313,7 @@ type ConvVoice struct {
 	Do       []Do          `json:"do"`
 }
 type ConvOption struct {
+	Continue      bool           `json:"continue,omitempty"`
 	ID            string         `json:"id"`
 	Text          string         `json:"text"`
 	Variants      []ConvVariant  `json:"variants"`
@@ -647,6 +677,18 @@ func (k *memoryChecker) when(where string, w *When, s *convScope, reader string)
 	if w == nil {
 		return nil
 	}
+	if w.FileTrait != "" || w.FileStrength != "" {
+		file := k.c.HeroFile
+		if file == nil {
+			return fmt.Errorf("%s: a file condition needs world.hero_file", where)
+		}
+		if w.FileTrait != "" && !slices.ContainsFunc(file.Traits, func(t HeroFileTrait) bool { return t.ID == w.FileTrait }) {
+			return fmt.Errorf("%s: unknown file trait %s", where, w.FileTrait)
+		}
+		if w.FileStrength != "" && !slices.Contains(file.Skills, w.FileStrength) {
+			return fmt.Errorf("%s: unknown file strength %s", where, w.FileStrength)
+		}
+	}
 	fact := func(id string) error {
 		if k.m.Facts[id] == nil {
 			return fmt.Errorf("%s: unknown fact %s", where, id)
@@ -868,6 +910,11 @@ func (k *memoryChecker) lines(where string, lines []ConvLine, speakers map[strin
 		} else if l.Speaker != "narrator" && !speakers[l.Speaker] {
 			return fmt.Errorf("%s: %s does not take part in this conversation", at, l.Speaker)
 		}
+		for _, id := range l.Actors {
+			if err := k.person(at, id, false); err != nil {
+				return err
+			}
+		}
 		if err := k.variants(at, l.Text, l.Variants, s, reader); err != nil {
 			return err
 		}
@@ -908,6 +955,15 @@ func (k *memoryChecker) conversation(c *Conversation) error {
 	speakers := map[string]bool{}
 	for _, id := range c.Speakers {
 		if err := k.person(where, id, false); err != nil {
+			return err
+		}
+		speakers[id] = true
+	}
+	for id, name := range c.NamedSpeakers {
+		if !memoryWord.MatchString(id) {
+			return fmt.Errorf("%s: invalid non-person speaker %q", where, id)
+		}
+		if err := k.text(where, name); err != nil {
 			return err
 		}
 		speakers[id] = true
@@ -973,6 +1029,20 @@ func (k *memoryChecker) conversation(c *Conversation) error {
 		s.node = id
 		n := c.Nodes[id]
 		at := where + "." + id
+		_, stageHasHero := n.Stage["char.hero"]
+		if n.KeepStage && (len(n.Stage) == 0 || stageHasHero) {
+			return fmt.Errorf("%s: only NPC stage goals can be kept", at)
+		}
+		if len(n.Stage) > 0 {
+			if c.StageLevel == "" {
+				return fmt.Errorf("%s: stage movement needs a level", at)
+			}
+			for actor := range n.Stage {
+				if err := k.person(at, actor, false); err != nil {
+					return err
+				}
+			}
+		}
 		if err := k.lines(at, n.Lines, speakers, s, reader); err != nil {
 			return err
 		}
@@ -997,8 +1067,14 @@ func (k *memoryChecker) conversation(c *Conversation) error {
 				return err
 			}
 		}
+		if err := k.lines(at+".tail_lines", n.TailLines, speakers, s, reader); err != nil {
+			return err
+		}
 		for _, o := range n.Options {
 			oat := at + "." + o.ID
+			if o.Continue && (o.Check != nil || o.Trade || o.Next == "" && o.Close == "") {
+				return fmt.Errorf("%s: a continuation needs a next node or an ending", oat)
+			}
 			if !memoryWord.MatchString(o.ID) {
 				return fmt.Errorf("%s: answer id", oat)
 			}
@@ -1488,6 +1564,44 @@ func checkMemory(c *Compiled) error {
 			k.links.add(k.links.factWriters, f.id, f.what)
 		}
 	}
+	if start := c.Start; start != nil {
+		d := c.Conversations[start.Conversation]
+		l, ok := life.Locations[start.Level]
+		if d == nil || !d.Event || !ok || !k.persons[start.Speaker] {
+			return fmt.Errorf("world.start: needs an event, level and Life speaker")
+		}
+		walks := func(at storyCell) bool {
+			return at.Y >= 0 && at.Y < len(l.Terrain) && at.X >= 0 && at.X < len(l.Terrain[at.Y]) &&
+				c.Walkable[string(l.Terrain[at.Y][at.X])]
+		}
+		if !walks(start.At) {
+			return fmt.Errorf("world.start: invalid starting cell %+v", start.At)
+		}
+		marks := map[storyCell]bool{}
+		for _, at := range start.Marks {
+			if !walks(at) || marks[at] {
+				return fmt.Errorf("world.start: invalid or repeated stage mark %+v", at)
+			}
+			marks[at] = true
+		}
+		if d.StageLevel != "" && d.StageLevel != start.Level {
+			return fmt.Errorf("world.start: stage level differs from the opening level")
+		}
+		if m.Facts[start.StatusFact] == nil || m.Facts[start.AbilityFact] == nil {
+			return fmt.Errorf("world.start: unknown status or ability fact")
+		}
+		for _, actor := range sortedKeys(start.Promotions) {
+			promotion := start.Promotions[actor]
+			if !k.persons[actor] || !k.castes[promotion.Status] || m.Facts[promotion.Fact] == nil {
+				return fmt.Errorf("world.start: invalid promotion for %s", actor)
+			}
+			k.read(true, promotion.Fact, "допуск к зонам")
+		}
+		k.links.opened[start.Conversation] = "Вход в новую игру"
+		for _, fact := range []string{start.StatusFact, start.AbilityFact} {
+			k.read(true, fact, "интерфейс чипа")
+		}
+	}
 	for _, id := range sortedKeys(c.Conversations) {
 		conv := c.Conversations[id]
 		if conv.ID != id {
@@ -1504,6 +1618,22 @@ func checkMemory(c *Compiled) error {
 		}
 		if err := k.conversation(conv); err != nil {
 			return err
+		}
+		if conv.StageLevel != "" {
+			location, ok := life.Locations[conv.StageLevel]
+			if !ok {
+				return fmt.Errorf("world.conversations.%s: unknown stage level %s", id, conv.StageLevel)
+			}
+			for _, node := range sortedKeys(conv.Nodes) {
+				stage := conv.Nodes[node].Stage
+				for _, actor := range sortedKeys(stage) {
+					at := stage[actor]
+					if at.Y < 0 || at.Y >= len(location.Terrain) || at.X < 0 || at.X >= len(location.Terrain[at.Y]) ||
+						!c.Walkable[string(location.Terrain[at.Y][at.X])] {
+						return fmt.Errorf("world.conversations.%s.%s: cannot stage %s at %+v", id, node, actor, at)
+					}
+				}
+			}
 		}
 	}
 	// interjections: one per person, fact and belief; spoken where the person talks, or waiting for that place

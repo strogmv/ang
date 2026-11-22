@@ -131,6 +131,10 @@ func (r *Runtime) inventoryCommand(c *connection, q *pb.PocInventoryCommand) {
 		r.sendState(c)
 	}()
 	reject := func(message string) { result.Message = message }
+	if r.state.Memory.Opening {
+		reject(r.localText(c.locale, "error.encounter.unavailable", "Story opening is in progress"))
+		return
+	}
 		if !r.state.Active || q.Epoch != r.state.Epoch {
 		reject(r.localText(c.locale, "ui.screen.inventory.state_changed", "ui.screen.inventory.state_changed"))
 		return

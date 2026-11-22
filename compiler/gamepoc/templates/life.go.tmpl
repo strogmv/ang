@@ -126,6 +126,7 @@ func (r *Runtime) advanceLifeFrameBy(delta int64) error {
 	r.state.Life.ControlledActorID = playerActorID
 	r.state.Life.BrainServices = r.npcServices()
 	r.state.Life.BrainServices.StoryTarget = r.storyGatheringTargets()
+	r.talkBeforeFrame()
 	old := r.currentLevel()
 	previousEdge := ""
 	if hero := r.state.Life.Actor(playerActorID); hero != nil && hero.Trip != nil {
@@ -418,6 +419,9 @@ func (r *Runtime) sendLifeState(c *connection) {
 	r.send(c, &pb.ServerMessage{Msg: &pb.ServerMessage_GameState{GameState: msg}})
 }
 func (r *Runtime) lifeCommand(q *pb.PocLifeCommand) error {
+ if r.state.Memory.Opening && q.Action != "conversation_choice" && q.Action != "conversation_leave" && q.Action != "rate" {
+  return textError{Key: "error.encounter.unavailable"}
+ }
  // story memory: the column closed (Esc) always reaches the talk, before any guard — a held world must not stay frozen
  if q.Action=="journal_open" || q.Action=="journal_read_record" {return r.storyJournalCommand(q)}
  if q.Action=="conversation_leave"{return r.conversationCommand(q)}
@@ -586,6 +590,8 @@ func (r *Runtime) lifeMove(c *connection, m *pb.MoveTo) {
 		return
 	}
 	switch {
+	case r.state.Memory.Opening:
+		result.Reason = "actor_inactive"
 	case hero != nil && (hero.CombatHold || hero.ServiceAttachment!="" || hero.BoardedEdge!="" || r.serviceReserved(playerActorID)):
 		result.Reason = "actor_inactive"
 	case r.state.Life.PopulationFailure != "":
@@ -1065,6 +1071,7 @@ func (r *Runtime) heroBodyPB(h *behavior.LifeActor) *pb.PocHeroBody {
 // heroSteer: WASD / stick direction, a held cursor point, or stop. Answered
 // with the body only (no full state): the client already predicts the walk.
 func (r *Runtime) heroSteer(c *connection, m *pb.PocHeroSteer) {
+	if r.state.Memory.Opening { return }
 	result := &pb.PocMoveResult{Epoch: r.state.Epoch, InputSeq: m.InputSeq}
 	hero := r.state.Life.Actor(playerActorID)
 	switch {

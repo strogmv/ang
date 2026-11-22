@@ -331,3 +331,24 @@ func TestMemoryScriptRegistry(t *testing.T) {
 		t.Fatal("duplicate script id accepted")
 	}
 }
+
+func TestMemoryGroupNamedSpeakersAndContinuation(t *testing.T) {
+	c := memoryWorld(t)
+	d := c.Conversations["dlg.trader"]
+	d.NamedSpeakers = map[string]string{"terminal": "t.open"}
+	n := d.Nodes["open"]
+	n.TailLines = []ConvLine{{Speaker: "terminal", Text: "t.reply", Actors: map[string]string{"speaker": "char.trader"}}}
+	n.Options[2].Continue = true
+	if err := checkMemory(c); err != nil {
+		t.Fatal(err)
+	}
+	delete(d.NamedSpeakers, "terminal")
+	if err := checkMemory(c); err == nil || !strings.Contains(err.Error(), "does not take part") {
+		t.Fatalf("undeclared speaker accepted: %v", err)
+	}
+	d.NamedSpeakers["terminal"] = "t.open"
+	n.Options[1].Continue = true
+	if err := checkMemory(c); err == nil || !strings.Contains(err.Error(), "continuation") {
+		t.Fatalf("a silent check accepted: %v", err)
+	}
+}

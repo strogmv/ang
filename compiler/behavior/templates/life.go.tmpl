@@ -359,7 +359,12 @@ func(s *LifeState)AdvanceWithTravelBy(m LifeModel,tick,delta int64,install Maint
  brainSvc:=s.BrainServices;if brainSvc.SlotTaken==nil{brainSvc.SlotTaken=s.lifeSlotTaken}
  if brainSvc.LeaveHome==nil&&m.Brain.LeaveHomeSeconds>0{seed:=s.Seed;brainSvc.LeaveHome=func(id string,seconds int64)(int64,bool){return m.leaveHome(id,seconds,seed)}}
  for i:=range s.Actors{
-  s.trafficActor(i);a:=&s.Actors[i];motion:=s.ActorMotionTick(m,s.Tick,a);person:=m.Person(a.ID);if person==nil{continue};if a.CombatHold||a.ServiceAttachment!=""||a.BoardedEdge!=""||a.Mount!=nil{a.Path=nil;a.PendingPath=nil;a.MoveStartTick=motion;continue}
+  s.trafficActor(i);a:=&s.Actors[i];motion:=s.ActorMotionTick(m,s.Tick,a)
+  // Start and save validation preserve model order. Retain the ID lookup
+  // for callers with partial or reordered state.
+  var person *LifePerson
+  if i<len(m.Actors)&&m.Actors[i].ID==a.ID{person=&m.Actors[i]}else{person=m.Person(a.ID)}
+  if person==nil{continue};if a.CombatHold||a.ServiceAttachment!=""||a.BoardedEdge!=""||a.Mount!=nil{a.Path=nil;a.PendingPath=nil;a.MoveStartTick=motion;continue}
   if a.Safety!=nil&&a.Safety.Until<=s.Seconds{s.ClearSafety(a.ID)}
   safety:=a.Safety!=nil
   brainStep:=person.Steps[a.Step]

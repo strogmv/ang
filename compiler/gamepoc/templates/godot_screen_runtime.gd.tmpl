@@ -425,6 +425,8 @@ func refusal(copy: String) -> void:
 		status.show()
 
 func _close() -> void:
+	if screen_id == "conversation" and state != null and state.conversation != null and state.conversation.required:
+		return
 	if spec.close.command.begins_with("host.") and spec.close.command != "host.close":
 		_act(spec.close)
 		return

@@ -173,6 +173,7 @@ func (u *dialogueUsage) conversation(c *Conversation) {
 	}
 	for _, node := range c.Nodes {
 		u.lines(node.Lines)
+		u.lines(node.TailLines)
 		u.effects(node.Do)
 		for _, voice := range node.Voices {
 			u.voices = append(u.voices, voice.Skill)

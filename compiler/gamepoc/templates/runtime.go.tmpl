@@ -117,6 +117,7 @@ type worldData struct {
 	// story memory (doc 103 step 1): facts, topics, interjections, talks, and every conversation (conversation.go)
 	Memory        *memoryCatalog              `json:"memory"`
 	Conversations map[string]*conversationDef `json:"conversations"`
+	Start *storyStartDef `json:"start"`
 	// the hero's personal file (hero_file.go): nil without world.hero_file
 	HeroFile *heroFileCatalog `json:"hero_file"`
  Peddlers                peddlerCatalog                  `json:"peddlers"`
@@ -947,6 +948,10 @@ func (r *Runtime) command(in input) {
 		return
 	}
 	r.receipts[id] = &receipt{digest: digest}
+	if r.state.Memory.Opening && (action == "combat" || action == "crafting") {
+		r.action(c, id, action, slot, textError{Key: "error.encounter.unavailable"})
+		return
+	}
 	switch action {
 	case "combat":
 		err := r.combatCommand(m.GetCombatCommand())
@@ -1009,7 +1014,8 @@ func (r *Runtime) command(in input) {
 			return
 		}
 		count, isLife := lifeScenarioPopulation(scenario)
-		if layout != "" || world.PlayableID!="" {
+		opening := world.Start != nil && scenario == world.Start.Scenario
+		if opening || layout != "" || world.PlayableID!="" {
 			isLife = true
 		}
 		candidate := &Runtime{world: world}
@@ -1031,9 +1037,9 @@ func (r *Runtime) command(in input) {
 			}
 		}
 		// the new game is built in place and swapped back on a failure: the running game stays as it was
-		previousWorld, previousState, previousStore := r.world, r.state, r.openStore
+		previousWorld, previousState, previousStore, previousStory := r.world, r.state, r.openStore, r.story
 		restore := func(err error) {
-			r.world, r.state, r.openStore = previousWorld, previousState, previousStore
+			r.world, r.state, r.openStore, r.story = previousWorld, previousState, previousStore, previousStory
 			r.action(c, id, action, slot, err)
 		}
 		r.world = world
@@ -1047,6 +1053,9 @@ func (r *Runtime) command(in input) {
 				return
 			}
             if err:=r.initPlayableScene();err!=nil{restore(err);return}
+			if opening {
+				if err := r.startStory(); err != nil { restore(err); return }
+			}
 		} else {
 			r.initDemo(scenario)
 		}

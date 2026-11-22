@@ -66,6 +66,7 @@ type memoryTradeDef struct {
 	Nothing string `json:"nothing"`
 }
 type memoryFactDef struct {
+	ReplaceArgs bool `json:"replace_args"`
 	Visibility   string              `json:"visibility"`
 	Recorded     bool                `json:"recorded"`
 	MemoryDays   int64               `json:"memory_days"`
@@ -119,6 +120,8 @@ type memKnows struct {
 	}
 
 type memWhen struct {
+	FileTrait string `json:"file_trait"`
+	FileStrength string `json:"file_strength"`
 	Quest *storyQuestStep `json:"quest,omitempty"`
 	Hour *storyHours `json:"hour,omitempty"`
 	Present *storyPresence `json:"present,omitempty"`
@@ -196,7 +199,25 @@ type memDo struct {
 		Set   float64 `json:"set"`
 	} `json:"item_condition,omitempty"`
 }
+type storyStartDef struct {
+	Promotions map[string]struct {
+		Status string `json:"status"`
+		Fact string `json:"fact"`
+	} `json:"promotions"`
+	Scenario string `json:"scenario"`
+	Conversation string `json:"conversation"`
+	Speaker string `json:"speaker"`
+	Level string `json:"level"`
+	At behavior.Cell `json:"at"`
+	Marks []behavior.Cell `json:"marks"`
+	HeroStatus string `json:"hero_status"`
+	StatusFact string `json:"status_fact"`
+	AbilityFact string `json:"ability_fact"`
+}
+
 type conversationDef struct {
+	StageLevel string `json:"stage_level"`
+	NamedSpeakers map[string]string `json:"named_speakers"`
 	ID       string   `json:"id"`
 	Event    bool     `json:"event"`
 	Speakers []string `json:"speakers"`
@@ -217,6 +238,9 @@ type convEntryDef struct {
 	Lines []convLine `json:"lines"`
 }
 type convNode struct {
+	TailLines []convLine `json:"tail_lines"`
+	KeepStage bool `json:"keep_stage"`
+	Stage map[string]behavior.Cell `json:"stage"`
 	Do []memDo `json:"do,omitempty"`
 	AfterDecision bool `json:"after_decision,omitempty"`
 	Lines   []convLine   `json:"lines"`
@@ -228,6 +252,7 @@ type convVariant struct {
 	Text string  `json:"text"`
 }
 type convLine struct {
+	Actors map[string]string `json:"actors"`
 	Speaker  string        `json:"speaker"`
 	Text     string        `json:"text"`
 	When     *memWhen      `json:"when,omitempty"`
@@ -243,6 +268,7 @@ type convVoice struct {
 	Do       []memDo       `json:"do"`
 }
 type convOption struct {
+	Continue bool `json:"continue"`
 	ID       string        `json:"id"`
 	Text     string        `json:"text"`
 	Variants []convVariant `json:"variants"`
@@ -278,6 +304,8 @@ func (o convOption) question() bool { return o.Next == "" && o.Close == "" && !o
 const memoryMigrationVersion = 1
 
 type memoryState struct {
+	Opening bool `json:",omitempty"`
+	OpeningPlayed bool `json:",omitempty"`
  StoryVersion int `json:",omitempty"`
 	QuestSteps map[string]storyQuestStep `json:",omitempty"`
 	RulesFired map[string]int64 `json:",omitempty"`
@@ -375,6 +403,7 @@ func sortedMemoryNodes(d *conversationDef) []string {
 }
 
 type talkState struct {
+	Staging bool `json:",omitempty"`
 	// the log of the talk on now; the answers chosen and checks rolled with this person, kept between talks
 	dialogueSession
 	// voices that spoke in talks with this person
@@ -406,7 +435,10 @@ type talkTrade struct {
 }
 
 func (s memoryState) clone() memoryState {
-		out := memoryState{Open: s.Open, Serial: s.Serial, Migrated: s.Migrated, Story:s.Story.clone(), StoryVersion:s.StoryVersion, QuestSteps:maps.Clone(s.QuestSteps), RulesFired:maps.Clone(s.RulesFired)}
+	out := s
+	out.Story = s.Story.clone()
+	out.QuestSteps = maps.Clone(s.QuestSteps)
+	out.RulesFired = maps.Clone(s.RulesFired)
 	if s.Once != nil {
 		out.Once = map[string]memoryOnce{}
 		for key, h := range s.Once {
@@ -598,6 +630,9 @@ func (r *Runtime) memoryWrite(fact string, args map[string]string, c talkCtx) {
 		for k, v := range args {
 			if !memoryIn(rec.Args[k], v) {
                 changed = ok
+				if m.Facts[fact].ReplaceArgs {
+					rec.Args[k] = nil
+				}
 				rec.Args[k] = append(rec.Args[k], v)
 				sort.Strings(rec.Args[k])
 			}
@@ -780,6 +815,13 @@ func (r *Runtime) memoryOne(item inv.Item) (string, []inv.Relocate) {
 
 // memoryHolds: the condition holds now (nil holds).
 func (r *Runtime) memoryHolds(c talkCtx, w *memWhen) bool {
+	if w != nil && (w.FileTrait != "" || w.FileStrength != "") {
+		f := r.state.HeroFile
+		if f == nil || w.FileTrait != "" && f.Choice.Trait != w.FileTrait ||
+			w.FileStrength != "" && !memoryIn(f.Choice.Strengths, w.FileStrength) {
+			return false
+		}
+	}
 	if w == nil {
 		return true
 	}
@@ -1026,7 +1068,8 @@ func (r *Runtime) talkSpeak(c talkCtx, lines []convLine) {
 		if !r.memoryHolds(c, l.When) {
 			continue
 		}
-		line := dialogueEntry{Kind: "line", Speaker: c.person(l.Speaker), Text: r.lineText(c, l.Text, l.Variants)}
+		line := dialogueEntry{Kind: "line", Speaker: c.person(l.Speaker), Text: r.lineText(c, l.Text, l.Variants),
+			NameKey: c.conv.NamedSpeakers[l.Speaker], Actors: l.Actors}
 		if l.Speaker == "narrator" {
 			line.Kind, line.Speaker = "narration", ""
 		}
@@ -1041,6 +1084,16 @@ func (r *Runtime) talkEnter(c talkCtx, node string) {
 		return
 	}
 	c.t.Node = node
+	if len(n.Stage) > 0 {
+		c.t.Staging = true
+		return
+	}
+	r.talkArrive(c, n)
+}
+
+func (r *Runtime) talkArrive(c talkCtx, n *convNode) {
+	c.t.Staging = false
+	node := c.t.Node
 	for _, seen := range c.t.Nodes {
 		if seen == node {
 			return
@@ -1057,6 +1110,95 @@ func (r *Runtime) talkEnter(c talkCtx, node string) {
 		c.t.Voiced = append(c.t.Voiced, v.ID)
 		r.memoryDo(c, v.Do)
 	}
+	r.talkSpeak(c, n.TailLines)
+}
+
+func (r *Runtime) storyOfficialStatus() string {
+	if d := r.world.Start; d != nil {
+		if status := r.state.Memory.Facts[d.StatusFact].Args["status"]; len(status) == 1 {
+			return status[0]
+		}
+	}
+	return ""
+}
+
+// startStory is called only by the configured New Game entry point. Save loads
+// restore the conversation and the Life positions through the usual state.
+func (r *Runtime) startStory() error {
+	d := r.world.Start
+	hero := r.state.Life.Actor(playerActorID)
+	if hero == nil || !r.world.Life.WalksFor(d.Level, d.At, playerActorID) || r.state.Life.BlockedCells(d.Level, hero.ID)[d.At] {
+		return fmt.Errorf("story opening: hero cannot stand at %s %+v", d.Level, d.At)
+	}
+	hero.Level, hero.Position, hero.Goal = d.Level, d.At, d.At
+	hero.Path, hero.PendingPath, hero.Body, hero.Trip = nil, nil, nil, nil
+	hero.Manual, hero.Arrived = true, true
+	r.state.Life.EnsureHeroBody(r.state.Life.GateModel(r.world.Life))
+	r.syncLifeHero()
+	r.updateLifeExploration()
+	r.syncRegionKnowledge()
+	r.state.Memory.Opening = true
+	r.state.Memory.OpeningPlayed = true
+	return r.talkOpen(d.Conversation, d.Speaker)
+}
+
+func (r *Runtime) openingTalk(c talkCtx) bool {
+	d := r.world.Start
+	return r.state.Memory.Opening && d != nil && c.conv.ID == d.Conversation && c.self == d.Speaker
+}
+
+// The next authored beat becomes visible after each walker has actually
+// reached its mark. Stations are temporary Life goals and use normal collision.
+func (r *Runtime) talkStage(c talkCtx) func(string) (behavior.LifeStep, bool) {
+	n := c.conv.Nodes[c.t.Node]
+	level := c.conv.StageLevel
+	return func(actor string) (behavior.LifeStep, bool) {
+		at, ok := n.Stage[actor]
+		return behavior.LifeStep{Level: level, At: at, Activity: "post"}, ok
+	}
+}
+
+func (r *Runtime) talkBeforeFrame() {
+	if r.state.Memory.Open == "" { return }
+	t := r.state.Memory.Talks[r.state.Memory.Open]
+	if t == nil || !t.Staging { return }
+	c, ok := r.talkOpenNow()
+	if !ok || !r.talkAllowed(c) { return }
+	stage := r.talkStage(c)
+	other := r.state.Life.BrainServices.StoryTarget
+	r.state.Life.BrainServices.StoryTarget = func(actor string) (behavior.LifeStep, bool) {
+		if step, ok := stage(actor); ok { return step, true }
+		if other != nil { return other(actor) }
+		return behavior.LifeStep{}, false
+	}
+	if step, ok := stage(playerActorID); ok {
+		hero := r.state.Life.Actor(playerActorID)
+		if hero.Position != step.At && (hero.Body == nil || hero.Body.Mode == "") {
+			r.lifeWalkToPoint(step.At, 0, 0, false, false, 0)
+		}
+	}
+}
+
+func (r *Runtime) talkStageAfterFrame(c talkCtx) {
+	n := c.conv.Nodes[c.t.Node]
+	level := c.conv.StageLevel
+	for id, at := range n.Stage {
+		a := r.state.Life.Actor(id)
+		if a == nil || !a.OnFloor() || a.Level != level || a.Position != at || !a.Arrived {
+			return
+		}
+	}
+	if n.KeepStage {
+		for id, at := range n.Stage {
+			a := r.state.Life.Actor(id)
+			step := behavior.LifeStep{Level: level, At: at, Activity: "post"}
+			if person := r.world.Life.Person(id); person != nil && a.Step >= 0 && a.Step < len(person.Steps) {
+				step.Label = person.Steps[a.Step].Label
+			}
+			a.RoutineOverride = &step
+		}
+	}
+	r.talkArrive(c, n)
 }
 
 // talkInterjection: the freshest fact the person knows himself (belief 1), fresh enough, not yet said by him, whose
@@ -1115,7 +1257,7 @@ func (r *Runtime) talkState(key string) *talkState {
 // talkOpen opens a talk with a person: his interjection, the entry, its node. Another open talk ends without a word.
 func (r *Runtime) talkOpen(conv, self string) error {
 	d := r.world.Conversations[conv]
-	if d == nil {
+	if d == nil || d.StageLevel != "" && d.StageLevel != r.currentLevel() {
 		return textError{Key: "error.encounter.unavailable"}
 	}
 	key := talkKey(conv, self)
@@ -1124,6 +1266,7 @@ func (r *Runtime) talkOpen(conv, self string) error {
 	r.state.Memory.Serial++
 	t.Lines, t.Nodes, t.Interjected, t.Until, t.Close, t.Entry, t.Node, t.Ticks, t.Hidden = nil, nil, false, 0, "", "", "", 0, false
 	t.Trade = talkTrade{}
+	t.Staging = false
 	t.Opened, t.Serial = r.state.Life.Seconds, r.state.Memory.Serial
 	r.state.Memory.Open = key
 	c := talkCtx{conv: d, key: key, self: self, t: t}
@@ -1188,7 +1331,7 @@ func (r *Runtime) talkClose(c talkCtx, word string) {
 // player must have time to read; conversation.go counts the talk's own time instead).
 func (r *Runtime) talkHolds() bool {
 	c, ok := r.talkOpenNow()
-	return ok && !c.t.Hidden && r.talkAllowed(c)
+	return ok && !c.t.Staging && !c.t.Hidden && r.talkAllowed(c)
 }
 
 // talkTick: one server tick of the open talk while the world waits; a talk that waits for an answer only so long hands
@@ -1247,7 +1390,7 @@ func (r *Runtime) talkChoose(id string) (string, bool, error) {
 	}
 	defer func() { r.state.Memory.rememberTalk(c.key, c.t) }()
 	n := c.conv.Nodes[c.t.Node]
-	if n == nil {
+	if n == nil || c.t.Staging {
 		return "", false, textError{Key: "error.encounter.unavailable"}
 	}
 	// the goods are shown: the node's answers are not, until the hero is done with them
@@ -1272,7 +1415,11 @@ func (r *Runtime) talkChoose(id string) (string, bool, error) {
 			return "", false, nil
 		}
 		previous := c.t.dialogueSession.clone()
-		r.dialogueAnswer(&c.t.dialogueSession, o.ID, r.lineText(c, o.Text, o.Variants))
+		if o.Continue {
+			c.t.recordChoice(o.ID)
+		} else {
+			r.dialogueAnswer(&c.t.dialogueSession, o.ID, r.lineText(c, o.Text, o.Variants))
+		}
 		if o.Trade {
 			// the person's word about his goods, then the goods in place of the answers
 			r.talkSpeak(c, o.Reply)
@@ -1302,7 +1449,12 @@ func (r *Runtime) talkChoose(id string) (string, bool, error) {
 		case next != "":
 			r.talkEnter(c, next)
 		case word != "":
-			r.talkClose(c, word)
+			if r.openingTalk(c) {
+				r.state.Memory.Opening = false
+				r.talkDrop()
+			} else {
+				r.talkClose(c, word)
+			}
 		}
 		return word, failed, nil
 	}
@@ -1477,6 +1629,7 @@ func (r *Runtime) conversationCommand(q *pb.PocLifeCommand) error {
 		}
 		return r.talkOpen(conv, q.Destination)
 	case "conversation_leave":
+		if r.state.Memory.Opening { return nil }
 		// the hero closed the column: an ordinary talk ends, a talk that waits for its owner steps aside, last words go
 		if c, ok := r.talkOpenNow(); ok && c.conv.Event && !c.afterDecision() {
 			c.t.Hidden = true
@@ -1510,9 +1663,11 @@ func (r *Runtime) conversationCommand(q *pb.PocLifeCommand) error {
 // talkAllowed: the open talk may go on — its owner still holds it (the encounter's phase and guard) and the hero stands
 // within the conversation's reach.
 func (r *Runtime) talkAllowed(c talkCtx) bool {
+	if r.openingTalk(c) { return r.currentLevel() == r.world.Start.Level }
 	if owned, ok := r.encounterTalkAllowed(c); owned {
 		return ok
 	}
+	if c.conv.StageLevel != "" { return c.conv.StageLevel == r.currentLevel() }
 	talk, available := r.talkOf(c.self)
 	return available && talk.Conversation==c.conv.ID && r.talkWithin(c.self, c.conv.Reach)
 }
@@ -1541,6 +1696,9 @@ func (r *Runtime) memoryAfterFrame() {
 			r.talkDrop()
 		}
 	default:
+		if t.Staging {
+			if c, ok := r.talkOpenNow(); ok && r.talkAllowed(c) { r.talkStageAfterFrame(c) }
+		}
 		// an ordinary talk ends when the hero walks away; an event talk (the custody) waits for its owner
 		if c, ok := r.talkOpenNow(); !ok || (!c.conv.Event || c.afterDecision()) && !r.talkAllowed(c) {
 			r.talkDrop()
@@ -1605,18 +1763,18 @@ func (r *Runtime) appendConversation(msg *pb.PocGameState, locale string) {
 	if t.Until == 0 && (t.Hidden || !r.talkAllowed(c)) {
 		return
 	}
-	speaker, text := self, ""
+	speaker, text, nameKey := self, "", ""
 	for _, l := range t.Lines {
 		if l.Kind == "line" {
-			speaker, text = l.Speaker, l.Text
+			speaker, text, nameKey = l.Speaker, r.dialogueEntryText(locale, l), l.NameKey
 		}
 	}
-	v := &pb.PocConversation{Kind: "talk", Id: fmt.Sprintf("%s#%d", key, t.Serial), Speaker: speaker, Text: r.dialogueText(locale, text), Lines: r.dialogueLog(locale, t.dialogueSession)}
+	v := &pb.PocConversation{Required: r.openingTalk(c), Kind: "talk", Id: fmt.Sprintf("%s#%d", key, t.Serial), Speaker: speaker, Text: text, Lines: r.dialogueLog(locale, t.dialogueSession)}
 	if t.Until > 0 {
 		v.Kind, v.Leave = "reply", true
 	} else if t.Trade.On && r.talkSelfTrades(self) {
 		r.appendTalkTrade(v, c, locale)
-	} else if n := d.Nodes[t.Node]; n != nil {
+	} else if n := d.Nodes[t.Node]; n != nil && !t.Staging {
 		for _, o := range n.Options {
 			if !r.optionShown(c, o) {
 				continue
@@ -1629,7 +1787,13 @@ func (r *Runtime) appendConversation(msg *pb.PocGameState, locale string) {
 			v.Choices = append(v.Choices, choice)
 		}
 	}
+	if v.Required {
+		for _, at := range r.world.Start.Marks {
+			v.StageMarks = append(v.StageMarks, &pb.PocStoryStageMark{X: int32(at.X), Y: int32(at.Y)})
+		}
+	}
 	v.SpeakerName = r.craftingActorName(locale, v.Speaker)
+	if nameKey != "" { v.SpeakerName = r.dialogueText(locale, nameKey) }
 	v.Skin = barkCatalog.Castes[v.Speaker]
 	if v.Skin != "copper" && v.Skin != "silver" && v.Skin != "gold" {
 		v.Skin = "copper"
@@ -2022,6 +2186,7 @@ func (r *Runtime) sanitizeMemory(s *state) {
 			}
 		}
 		speakers := map[string]bool{self: true}
+		for sp := range d.NamedSpeakers { speakers[sp] = true }
 		for _, sp := range d.Speakers {
 			speakers[sp] = true
 		}
@@ -2056,6 +2221,16 @@ func (r *Runtime) sanitizeMemory(s *state) {
 
 // validateMemorySave: times within the game's clock and sizes within the content.
 func (r *Runtime) validateMemorySave(s state) error {
+	if s.Memory.Opening {
+		d := r.world.Start
+		if d == nil { return errors.New("saved story opening has no definition") }
+		hero := s.Life.Actor(playerActorID)
+		t := s.Memory.Talks[s.Memory.Open]
+		if !s.Memory.OpeningPlayed || hero == nil || hero.Level != d.Level || t == nil ||
+			s.Memory.Open != talkKey(d.Conversation, d.Speaker) || t.Hidden || t.Until != 0 {
+			return errors.New("invalid saved story opening")
+		}
+	}
 	if err := r.validateStoryProgress(s); err != nil {
 		return err
 	}

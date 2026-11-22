@@ -359,6 +359,7 @@ type Compiled struct {
 	// opens which conversation, and every conversation the one server executor runs. nil without them.
 	Memory        *Memory                  `json:"memory,omitempty"`
 	Conversations map[string]*Conversation `json:"conversations,omitempty"`
+	Start         *StoryStart              `json:"start,omitempty"`
 	memoryLinks   *memoryLinks
 	linksPage     []byte
 	memoryScripts map[string]string
@@ -621,6 +622,12 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	}
 	if out.DialogueRules, err = readDialogueRules(world); err != nil {
 		return out, nil, err
+	}
+	if v := world.LookupPath(cue.ParsePath("start")); v.Exists() {
+		out.Start = &StoryStart{}
+		if err := decodeStrict(v, "world.start", out.Start); err != nil {
+			return out, nil, err
+		}
 	}
 	if out.Memory, out.Conversations, err = readMemory(world); err != nil {
 		return out, nil, err
@@ -1601,6 +1608,7 @@ func generatePOC(project string, legacyUnity bool) error {
 		"conversation.go.tmpl":                  filepath.Join(project, "internal/poc/conversation.gen.go"),
 		"story_rules.go.tmpl":                   filepath.Join(project, "internal/poc/story_rules.gen.go"),
 		"story_rules_test.go.tmpl":              filepath.Join(project, "internal/poc/story_rules_generated_test.go"),
+		"story_start_test.go.tmpl":              filepath.Join(project, "internal/poc/story_start_generated_test.go"),
 		"conversation_test.go.tmpl":             filepath.Join(project, "internal/poc/conversation_generated_test.go"),
 		"dialogue.go.tmpl":                      filepath.Join(project, "internal/poc/dialogue.gen.go"),
 		"inventory_dress.go.tmpl":               filepath.Join(project, "internal/poc/inventory_dress.gen.go"),

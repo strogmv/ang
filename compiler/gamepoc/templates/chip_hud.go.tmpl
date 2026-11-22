@@ -148,10 +148,23 @@ func (r *Runtime) appendChipHud(msg *pb.PocGameState, locale string) {
 			v.NoiseText = text(h.Noise.WalkKey)
 		}
 	}
+	if start := r.world.Start; start != nil && r.state.Memory.OpeningPlayed {
+		v.OfficialStatus = "student"
+		if status := r.storyOfficialStatus(); status != "" { v.OfficialStatus = status }
+		v.SchematicRepair = r.state.Memory.Facts[start.AbilityFact].Count > 0
+	}
 	for _, f := range h.Functions {
 		row := &pb.PocChipFunction{Id: f.ID, Icon: f.Icon, Title: text(f.NameKey), Open: f.Unlock == "start", Text: text(f.TextKey)}
 		if !row.Open {
-			row.Reason, row.Text = text(f.ReasonKey), text(f.LaterKey)
+			row.Locked = v.OfficialStatus == "" || v.OfficialStatus == "copper"
+			switch {
+			case row.Locked:
+				row.Reason, row.Text = text(f.ReasonKey), text(f.LaterKey)
+			case v.OfficialStatus == "student":
+				row.Reason, row.Text = text("file.slot.training"), ""
+			default:
+				row.Reason, row.Text = "", ""
+			}
 		}
 		v.Functions = append(v.Functions, row)
 	}

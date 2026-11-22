@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -78,6 +80,8 @@ type dialogueSession struct {
 	Nodes  []string                       `json:",omitempty"`
 }
 type dialogueEntry struct {
+	NameKey string `json:",omitempty"`
+	Actors map[string]string `json:",omitempty"`
 	// line | hero | check | voice | note (what came of a deal inside a talk: Text is the server's text key)
 	Kind       string
 	Speaker    string `json:",omitempty"`
@@ -228,6 +232,10 @@ func (r *Runtime) dialogueSpeak(s *dialogueSession, lines []DialogueLine) {
 // dialogueAnswer writes the hero's chosen answer to the log; a chosen answer is shown dimmed afterwards.
 func (r *Runtime) dialogueAnswer(s *dialogueSession, option, text string) {
 	r.dialogueSay(s, dialogueEntry{Kind: "hero", Speaker: playerActorID, Text: text})
+	s.recordChoice(option)
+}
+
+func (s *dialogueSession) recordChoice(option string) {
 	if !s.chose(option) {
 		s.Chosen = append(s.Chosen, option)
 	}
@@ -256,6 +264,14 @@ func (r *Runtime) dialogueText(locale, key string) string {
 		return t
 	}
 	return ""
+}
+
+func (r *Runtime) dialogueEntryText(locale string, line dialogueEntry) string {
+	text := r.dialogueText(locale, line.Text)
+	for _, name := range slices.Sorted(maps.Keys(line.Actors)) {
+		text = strings.ReplaceAll(text, "{"+name+"}", r.craftingActorName(locale, line.Actors[name]))
+	}
+	return text
 }
 
 // dialogueSpeaker: a speaker's localized name and the colour of the caste; the hero is «you».
@@ -321,7 +337,8 @@ func (r *Runtime) dialogueLog(locale string, s dialogueSession) []*pb.PocConvers
 			line.Text = r.dialogueText(locale, e.Text)
 		case "line", "hero":
 			line.Name, line.Colour = r.dialogueSpeaker(locale, e.Speaker)
-			line.Text = r.dialogueText(locale, e.Text)
+			if e.NameKey != "" { line.Name = r.dialogueText(locale, e.NameKey) }
+			line.Text = r.dialogueEntryText(locale, e)
 		case "voice":
 			line.Name, line.Colour = r.dialogueSkillTag(locale, e.Skill)
 			line.Text = r.dialogueText(locale, e.Text)
