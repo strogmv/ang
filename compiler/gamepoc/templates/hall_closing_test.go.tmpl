@@ -18,9 +18,7 @@ func closingRun(t *testing.T, rate int64, days int64, check func(day int64, r *R
 	r.state.Life.SecondsPerTick = rate
 	end := r.state.Life.Seconds + days*86400
 	for r.state.Life.Seconds < end {
-		if err := r.advanceLifeFrameBy(rate); err != nil {
-			t.Fatal(err)
-		}
+		worldFrame(t, r)
 		check(r.state.Life.Seconds%86400, r)
 	}
 	return r
@@ -54,6 +52,29 @@ func TestHallEmptyAtNightFullByDay(t *testing.T) {
 	for _, id := range c.NightRoster {
 		allowed[id] = true
 	}
+	// the early roster (baseline fixes, 21.11, plan 9): the stalls of the first set come in for their lot before the
+	// opening, each from his own second (data, like the night roster)
+	early := map[string]int64{}
+	for _, e := range c.EarlyRoster {
+		early[e.Actor] = e.FromSecond
+	}
+	if len(early) == 0 {
+		t.Fatal("the closure lost its early roster")
+	}
+	// the convoy's crew brings the morning lots into the hall by the freight gate before the opening (cargo to the market
+	// v1 part B, game 8edf4e10: «gate 8 by pass»), from its run's start; with the deck on game time (baseline fixes, 21.11,
+	// plan 7) the run comes in time at every rate, which the test had never seen
+	if r.world.CargoConvoys != nil {
+		for _, v := range r.world.CargoConvoys.Convoys {
+			for _, run := range v.Runs {
+				for _, m := range v.Crew {
+					if from, ok := early[m.ID]; run.StartSecond < c.OpenSecond && (!ok || run.StartSecond < from) {
+						early[m.ID] = run.StartSecond
+					}
+				}
+			}
+		}
+	}
 	const grace = 10 * 60 // the last of them are through the gates; the leaves are down by the lock
 	closeAt := c.LeaveTo + 35*60
 	closingRun(t, 10, 2, func(day int64, r *Runtime) {
@@ -61,7 +82,7 @@ func TestHallEmptyAtNightFullByDay(t *testing.T) {
 		if day >= closeAt+grace || day < c.OpenSecond {
 			for _, id := range named {
 				seen[id]++
-				if !allowed[id] {
+				if from, ok := early[id]; !allowed[id] && !(ok && day >= from && day < c.OpenSecond) {
 					bad[id]++
 				}
 			}

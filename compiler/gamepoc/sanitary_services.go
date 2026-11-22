@@ -44,8 +44,11 @@ type SanitaryCatalog struct {
 	EntrySeconds       float64                   `json:"entry_seconds"`
 	ExitSeconds        float64                   `json:"exit_seconds"`
 	QueueLimit         int                       `json:"queue_limit"`
-	NPCHygiene         bool                      `json:"npc_hygiene"`
-	Units              []SanitaryUnit            `json:"units"`
+	// DutyMarginSeconds: a break on duty fits the brain's budget less this (baseline fixes, 21.11: the people on the way
+	// and a frame of ×30 at each end of the visit; doc 09 «санблок ≤10 мин» is the whole absence).
+	DutyMarginSeconds int64          `json:"duty_margin_seconds"`
+	NPCHygiene        bool           `json:"npc_hygiene"`
+	Units             []SanitaryUnit `json:"units"`
 }
 
 func readSanitaryServices(world cue.Value, c Compiled) (*SanitaryCatalog, error) {
@@ -75,7 +78,7 @@ func readSanitaryServices(world cue.Value, c Compiled) (*SanitaryCatalog, error)
 	return &out, nil
 }
 func (c SanitaryCatalog) validate(world Compiled) error {
-	if c.AvailabilitySource != "configured_cold_supply" || c.ManagedAffordance != "hygiene.market" || len(c.Units) == 0 || len(c.Units) > 64 || c.QueueLimit < 1 || c.QueueLimit > 8 {
+	if c.AvailabilitySource != "configured_cold_supply" || c.ManagedAffordance != "hygiene.market" || len(c.Units) == 0 || len(c.Units) > 64 || c.QueueLimit < 1 || c.QueueLimit > 8 || c.DutyMarginSeconds < 0 || c.DutyMarginSeconds > 180 {
 		return fmt.Errorf("invalid sanitary policy")
 	}
 	for _, v := range []float64{c.DoorSeconds, c.EntrySeconds, c.ExitSeconds} {

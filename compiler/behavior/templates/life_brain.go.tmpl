@@ -68,6 +68,9 @@ type LifeBrainModel struct {
  MoneyTarget int64 `json:"money_target"`; InitialBalance int64 `json:"initial_balance"`; Wage int64 `json:"wage_minor"`; WageWorkSeconds int64 `json:"wage_work_seconds"`
  PopulationAccounts int `json:"population_accounts"`; Currency string `json:"currency"`; Employer string `json:"employer"`
  LunchSeconds int64 `json:"lunch_seconds"`; HygieneSeconds int64 `json:"hygiene_seconds"`; FatigueEfficiency int64 `json:"fatigue_efficiency_ppm"`
+ // Doc 09 (21.11): in the morning people leave home not in one minute — the last part of the home step before a step
+ // away in which each leaves, from his own second in its first half (by seed). 0: as soon as the needs say.
+ LeaveHomeSeconds int64 `json:"leave_home_seconds,omitempty"`
  DutyPenalty float64 `json:"duty_penalty"`; Policy UtilityPolicy `json:"policy"`; Goals map[string]UtilityGoal `json:"goals"`
  Places []LifeAffordance `json:"places"`; FoodDefinitions []string `json:"food_definitions"`; GoodsDefinitions []string `json:"goods_definitions"`
  // Counter posts (demo-hub v14-traders): where a seller stands behind the own counter and which way the body faces
@@ -107,10 +110,17 @@ type LifeBrain struct {
 }
 // Host authority bridges real inventory to the kernel. It is never saved or cloned.
 type LifeBrainServices struct {
+ // Doc 09 (21.11): his own second to leave home this morning (id, now) and whether it holds him now (LifeModel.leaveHome;
+ // the Life kernel supplies it when the host gives none).
+ LeaveHome func(string,int64)(int64,bool)
  // Optional host-owned physical detour, after utility choice and before locomotion. Nil preserves the original kernel.
  RouteDetour func(*LifeActor,LifeStep)(LifeStep,bool)
  // A hosted provider owns hygiene recovery; its exterior affordance cannot grant it.
  HygieneManaged func(string,string)bool
+ // Baseline fixes (21.11, doc 09 «санблок ≤10 мин»): the washroom's own check of a break on duty — the whole absence
+ // (there and back, the queue, the doors and the use) within budget game seconds from `at` — and the second he must
+ // leave it for his post. Nil keeps the kernel's estimate (2*travel+180 within the budget).
+ HygieneBreak func(id,level string,at Cell,seconds,budget int64)(returnBy int64,ok bool)
  Balance func(string)int64
  Offers func(string,string,string)[]LifeAffordance
  Buy func(string,LifeAffordance,bool)bool
@@ -118,6 +128,9 @@ type LifeBrainServices struct {
  TravelSeconds func(string,Cell,Cell)int64
  // Spots of a seated place held by others: reserved by another brain or physically occupied (level, place, self).
  SeatsTaken func(string,string,string)map[Cell]bool
+ // Baseline fixes (21.11): a standing cell of a place taken by another person — standing there or heading there (level,
+ // cell, self). The Life kernel supplies its own when the host gives none.
+ SlotTaken func(string,Cell,string)bool
 }
 func(b LifeBrain)Clone()LifeBrain{b.Goal=b.Goal.Clone();if b.WorkDays!=nil{m:=map[int64]int64{};for k,v:=range b.WorkDays{m[k]=v};b.WorkDays=m};return b}
 func(m LifeBrainModel)program()Program {p:=Program{Goals:m.Goals};p.Policy.Utility=m.Policy;return p}
@@ -128,7 +141,7 @@ func(m LifeBrainModel)CounterPost(actor,level string,at Cell)(LifeSpot,bool){for
 func(m LifeBrainModel)Validate(l LifeModel)error{
  if !m.Enabled{return nil}
  posts:=map[string]bool{};for _,c:=range m.CounterPosts{k:=c.Actor+"|"+c.Level+"|"+fmt.Sprint(c.Spot.At);if c.Actor==""||posts[k]||!l.Walks(c.Level,c.Spot.At)||c.Spot.Pose!="post"||math.IsNaN(c.Spot.Yaw)||math.Abs(c.Spot.Yaw)>360||c.Spot.ZMM<0||c.Spot.ZMM>3000{return fmt.Errorf("invalid counter post %s %v",c.Actor,c.Spot.At)};posts[k]=true}
- if m.LunchSeconds<1||m.LunchSeconds>1800||m.HygieneSeconds<1||m.HygieneSeconds>600||m.FatigueEfficiency<1||m.FatigueEfficiency>1000000{return fmt.Errorf("invalid post policy")}
+ if m.LunchSeconds<1||m.LunchSeconds>1800||m.HygieneSeconds<1||m.HygieneSeconds>600||m.FatigueEfficiency<1||m.FatigueEfficiency>1000000||m.LeaveHomeSeconds<0||m.LeaveHomeSeconds>43200{return fmt.Errorf("invalid post policy")}
  if m.HotSeconds<1||m.ColdSeconds<m.HotSeconds||m.ColdSeconds>120||m.MealSeconds<1||m.MealRelief<1||m.MealRelief>1000000||m.RationDaily<1||m.RationOrder==""||m.FoodCritical<1||m.FoodCritical>=1000000||m.RationMin<0||m.RationMin>m.MealRelief||m.SecondMeal<0||m.SecondMeal>m.FoodCritical||m.SleepCritical<1||m.SleepCritical>=1000000||m.WageWorkSeconds<1||m.Wage<1||m.MoneyTarget<1||m.PopulationAccounts<l.Population.MaxActors||m.PopulationAccounts>500||m.InitialBalance<0||m.DutyPenalty<0||m.DutyPenalty>=1||m.Policy.MinHoldTicks<1||m.Policy.MaxHoldTicks<m.Policy.MinHoldTicks{return fmt.Errorf("invalid life brain policy")}
  for i,r:=range m.Rates{if r<0||r>10000000||m.Initial[i]<0||m.Initial[i]>1000000{return fmt.Errorf("invalid life needs rate")}}
  for _,id:=range []string{"schedule","ration","market_food","market_goods","sleep","hygiene","social"}{g,ok:=m.Goals[id];if !ok||g.ID!=id||g.HoldTicks<1||g.HoldTicks>m.Policy.MaxHoldTicks{return fmt.Errorf("invalid life goal %s",id)}}
@@ -264,7 +277,7 @@ func(b *LifeBrain)advance(m LifeBrainModel,svc LifeBrainServices,id,level,activi
  if seconds<b.NextDecision&&validTarget&&!dutyChanged&&!scheduleChanged&&!forceReturn{return b.Target}
  period:=m.ColdSeconds;if hot{period=m.HotSeconds};b.NextDecision=seconds+period
  candidates:=map[string]LifeAffordance{}
- for _,p:=range m.Places{if p.Actor!=""&&p.Actor!=id{continue};if p.Kind=="market_food"||p.Kind=="market_goods"||p.Kind=="seated_food"{continue};if len(p.Slots)>0{p.At=p.Slots[CounterRandom(seed,id,0,"life.service."+p.ID)%uint64(len(p.Slots))];p.Slots=nil};if seconds%86400<p.Open||seconds%86400>=p.Close{continue};if p.Kind=="ration"&&(b.Rations>=m.RationDaily||b.RationOrder!=m.RationOrder||b.Needs[0]<m.rationMin()){continue}
+ for _,p:=range m.Places{if p.Actor!=""&&p.Actor!=id{continue};if p.Kind=="market_food"||p.Kind=="market_goods"||p.Kind=="seated_food"{continue};if len(p.Slots)>0{at,free:=b.slotFor(p,id,seed,svc);if !free{continue};p.At=at;p.Slots=nil};if seconds%86400<p.Open||seconds%86400>=p.Close{continue};if p.Kind=="ration"&&(b.Rations>=m.RationDaily||b.RationOrder!=m.RationOrder||b.Needs[0]<m.rationMin()){continue}
   // Ordinary local services are familiar on the present level; hungry people
   // can return to their assigned home canteen when market stock runs out.
   if p.Actor!=""&&!duty{continue};if p.Level!=level&&!(p.Kind=="ration"&&b.Needs[0]>650000&&p.Level==home.Level){continue}
@@ -313,10 +326,18 @@ func(b *LifeBrain)advance(m LifeBrainModel,svc LifeBrainServices,id,level,activi
      if kind=="seated_food"{if q,ok:=m.seating(p.ID);ok{budget-=q.Seating.SitMin+q.Seating.SitDown+q.Seating.Rise}}
      travel:=int64(-1);if p.Level==level&&svc.TravelSeconds!=nil{travel=svc.TravelSeconds(level,at,p.At)}
      allowed=travel>=0&&2*travel+180<=budget
+     // the washroom answers for itself: one bound for the brain and the cubicle (baseline fixes, 21.11)
+     if kind=="hygiene"&&svc.HygieneBreak!=nil{_,allowed=svc.HygieneBreak(id,level,at,seconds,budget)}
     }
    }
    if !allowed{delete(candidates,kind)}
   }
+ }
+ // Doc 09 (21.11, the housing block): in the morning people leave home not in one minute. At home in the second half of
+ // his home step, before his own second (the first half of the step's last LeaveHomeSeconds, by seed), he stays in: only
+ // his bed is a choice. Critical hunger still lets him out; a duty step is not a home step.
+ if !duty&&schedule.Activity=="sleep"&&level==home.Level&&at==home.At&&svc.LeaveHome!=nil&&b.Needs[0]<=m.FoodCritical{
+  if leave,hold:=svc.LeaveHome(id,seconds);hold&&seconds<leave{for kind:=range candidates{if kind!="sleep"{delete(candidates,kind)}}}
  }
  signals:=map[string]float64{"meal":math.Max(float64(b.Needs[0]),float64(appetite))/1e6,"food":float64(b.Needs[0])/1e6,"sleep":float64(b.Needs[1])/1e6,"hygiene":float64(b.Needs[2])/1e6,"social":float64(b.Needs[3])/1e6,"goods":float64(1000000-b.Needs[4])/1e6}
  preference:=0.18+float64(CounterRandom(seed,id,seconds/86400,"life.preference.v1")%100)/1000
@@ -341,6 +362,7 @@ func(b *LifeBrain)advance(m LifeBrainModel,svc LifeBrainServices,id,level,activi
   if b.Place.Kind=="hygiene"{b.BreakKind="hygiene";budget=m.HygieneSeconds;b.HygieneAt=seconds}else{b.LunchDay=seconds/86400}
   b.BreakStarted=seconds;b.BreakUntil=seconds+budget;b.BreakPost=schedule
   travel:=svc.TravelSeconds(level,at,b.Place.At);b.BreakReturnAt=seconds+budget-travel-120
+  if b.BreakKind=="hygiene"&&svc.HygieneBreak!=nil{if by,ok:=svc.HygieneBreak(id,level,at,seconds,budget);ok&&by>seconds&&by<=b.BreakUntil{b.BreakReturnAt=by}}
  }
  if oldPlace!=b.Place.ID{b.MealElapsed=0};if oldPlace!=b.Place.ID||oldGoal!=b.Goal.GoalID||oldTarget!=b.Target{b.DecisionPending=true}
  return b.Target
@@ -418,6 +440,27 @@ func(b LifeBrain)SeatPresentation(m LifeBrainModel,level string,at Cell)(LifeSpo
 }
 func(b LifeBrain)alternatives()[3]string{var a [3]string;n:=0;for _,g:=range b.Goal.Top{if g.ID==b.Goal.GoalID{continue};a[n]=fmt.Sprintf("%s=%.3f",g.ID,g.Score);n++;if n==len(a){break}};return a}
 func(b LifeBrain)reason()string{return fmt.Sprintf("utility.%s=%.3f; hold=%d",b.Goal.GoalID,b.Goal.Score,b.Goal.HoldUntil)}
+// slotFor (baseline fixes, 21.11): his standing cell of a place — the one he already heads for, else his own by his hash,
+// else the next free one after it; with none free the place is full now and he does not go. Before: everybody had his
+// cell by hash alone, the cells of the housing washroom were taken twice over, and the ones whose cell was taken stood
+// in the hall round it and closed the ways (the morning knot of the housing block).
+func(b *LifeBrain)slotFor(p LifeAffordance,id string,seed int64,svc LifeBrainServices)(Cell,bool){
+ n:=uint64(len(p.Slots));start:=CounterRandom(seed,id,0,"life.service."+p.ID)%n
+ if svc.SlotTaken==nil{return p.Slots[start],true}
+ if b.Place.ID==p.ID{for _,c:=range p.Slots{if c==b.Target.At{return c,true}}}
+ for k:=uint64(0);k<n;k++{if c:=p.Slots[(start+k)%n];!svc.SlotTaken(p.Level,c,id){return c,true}};return Cell{},false
+}
+// leaveHome (doc 09, 21.11): his own second to leave home this morning. His home step (sleep) is followed by a step away;
+// in the second half of the home step he leaves from nextStart-w+hash%(w/2), w = LeaveHomeSeconds (no more than the step),
+// by seed, person and day. hold is false out of that half, for a step followed by another home step (the evening one
+// before the midnight step) and with no such data.
+func(m LifeModel)leaveHome(id string,seconds,seed int64)(int64,bool){
+ w:=m.Brain.LeaveHomeSeconds;p:=m.Person(id);if w<=0||p==nil||len(p.Steps)<2{return 0,false}
+ index,day:=m.namedSchedule(p,seconds);step:=p.Steps[index];start:=day*86400+step.AtMinute*60
+ next:=index+1;end:=day*86400;if next==len(p.Steps){next=0;end+=86400};end+=p.Steps[next].AtMinute*60;after:=p.Steps[next]
+ if step.Activity!="sleep"||after.Activity=="sleep"&&after.Level==step.Level&&after.At==step.At||end<=start||seconds<start+(end-start)/2{return 0,false}
+ w=min(w,end-start);return end-w+int64(CounterRandom(seed,id,day,"life.leave_home.v1")%uint64(max(w/2,1))),true
+}
 func(m LifeModel)namedHome(person *LifePerson)LifeStep{for _,s:=range person.Steps{if s.Activity=="sleep"{return s}};for _,p:=range m.Brain.Places{if p.Kind=="sleep"{at:=p.At;if len(p.Slots)>0{at=p.Slots[CounterRandom(0,person.ID,0,"life.home.fallback.v1")%uint64(len(p.Slots))]};return LifeStep{Level:p.Level,At:at,Activity:"sleep",Label:"life.npc.sleep"}}};return LifeStep{}}
 func(m LifeModel)namedSchedule(p *LifePerson,seconds int64)(int,int64){index:=len(p.Steps)-1;day:=seconds/86400;found:=false;for i,s:=range p.Steps{if s.AtMinute<=seconds%86400/60{index=i;found=true}};if !found{day--};return index,day}
 

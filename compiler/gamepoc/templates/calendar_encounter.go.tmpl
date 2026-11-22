@@ -170,7 +170,11 @@ func(r *Runtime)calendarEncounterBeforeFrame(){
  default:
   if clock<e.Morning&&s.Phase!="return"&&s.Phase!="conversation"{r.encounterOrder(e.Actor,e.Gate);return}
   if s.Phase!="return"&&s.Phase!="conversation"{s.Phase="return";s.Since=r.state.Life.Seconds;s.Rating=0;s.SolsStatus="zero";r.encounterReason("calendar.return","","detention",false)}
-  r.encounterOrder(e.Actor,e.Meet);r.encounterOrder(e.Guard,e.GuardAt);r.encounterFedAway(true)
+  r.encounterOrder(e.Actor,e.Meet);r.encounterFedAway(true)
+  // Baseline fixes (21.11, plan 5): the guard waits for the hero at the scene in its hours (morning to evening) — his
+  // shift there; out of them, the hero not come, he goes back to his own post, where his ration is. Before: the order
+  // held him in the hall for good (a manual person's brain does not eat), and he starved on the second day.
+  if s.Phase=="return"&&(clock>=e.Evening||clock<e.Morning){r.encounterReleaseGuard()}else{r.encounterOrder(e.Guard,e.GuardAt)}
  }
 }
 // encounterFedAway: while the encounter keeps its actor out of the hall — the missing week, or taken to the intake —
@@ -182,6 +186,12 @@ func(r *Runtime)encounterFedAway(held bool){
  e:=r.world.CalendarEncounter;if e==nil{return};a:=r.state.Life.Actor(e.Actor);m:=r.world.Life.Brain
  if a==nil||!m.Enabled||!a.Brain.Initialized||(!held&&a.Level==e.Level){return}
  if a.Brain.Needs[0]>m.Initial[0]{a.Brain.Needs[0]=m.Initial[0]}
+}
+// encounterReleaseGuard: the guard's order of the scene ends; his own routine (his post) takes him on.
+func(r *Runtime)encounterReleaseGuard(){
+ e:=r.world.CalendarEncounter;g:=r.state.Life.Actor(e.Guard)
+ if g==nil||!g.Manual||g.CombatHold||r.serviceReserved(e.Guard)||g.ID==playerActorID{return}
+ g.Manual=false;g.Arrived=false;g.Path=nil;g.PendingPath=nil;g.OverrideLevel="";g.OverrideEdge="";g.Goal=g.Position
 }
 func(r *Runtime)encounterGuardAvailable()bool{e:=r.world.CalendarEncounter;if e==nil{return false};a:=r.state.Life.Actor(e.Guard);if a==nil||a.CombatHold||r.serviceReserved(e.Guard){return false};if c,ok:=r.state.CombatRoster[e.Guard];ok&&!c.Able(){return false};return true}
 // The hall opening is shared with its population closure; the encounter morning is the fallback for other worlds.

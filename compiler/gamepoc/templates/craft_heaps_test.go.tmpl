@@ -177,7 +177,25 @@ func TestCraftHeapStallDayFollowsSalesAndSupply(t *testing.T) {
 		}
 		return out
 	}
-	consignment := total(s.Supply.Store)
+	// the supply: the consignment and, since cargo to the market v1 part B (game 8edf4e10), the copper-dock store its
+	// morning lot is loaded from (the lot lands in the consignment's locker every morning, so the locker alone starts and
+	// ends the days empty; baseline fixes, 21.11, found once the lot came in time)
+	supply := []string{s.Supply.Store}
+	if r.world.CargoConvoys != nil {
+		for _, lot := range r.world.CargoConvoys.Lots {
+			if lot.LockerStore == s.Supply.Store {
+				supply = append(supply, lot.CopperStore)
+			}
+		}
+	}
+	supplied := func() int64 {
+		var n int64
+		for _, store := range supply {
+			n += total(store)
+		}
+		return n
+	}
+	consignment := supplied()
 	world := everywhere()
 	// every unit sold here: to the residents (their economy ledger) and to the hall's visitors (their ledger); what a
 	// visitor bought leaves the world with him, so the world's stock is counted together with what was carried out
@@ -231,7 +249,7 @@ func TestCraftHeapStallDayFollowsSalesAndSupply(t *testing.T) {
 	}
 	// the first lay-out is the stall's own initial stock; the second morning replaced what the first day sold
 	// (everything sold here counts: the lay-out also replaces what is bought during its own hour)
-	if after, sold := total(s.Supply.Store), soldHere()-soldStart; soldTotal > 0 && (after >= consignment || consignment-after > sold) {
+	if after, sold := supplied(), soldHere()-soldStart; soldTotal > 0 && (after >= consignment || consignment-after > sold) {
 		t.Fatalf("the consignment went from %d to %d while %d units were sold", consignment, after, sold)
 	}
 	if after := everywhere() + carried(); after > world {

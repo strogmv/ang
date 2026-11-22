@@ -1108,6 +1108,10 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	if err := applyFixtures(&out, fixtures); err != nil {
 		return out, nil, err
 	}
+	// baseline fixes: the standing cells of a place never close a way of its level (slot_ways.go)
+	if err := keepSlotWays(&out); err != nil {
+		return out, nil, err
+	}
 	if err := applyCrafting(&out, craftingIn); err != nil {
 		return out, nil, err
 	}
@@ -1372,6 +1376,12 @@ func generatePOC(project string, legacyUnity bool) error {
 	}
 	if compiled.HeroFile != nil && len(compiled.HeroFile.report) > 0 {
 		files[filepath.Join(project, "..", "design/hero-creation/v1/skill-uses.md")] = compiled.HeroFile.report
+	}
+	// baseline fixes, plan 3: the duty places from which the washroom does not fit the 10 minutes (washroom_reach.go)
+	if reach, err := washroomReach(compiled); err != nil {
+		return err
+	} else if len(reach) > 0 {
+		files[filepath.Join(project, "..", "design/world-life/washroom-reach.md")] = reach
 	}
 	if compiled.Wounds != nil {
 		woundFiles, err := wounds.Render(*compiled.Wounds)

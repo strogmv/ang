@@ -3,6 +3,7 @@ package behavior
 
 import (
  "encoding/json"
+ "fmt"
  "reflect"
  "strings"
  "testing"
@@ -101,4 +102,124 @@ func TestLifeAutonomousContactPreservesScheduledControlledActor(t *testing.T){
  }
  resident:=s.Population.Actors[0]
  if resident.Position!=(Cell{4,2})||resident.Goal!=(Cell{5,1})||resident.Arrived{t.Fatalf("resident must retain its destination while waiting at physical contact: %+v",resident)}
+}
+
+// Baseline fixes (21.11.2026, design/world-life/baseline-fixes/BRIEF.md, plan 1): named people of two opposite flows
+// meet in a passage two cells wide (the corridor of the housing block, level.poc_housing rows 33–46, jammed for hours at
+// ×10 and ×30). Every rate a player can choose: the calendar may not decide whether they pass.
+func namedCorridorFixture(n int,terrain []string,north,south func(i int)Cell)LifeModel{
+ m:=LifeModel{StartSeconds:359*60,SecondsPerTick:1,MoveTicks:3,Courtesy:LifeCourtesyPolicy{NoticeCells:3},Walkable:map[string]bool{".":true},Locations:map[string]LifeLocation{"hall":{Name:"Housing corridor",InitialLayoutKnown:true,Terrain:terrain}}}
+ m.Brain=brainFixture()
+ for i:=0;i<n;i++{
+  m.Actors=append(m.Actors,LifePerson{ID:fmt.Sprintf("up_%02d",i),Name:"Northbound",Steps:[]LifeStep{{AtMinute:0,Level:"hall",At:south(i),Activity:"rest",Label:"home"},{AtMinute:360,Level:"hall",At:north(i),Activity:"work",Label:"work"}}})
+  m.Actors=append(m.Actors,LifePerson{ID:fmt.Sprintf("down_%02d",i),Name:"Southbound",Steps:[]LifeStep{{AtMinute:0,Level:"hall",At:north(n+i),Activity:"rest",Label:"home"},{AtMinute:360,Level:"hall",At:south(n+i),Activity:"work",Label:"work"}}})
+ }
+ return m
+}
+func namedCorridorRun(t *testing.T,m LifeModel,rate,limit int64)(int64,int64,string){
+ t.Helper();s:=m.Start();s.SecondsPerTick=rate;departed:=int64(360*60);finished:=int64(-1);longest:=int64(0);since:=map[string]int64{}
+ for tick:=int64(1);s.Seconds<departed+limit;tick++{
+  s.AdvanceWithTravelBy(m,tick,rate,nil,nil)
+  if err:=s.Validate(m,tick);err!=nil{t.Fatalf("rate %d tick %d: %v",rate,tick,err)}
+  done:=s.Seconds>departed
+  for i,a:=range s.Actors{goal:=m.Actors[i].Steps[1].At;if s.Seconds<=departed{continue};if a.Position==goal&&a.Arrived{delete(since,a.ID);continue};done=false;if _,ok:=since[a.ID];!ok{since[a.ID]=s.Seconds};if a.Position!=goal&&len(a.Path)==0{if w:=s.Seconds-since[a.ID];w>longest{longest=w}}}
+  if done{finished=s.Seconds-departed;break}
+ }
+ where:="";for _,a:=range s.Actors{if !a.Arrived{where+=fmt.Sprintf(" %s at %v goal %v label %q;",a.ID,a.Position,a.Goal,a.Label)}}
+ return finished,longest,where
+}
+func TestLifeNamedOppositeFlowsPassInATwoCellCorridorAtEveryRate(t *testing.T){
+ terrain:=[]string{"############","#..........#","#..........#","#..........#","#####..#####","#####..#####","#####..#####","#####..#####","#####..#####","#####..#####","#####..#####","#####..#####","#..........#","#..........#","#..........#","############"}
+ north:=func(i int)Cell{return Cell{1+i%10,1+i/10}};south:=func(i int)Cell{return Cell{1+i%10,14-i/10}}
+ for _,rate:=range []int64{1,10,30}{
+  m:=namedCorridorFixture(8,terrain,north,south)
+  finished,longest,where:=namedCorridorRun(t,m,rate,3600)
+  t.Logf("rate %d: everybody arrived after %d s, the longest stand %d s",rate,finished,longest)
+  // sixteen people through eight cells of a passage two wide: 20 minutes at every rate (a frame of ×30 is 30 s)
+  if finished<0||finished>1200{t.Fatalf("rate %d: two flows of eight did not pass through the corridor in 20 min (finished %d s):%s",rate,finished,where)}
+ }
+}
+// One cell wide with a side pocket at the far end (the doorway of the peddlers' wing, level.poc_housing x=10, y=33..34):
+// two meet head-on, one backs into the pocket, the other passes, both arrive — and nobody gives way to and fro.
+func TestLifeNamedHeadOnInAOneCellPassageAtEveryRate(t *testing.T){
+ // homes and work places off the mouths of the passage (a person standing in a mouth for good is another case)
+ terrain:=[]string{"#########","#.......#","#.......#","####.####","####.####","####.####","####.####","####.####","#.......#","#.......#","#########"}
+ north:=func(i int)Cell{if i>=3{i++};return Cell{1+i,1}};south:=func(i int)Cell{if i>=3{i++};return Cell{1+i,9}}
+ for _,rate:=range []int64{1,10,30}{
+  m:=namedCorridorFixture(3,terrain,north,south)
+  finished,longest,where:=namedCorridorRun(t,m,rate,3600)
+  t.Logf("rate %d: everybody arrived after %d s, the longest stand %d s",rate,finished,longest)
+  if finished<0||finished>900{t.Fatalf("rate %d: three and three did not pass a one-cell passage in 15 min (finished %d s):%s",rate,finished,where)}
+ }
+}
+// Plan 2: a co-worker at her own place in a work area one cell wide (island.F5 of the market: Rimma at (81,55), Kirill's
+// place (87,55) beyond her) steps into the free cell beside her, lets him pass and goes back; with no such rule he
+// stood behind her for twelve hours at ×10 and ×30.
+func TestLifeCoworkerAtHerPlaceLetsTheOtherPassAtEveryRate(t *testing.T){
+ terrain:=[]string{"###########","###########","##.......##","#...#######","#.........#","###########"}
+ var cells []Cell;for x:=2;x<=8;x++{cells=append(cells,Cell{x,2})};cells=append(cells,Cell{2,3},Cell{3,3})
+ for _,rate:=range []int64{1,10,30}{
+  m:=LifeModel{StartSeconds:359*60,SecondsPerTick:1,MoveTicks:3,Courtesy:LifeCourtesyPolicy{NoticeCells:3},Walkable:map[string]bool{".":true},Locations:map[string]LifeLocation{"hall":{Name:"Island",InitialLayoutKnown:true,Terrain:terrain,Work:[]LifeWorkArea{{ID:"island",Cells:cells,Workers:[]string{"rimma","kirill"}}}}}}
+  m.Brain=brainFixture()
+  m.Actors=[]LifePerson{
+   {ID:"rimma",Name:"Rimma",Steps:[]LifeStep{{AtMinute:0,Level:"hall",At:Cell{3,2},Activity:"service",Label:"stall"}}},
+   {ID:"kirill",Name:"Kirill",Steps:[]LifeStep{{AtMinute:0,Level:"hall",At:Cell{6,4},Activity:"rest",Label:"aisle"},{AtMinute:360,Level:"hall",At:Cell{7,2},Activity:"service",Label:"stall"}}},
+  }
+  m.IndexWork()
+  s:=m.Start();s.SecondsPerTick=rate;away:=int64(0);arrived:=int64(-1);gave:=false
+  for tick:=int64(1);s.Seconds<360*60+1800;tick++{
+   s.AdvanceWithTravelBy(m,tick,rate,nil,nil)
+   if err:=s.Validate(m,tick);err!=nil{t.Fatalf("rate %d tick %d: %v",rate,tick,err)}
+   r,k:=s.Actor("rimma"),s.Actor("kirill")
+   if r.Position!=(Cell{3,2}){away+=rate;gave=gave||r.GiveWayTo=="kirill"}
+   if m.WorkArea("hall",r.Position)==nil{t.Fatalf("rate %d: she left her work area for %v",rate,r.Position)}
+   if arrived<0&&k.Arrived&&k.Position==(Cell{7,2}){arrived=s.Seconds-360*60}
+  }
+  r:=s.Actor("rimma");t.Logf("rate %d: he reached his place after %d s, she was off hers %d s",rate,arrived,away)
+  if arrived<0||arrived>300||!gave||r.Position!=(Cell{3,2})||!r.Arrived||r.Activity!="service"||away>300{t.Fatalf("rate %d: no passing in the work area (arrived %d, gave way %v, she at %v arrived %v %s, away %d s)",rate,arrived,gave,r.Position,r.Arrived,r.Activity,away)}
+ }
+}
+
+// Baseline fixes (21.11): the lanes measured again round a few changed cells are the lanes of a new build, and the old
+// lanes are not written (a cloned state shares them).
+func TestLifeLanesUpdateLikeABuild(t *testing.T) {
+	rows := func(seed uint64, w, h int) []string {
+		out := make([]string, h)
+		for y := range out {
+			b := make([]byte, w)
+			for x := range b {
+				seed = seed*6364136223846793005 + 1442695040888963407
+				b[x] = '.'
+				if seed>>60 < 3 {
+					b[x] = '#'
+				}
+			}
+			out[y] = string(b)
+		}
+		return out
+	}
+	for round := uint64(1); round <= 20; round++ {
+		before := rows(round, 40, 30)
+		m := LifeModel{Walkable: map[string]bool{".": true}, Locations: map[string]LifeLocation{"a": {Terrain: before}}}
+		prev := buildLifeLanes(m, "a")
+		kept := buildLifeLanes(m, "a")
+		after := append([]string(nil), before...)
+		for k := uint64(0); k < 1+round%12; k++ {
+			x, y := int((round*31+k*17)%40), int((round*7+k*13)%30)
+			b := []byte(after[y])
+			if b[x] == '.' {
+				b[x] = '#'
+			} else {
+				b[x] = '.'
+			}
+			after[y] = string(b)
+		}
+		m.Locations["a"] = LifeLocation{Terrain: after}
+		if got, want := updateLifeLanes(prev, m, "a", before), buildLifeLanes(m, "a"); !reflect.DeepEqual(got, want) {
+			t.Fatalf("round %d: the updated lanes differ from a new build", round)
+		}
+		if !reflect.DeepEqual(prev, kept) {
+			t.Fatalf("round %d: the old lanes were written", round)
+		}
+	}
 }

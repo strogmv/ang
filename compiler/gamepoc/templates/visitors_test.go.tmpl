@@ -26,10 +26,7 @@ func visitorsRuntime(t testing.TB, rate int64) *Runtime {
 func visitorsRun(t testing.TB, r *Runtime, seconds int64, each func()) {
 	t.Helper()
 	for end := r.state.Life.Seconds + seconds; r.state.Life.Seconds < end; {
-		r.state.Tick++
-		if err := r.advanceLifeFrameBy(r.state.Life.SecondsPerTick); err != nil {
-			t.Fatal(err)
-		}
+		worldFrame(t, r)
 		if each != nil {
 			each()
 		}
@@ -545,10 +542,7 @@ func TestMarketPeopleSurviveFourteenDays(t *testing.T) {
 				t.Fatalf("only %d people of the market", len(market))
 			}
 			for r.state.Life.Seconds < stop {
-				r.state.Tick++
-				if err := r.advanceLifeFrameBy(rate); err != nil {
-					t.Fatal(err)
-				}
+				worldFrame(t, r)
 				if r.state.Life.Seconds%60 >= rate {
 					continue
 				}

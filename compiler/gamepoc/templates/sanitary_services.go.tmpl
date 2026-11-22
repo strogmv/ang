@@ -50,6 +50,7 @@ type sanitaryCatalog struct {
 	EntrySeconds       float64        `json:"entry_seconds"`
 	ExitSeconds        float64        `json:"exit_seconds"`
 	QueueLimit         int            `json:"queue_limit"`
+	DutyMarginSeconds  int64          `json:"duty_margin_seconds"`
 	NPCHygiene         bool           `json:"npc_hygiene"`
 	Units              []sanitaryUnit `json:"units"`
 }
@@ -209,9 +210,65 @@ func (r *Runtime) sanitaryDoorTarget(u sanitaryUnit, to float64) {
 	}
 	r.state.Sanitary.Doors[u.cellKey()] = medicalDoor{StartNS: r.simNS(), EndNS: r.simNS() + int64(r.world.SanitaryServices.DoorSeconds*1e9), From: medicalDoorValue(d, r.simNS()), To: to}
 }
+// sanitaryDoorAlong: the door moves over the phase that waits for it — the same start and end — so the door of a person
+// of the Life whose steps follow on within a frame is where his steps say (baseline fixes, 21.11); for the hero it is
+// sanitaryDoorTarget (both start now and last DoorSeconds).
+func (r *Runtime) sanitaryDoorAlong(u sanitaryUnit, to float64, p *sanitaryUser) {
+	if !u.Door {
+		return
+	}
+	if r.state.Sanitary.Doors == nil {
+		r.state.Sanitary.Doors = map[string]medicalDoor{}
+	}
+	d := r.state.Sanitary.Doors[u.cellKey()]
+	if d.To == to {
+		return
+	}
+	r.state.Sanitary.Doors[u.cellKey()] = medicalDoor{StartNS: p.PhaseStartNS, EndNS: p.PhaseEndNS, From: medicalDoorValue(d, p.PhaseStartNS), To: to}
+}
+
+// sanitaryDoorSpan: a door moves DoorSeconds — real seconds for the hero, the same in game seconds for a person of the
+// Life at the calendar rate his visit ran at (sanitaryDoorAlong).
+func sanitaryDoorSpan(d medicalDoor, seconds float64) bool {
+	for k := int64(1); k <= 120; k++ {
+		if d.EndNS-d.StartNS == int64(seconds/float64(k)*1e9) {
+			return true
+		}
+	}
+	return false
+}
+
+// sanitaryPhaseSpan: the length of a timed phase — real seconds for the hero; for a person of the Life the same in game
+// seconds at the calendar rate the phase began at (a save may be made after the rate changed).
+func sanitaryPhaseSpan(p sanitaryUser, duration float64, rate int64) bool {
+	span := p.PhaseEndNS - p.PhaseStartNS
+	if span == int64(duration*1e9) {
+		return true
+	}
+	if p.ActorID == playerActorID {
+		return false
+	}
+	for k := int64(2); k <= max(rate, 120); k++ {
+		if span == int64(duration/float64(k)*1e9) {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *Runtime) sanitaryPhase(p *sanitaryUser, phase string, duration float64) {
+	// Baseline fixes (21.11): a person of the Life goes through the doors in game time — as long in game seconds at every
+	// calendar rate as at ×1 (at ×30 a tick or two); the hero's doors keep their real seconds.
+	if p.ActorID != playerActorID && r.state.Life.SecondsPerTick > 1 {
+		duration /= float64(r.state.Life.SecondsPerTick)
+	}
+	start := r.simNS()
+	// a timed step of a person of the Life that ended within this frame: the next one starts when it ended
+	if p.ActorID != playerActorID && r.state.Life.SecondsPerTick > 1 && p.PhaseEndNS > p.PhaseStartNS && p.PhaseEndNS <= start {
+		start = p.PhaseEndNS
+	}
 	p.Phase = phase
-	p.PhaseStartNS = r.simNS()
+	p.PhaseStartNS = start
 	p.PhaseEndNS = p.PhaseStartNS + int64(duration*1e9)
 	p.LastSecond = r.state.Life.Seconds
 	p.ExitBlocked = false
@@ -518,74 +575,22 @@ func (r *Runtime) advanceSanitaryServices() error {
 			r.sanitaryRelease(id)
 			continue
 		}
-		switch p.Phase {
-		case "queued":
-			if r.sanitaryQueueHead(p) && !r.sanitaryBusy(u.ID, id) {
-				_ = r.sanitaryApproach(&p, *u) // A blocked doorway keeps the FIFO lease until its deadline.
+		// a person of the Life at a calendar rate: the door steps that end within this frame follow on at once, each from the
+		// end of the one before (sanitaryPhase), as long in game seconds as at ×1 (baseline fixes, 21.11: one step a frame
+		// made the doors of one visit 3 minutes at ×30 instead of one, and the 10-minute break 11)
+		released := false
+		for pass := 0; pass < 8; pass++ {
+			before := p.Phase
+			var err error
+			if released, err = r.sanitaryStepUser(id, &p, u, a, now); err != nil {
+				return err
 			}
-			if p.Phase == "queued" {
-				r.sanitaryWait(&p, *u)
-			}
-		case "approach":
-			if a.Position == u.EntryCell && len(a.Path) == 0 && (a.Body == nil || !a.Body.Moving) {
-				a.Body = nil
-				a.CombatHold = true
-				a.OverrideLevel = ""
-				a.OverrideEdge = ""
-				r.sanitaryDoorTarget(*u, 1)
-				r.sanitaryPhase(&p, "opening", cfg.DoorSeconds)
-			}
-		case "opening":
-			if now >= p.PhaseEndNS {
-				a.ServiceAttachment = u.ID
-				r.sanitaryPhase(&p, "entry", cfg.EntrySeconds)
-			}
-		case "entry":
-			if now >= p.PhaseEndNS {
-				r.sanitaryDoorTarget(*u, 0)
-				r.sanitaryPhase(&p, "sealing", cfg.DoorSeconds)
-			}
-		case "sealing":
-			if now >= p.PhaseEndNS {
-				r.sanitaryPhase(&p, "using", 0)
-			}
-		case "using":
-			if p.ReturnBySecond > 0 && r.state.Life.Seconds >= p.ReturnBySecond && p.UseElapsed < u.ServiceSeconds {
-				r.sanitaryDoorTarget(*u, 1)
-				r.sanitaryPhase(&p, "opening_exit", cfg.DoorSeconds)
+			if released || p.Phase == before || id == playerActorID || r.state.Life.SecondsPerTick <= 1 || p.PhaseEndNS <= p.PhaseStartNS || p.PhaseEndNS > now {
 				break
 			}
-			if p.UseElapsed >= u.ServiceSeconds {
-				if r.state.Sanitary.Completed == nil {
-					r.state.Sanitary.Completed = map[string]uint64{}
-				}
-				r.state.Sanitary.Completed[u.ID]++
-				r.sanitaryDoorTarget(*u, 1)
-				r.sanitaryPhase(&p, "opening_exit", cfg.DoorSeconds)
-			}
-		case "opening_exit":
-			if now >= p.PhaseEndNS && r.sanitaryExitReady(&p, *u) {
-				r.sanitaryPhase(&p, "exit", cfg.ExitSeconds)
-			}
-		case "exit":
-			if now >= p.PhaseEndNS {
-				if !r.sanitaryExitReady(&p, *u) {
-					r.sanitaryPhase(&p, "opening_exit", 0)
-					p.ExitBlocked = true
-				} else {
-					a.ServiceAttachment = ""
-					a.Position = u.EntryCell
-					r.sanitaryDoorTarget(*u, 0)
-					r.sanitaryPhase(&p, "closing", cfg.DoorSeconds)
-				}
-			}
-		case "closing":
-			if now >= p.PhaseEndNS {
-				r.sanitaryRelease(id)
-				continue
-			}
-		default:
-			return fmt.Errorf("unknown sanitary phase")
+		}
+		if released {
+			continue
 		}
 		r.state.Sanitary.Users[id] = p
 	}
@@ -593,6 +598,143 @@ func (r *Runtime) advanceSanitaryServices() error {
 	r.sanitaryNPCRequests()
 	return nil
 }
+// sanitaryStepUser: one step of a visit's phases; released when the visit ended (the user is gone).
+func (r *Runtime) sanitaryStepUser(id string, p *sanitaryUser, u *sanitaryUnit, a *behavior.LifeActor, now int64) (bool, error) {
+	cfg := r.world.SanitaryServices
+	switch p.Phase {
+	case "queued":
+		if r.sanitaryQueueHead(*p) && !r.sanitaryBusy(u.ID, id) {
+			_ = r.sanitaryApproach(p, *u) // A blocked doorway keeps the FIFO lease until its deadline.
+		}
+		if p.Phase == "queued" {
+			r.sanitaryWait(p, *u)
+		}
+	case "approach":
+		if a.Position == u.EntryCell && len(a.Path) == 0 && (a.Body == nil || !a.Body.Moving) {
+			a.Body = nil
+			a.CombatHold = true
+			a.OverrideLevel = ""
+			a.OverrideEdge = ""
+			r.sanitaryPhase(p, "opening", cfg.DoorSeconds)
+			r.sanitaryDoorAlong(*u, 1, p)
+		}
+	case "opening":
+		if now >= p.PhaseEndNS {
+			a.ServiceAttachment = u.ID
+			r.sanitaryPhase(p, "entry", cfg.EntrySeconds)
+		}
+	case "entry":
+		if now >= p.PhaseEndNS {
+			r.sanitaryPhase(p, "sealing", cfg.DoorSeconds)
+			r.sanitaryDoorAlong(*u, 0, p)
+		}
+	case "sealing":
+		if now >= p.PhaseEndNS {
+			r.sanitaryPhase(p, "using", 0)
+		}
+	case "using":
+		if p.ReturnBySecond > 0 && r.state.Life.Seconds >= p.ReturnBySecond && p.UseElapsed < u.ServiceSeconds {
+			r.sanitaryPhase(p, "opening_exit", cfg.DoorSeconds)
+			r.sanitaryDoorAlong(*u, 1, p)
+			break
+		}
+		if p.UseElapsed >= u.ServiceSeconds {
+			if r.state.Sanitary.Completed == nil {
+				r.state.Sanitary.Completed = map[string]uint64{}
+			}
+			r.state.Sanitary.Completed[u.ID]++
+			r.sanitaryPhase(p, "opening_exit", cfg.DoorSeconds)
+			r.sanitaryDoorAlong(*u, 1, p)
+		}
+	case "opening_exit":
+		if now >= p.PhaseEndNS && r.sanitaryExitReady(p, *u) {
+			r.sanitaryPhase(p, "exit", cfg.ExitSeconds)
+		}
+	case "exit":
+		if now >= p.PhaseEndNS {
+			if !r.sanitaryExitReady(p, *u) {
+				r.sanitaryPhase(p, "opening_exit", 0)
+				p.ExitBlocked = true
+			} else {
+				a.ServiceAttachment = ""
+				a.Position = u.EntryCell
+				r.sanitaryPhase(p, "closing", cfg.DoorSeconds)
+				r.sanitaryDoorAlong(*u, 0, p)
+			}
+		}
+	case "closing":
+		if now >= p.PhaseEndNS {
+			r.sanitaryRelease(id)
+			return true, nil
+		}
+	default:
+		return false, fmt.Errorf("unknown sanitary phase")
+	}
+	return false, nil
+}
+
+// sanitaryDutyKind: on duty a person uses the short service of a cubicle — the toilet and the hands, its basin (the
+// cubicle holds both); the full wash is at home in the morning and the evening (doc 09, 21.11).
+func sanitaryDutyKind(kind string) bool { return kind == "basin" }
+
+// sanitaryChoreo: the doors and the steps of one visit in game seconds of ×1 (the same at every rate): in — the door
+// opens, he steps in, it seals; out — it opens, he steps out, it closes behind him.
+func (c *sanitaryCatalog) sanitaryChoreo(tickHz int64) (in, out int64) {
+	in = int64(math.Ceil((2*c.DoorSeconds + c.EntrySeconds) * float64(tickHz)))
+	out = int64(math.Ceil((2*c.DoorSeconds + c.ExitSeconds) * float64(tickHz)))
+	return in, out
+}
+
+// sanitaryQueueSeconds: how long the people already at that cubicle keep it (game seconds, as at ×1).
+func (r *Runtime) sanitaryQueueSeconds(u sanitaryUnit, except string) int64 {
+	cfg := r.world.SanitaryServices
+	in, out := cfg.sanitaryChoreo(int64(r.world.Config.TickHz))
+	wait := int64(0)
+	for id, p := range r.state.Sanitary.Users {
+		other := cfg.unit(p.UnitID)
+		if id == except || other == nil || other.cellKey() != u.cellKey() {
+			continue
+		}
+		switch p.Phase {
+		case "queued", "approach", "opening", "entry", "sealing":
+			wait += in + other.ServiceSeconds + out
+		case "using":
+			wait += max(0, other.ServiceSeconds-p.UseElapsed) + out
+		default:
+			wait += out
+		}
+	}
+	return wait
+}
+
+// sanitaryBreak: the washroom's own check of a break on duty (doc 09 «санблок ≤10 мин», 21.11): the whole absence — to
+// the cubicle and back, the people before him, the doors and the use — fits budget game seconds from `at`. It returns
+// the second he must start out of the cubicle for his post (the brain's return, the cubicle's deadline). The same check
+// keeps the request on the way (sanitaryNPCRequests).
+func (r *Runtime) sanitaryBreak(id, level string, at behavior.Cell, seconds, budget int64) (int64, bool) {
+	cfg := r.world.SanitaryServices
+	if cfg == nil || !cfg.NPCHygiene || !cfg.ServiceAvailable {
+		return 0, false
+	}
+	in, out := cfg.sanitaryChoreo(int64(r.world.Config.TickHz))
+	best, returnBy := int64(-1), int64(0)
+	for _, u := range cfg.unitsAt(level) {
+		if u.LevelID != level || !sanitaryDutyKind(u.Kind) {
+			continue
+		}
+		travel := r.state.Life.StaticTravelSeconds(r.world.Life, level, at, u.EntryCell)
+		if travel < 0 {
+			continue
+		}
+		// the margin (data): the people on the way and a frame of ×30 at each end of the visit stay inside the budget
+		total := 2*travel + r.sanitaryQueueSeconds(u, id) + in + u.ServiceSeconds + out + cfg.DutyMarginSeconds
+		if total <= budget && (best < 0 || total < best) {
+			best, returnBy = total, seconds+budget-cfg.DutyMarginSeconds-travel-out
+		}
+	}
+	return returnBy, best >= 0
+}
+
 func (r *Runtime) sanitaryNPCRequests() {
 	cfg := r.world.SanitaryServices
 	if cfg == nil || !cfg.NPCHygiene {
@@ -609,12 +751,14 @@ func (r *Runtime) sanitaryNPCRequests() {
 			load[u.ID], _ = r.sanitaryCellLoad(u.ID, a.ID)
 		}
 		sort.SliceStable(units, func(i, j int) bool { return load[units[i].ID] < load[units[j].ID] })
+		in, _ := cfg.sanitaryChoreo(int64(r.world.Config.TickHz))
 		for _, u := range units {
 			if cfg.ServiceAvailable && u.Kind != "wc" && u.LevelID == a.Level {
+				// a break on duty: the short service only, and the same bound as the brain's (sanitaryBreak): from here to
+				// the door, the people before him, the doors in and the use end before the second he must start back
 				if a.Brain.BreakKind == "hygiene" {
 					travel := r.state.Life.StaticTravelSeconds(r.world.Life, a.Level, a.Position, u.EntryCell)
-					physical := int64(math.Ceil((cfg.EntrySeconds+cfg.ExitSeconds+4*cfg.DoorSeconds)*float64(r.world.Config.TickHz))) * r.state.Life.SecondsPerTick
-					if travel < 0 || r.sanitaryBusy(u.ID, a.ID) || r.state.Life.Seconds+2*travel+physical+u.ServiceSeconds > a.Brain.BreakReturnAt {
+					if !sanitaryDutyKind(u.Kind) || travel < 0 || r.state.Life.Seconds+travel+r.sanitaryQueueSeconds(u, a.ID)+in+u.ServiceSeconds > a.Brain.BreakReturnAt {
 						continue
 					}
 				}

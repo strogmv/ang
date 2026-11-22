@@ -24,7 +24,7 @@ func (p LifeGaitPolicy) delayedOpening(id string, now, until int64) bool {
 func (p LifeGaitPolicy) running(id string, safety *LifeSafetyOverride, delayedWork bool, target string) bool {
  if p.RunFactor <= 1 { return false }
  situation:=""
- if safety != nil { situation=safety.Activity } else if delayedWork && target=="work" {situation="late_opening"}
+ if safety != nil { situation=safety.Activity; if safety.Noise {situation+="_noise"} } else if delayedWork && target=="work" {situation="late_opening"}
  if actors,restricted:=p.Actors[situation];restricted&&!actors[id]{return false}
  return p.Situations[situation]
 }
@@ -56,6 +56,10 @@ type LifeSafetyOverride struct {
 	Activity    string `json:"activity"`
 	Reason      string `json:"reason"`
 	EncounterID string `json:"encounter_id"`
+	// Baseline fixes (21.11, plan 8): the cause is a sound with nobody seen — an unnamed noise. Its gait is the situation
+	// "<activity>_noise" (a guard walks to a bell or a step he heard, he runs only once he has seen a person, been
+	// touched or an alarm is up).
+	Noise bool `json:"noise,omitempty"`
 }
 
 func (s *LifeSafetyOverride) clone() *LifeSafetyOverride {

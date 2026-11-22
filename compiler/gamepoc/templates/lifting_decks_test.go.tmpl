@@ -278,3 +278,67 @@ func TestLiftingDeckOrdinaryEnterQueuesAndAcceptedMoveCancels(t *testing.T){
  if !r.lifeWalkTo(behavior.Cell{X:d.Approach.X+1,Y:d.Approach.Y}){t.Fatal("cancel fixture walk was refused")};if len(r.state.LiftingDecks[d.ID].PendingRiders)!=0{t.Fatal("new ordinary move kept an unsolicited ride queued")}
  for step:=0;step<20;step++{r.step()};if h.Trip!=nil{t.Fatal("canceled ride departed")}
 }
+
+// Baseline fixes, plan 7 (21.11.2026; doc 09: behaviour does not depend on the calendar rate): with the hero on neither
+// landing a deck runs its machine on game time — its 04:40 run ends at ×30 when it ends at ×1 (within a frame); with
+// the hero on a landing it keeps its real seconds (he watches it). Before: the morning lot rode up at ×30 thirty times
+// slower in game time and reached the market after the check of the stall (TestCraftHeapStallDayFollowsSalesAndSupply).
+func TestLiftingDeckRunsOnGameTimeWithTheHeroAway(t *testing.T) {
+	cycle := func(rate int64, heroOnDeck bool) int64 {
+		r := lifeRuntimeFixture(t)
+		var d liftingDeckDefinition
+		for _, candidate := range r.world.LiftingDecks.Decks {
+			if candidate.Lower != nil {
+				d = candidate
+				break
+			}
+		}
+		if d.ID == "" || len(d.Runs.ExtraSeconds) == 0 {
+			t.Skip("no pass-through deck with an extra run")
+		}
+		h := r.state.Life.Actor(playerActorID)
+		h.Trip, h.Body = nil, nil
+		if heroOnDeck {
+			h.Level = d.LevelID
+		} else {
+			for level := range r.world.Life.Locations {
+				if level != d.LevelID && level != d.Lower.LevelID {
+					h.Level = level
+					break
+				}
+			}
+		}
+		start := 86400 + d.Runs.ExtraSeconds[0] - 60
+		r.state.Life.Seconds = start
+		// the server's clock of a game that ran at this rate since its first second (a fresh fixture's tick is near zero,
+		// and a deck's timeline is never moved before the server's first tick)
+		r.state.Tick = start / rate
+		r.state.Life.Tick = r.state.Tick
+		r.initLiftingDecks()
+		started := false
+		for frame := 0; frame < 200000; frame++ {
+			r.state.Tick++
+			r.state.Life.Tick = r.state.Tick
+			r.state.Life.Seconds += rate
+			r.advanceLiftingDecks(r.state.Life.Seconds)
+			g := r.state.LiftingDecks[d.ID]
+			if err := r.validateLiftingDecks(r.state); err != nil {
+				t.Fatalf("rate %d frame %d: %v", rate, frame, err)
+			}
+			started = started || g.Phase != "rest"
+			if started && g.Phase == "rest" {
+				return r.state.Life.Seconds - start
+			}
+		}
+		t.Fatalf("rate %d: the run never ended", rate)
+		return 0
+	}
+	x1, x30 := cycle(1, false), cycle(30, false)
+	t.Logf("the 04:40 run with the hero away: %d game s at x1, %d at x30", x1, x30)
+	if x30 > x1+60 || x30 < x1-60 {
+		t.Fatalf("the deck's run depends on the calendar rate with the hero away: %d s at x1, %d s at x30", x1, x30)
+	}
+	if watched := cycle(30, true); watched < 10*x1 {
+		t.Fatalf("with the hero on its landing the deck left real time at x30: %d game s (x1 %d)", watched, x1)
+	}
+}

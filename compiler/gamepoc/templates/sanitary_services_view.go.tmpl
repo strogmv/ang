@@ -201,7 +201,7 @@ func (r *Runtime) validateSanitary(s state) error {
 	count := map[string]int{}
 	for id, d := range s.Sanitary.Doors {
 		u := cfg.door(id)
-		if u == nil || !u.Door || d.StartNS < 0 || d.StartNS > now || d.EndNS != d.StartNS+int64(cfg.DoorSeconds*1e9) || math.IsNaN(d.From) || math.IsInf(d.From, 0) || d.From < 0 || d.From > 1 || (d.To != 0 && d.To != 1) {
+		if u == nil || !u.Door || d.StartNS < 0 || d.StartNS > now || !sanitaryDoorSpan(d, cfg.DoorSeconds) || math.IsNaN(d.From) || math.IsInf(d.From, 0) || d.From < 0 || d.From > 1 || (d.To != 0 && d.To != 1) {
 			return fmt.Errorf("invalid sanitary door")
 		}
 	}
@@ -246,7 +246,7 @@ func (r *Runtime) validateSanitary(s state) error {
 		default:
 			return fmt.Errorf("invalid sanitary phase")
 		}
-		if p.PhaseEndNS-p.PhaseStartNS != int64(duration*1e9) {
+		if !sanitaryPhaseSpan(p, duration, s.Life.SecondsPerTick) {
 			return fmt.Errorf("invalid sanitary phase duration")
 		}
 		if u.Door {

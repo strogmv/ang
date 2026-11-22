@@ -123,6 +123,20 @@ type worldAuditReport struct {
 	HeroRelationOverrides  map[string]map[string]float64 `json:"relation_overrides"`
 }
 
+// worldFrame: one frame exactly as the game's step() makes it — the tick, the stores' clock, the Life frame (baseline
+// fixes, 21.11, plan 6: the harnesses skipped the stores' clock, closingRun the tick too, so the eight lots of 05:00 and
+// the shops waiting for them stood still all night in the test and never in the game).
+func worldFrame(t testing.TB, r *Runtime) {
+	t.Helper()
+	r.state.Tick++
+	if err := r.state.Inventory.Advance(r.state.Tick); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.lifeStep(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func worldAuditRuntime(t testing.TB, count int) *Runtime {
 	t.Helper()
 	r, err := New(t.TempDir(), "token")
@@ -379,11 +393,8 @@ func worldRunAuditDay(t testing.TB, count int, seconds int64, compareDay2 bool) 
 	checkpoints := []worldCheckpoint{}
 	began := time.Now()
 	for r.state.Life.Seconds < start+seconds {
-		r.state.Tick++
 		t0 := time.Now()
-		if err := r.advanceLifeFrameBy(rate); err != nil {
-			t.Fatal(err)
-		}
+		worldFrame(t, r)
 		d := float64(time.Since(t0).Nanoseconds()) / 1000
 		for _, sh := range r.world.Inventory.Shopfronts {
 			if sh.Mobile() {

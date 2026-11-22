@@ -15,13 +15,14 @@ import (
 //   - a visitor who walks in walks out within walkersVisitLimitTicks server ticks (his stops, dwell and dispense waits
 //     included), and none is let out where he stands because no way out was free; walkers still in the hall when it
 //     closes are let out by the closing, as before (at x30 a walk across the hall takes hours of the calendar);
-//   - a day's visitor purchases stay in the range of docs/godot-market-visitors.md (760-810 a day in the game over five
-//     days), widened by 5 % each way for one day of the seed: the audit runtime of these tests gave 754-831 on the base
-//     (bodies not asked) and 751-827 with solid bodies over the same five days at x30.
+//   - a day's visitor purchases stay in the range measured by the method of docs/godot-market-visitors.md (five days at
+//     x30 in the audit runtime of these tests), widened by 5 % each way for one day of the seed. Walkers v1 measured
+//     751-827 (722-851); the food court v1.1 (game ba732d0b) added the hot meal at a standing table (~+144 a day), and the
+//     baseline fixes (21.11.2026, the real frame of step()) measured 1002 988 926 929 913: 913-1002, so 867-1052.
 const (
-	walkersVisitLimitTicks  int64 = 9000 // 15 minutes of server time
-	walkersDayPurchasesLow  int64 = 722
-	walkersDayPurchasesHigh int64 = 851
+	walkersVisitLimitTicks  int64 = 9000 // 15 minutes of server time for the stops, the dwell and the dispense waits
+	walkersDayPurchasesLow  int64 = 867
+	walkersDayPurchasesHigh int64 = 1052
 )
 
 // walkersBody: one body on the floor of a level and the cells it holds now.
@@ -107,6 +108,17 @@ func walkersRates(t *testing.T) []int64 {
 // anonymous crowd): no body ever stands on a fixture cell or in another's work cells, no two bodies share a cell at the end
 // of any tick, every visitor who walked in walked out within the limit, none was let out where he stood, and the day's
 // purchases hold. WALKERS_RATE picks one rate.
+// walkersVisitLimit (baseline fixes, 21.11, plan 11): a visit came to have two phases after the limit was written — a hot
+// meal at a standing table (food court v1.1, game ba732d0b: tables.eat_ticks) and a stop with the musician (listen_ticks or
+// paying him); the limit is the 15 minutes plus the longest of each, from the data.
+func walkersVisitLimit(r *Runtime) int64 {
+	limit := walkersVisitLimitTicks + r.buskerMaxWait()
+	if v := r.world.Visitors; v.Tables != nil {
+		limit += v.Tables.EatTicks.Max
+	}
+	return limit
+}
+
 func TestWalkersSolidBodiesThroughAMarketDay(t *testing.T) {
 	if testing.Short() {
 		t.Skip("a whole market day at three rates")
@@ -138,8 +150,8 @@ func TestWalkersSolidBodiesThroughAMarketDay(t *testing.T) {
 			if l.Stuck != before.Stuck {
 				t.Fatalf("%d visitors found no free way out and were let out where they stood", l.Stuck-before.Stuck)
 			}
-			if l.Longest > walkersVisitLimitTicks {
-				t.Fatalf("the longest visit took %d ticks, limit %d", l.Longest, walkersVisitLimitTicks)
+			if limit := walkersVisitLimit(r); l.Longest > limit {
+				t.Fatalf("the longest visit took %d ticks, limit %d", l.Longest, limit)
 			}
 			if l.Out == before.Out {
 				t.Fatal("no walker walked out")

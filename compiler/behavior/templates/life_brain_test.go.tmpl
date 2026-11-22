@@ -81,6 +81,79 @@ func TestNPC1FatigueReducesCreditedWork(t *testing.T){
  b.advance(m,LifeBrainServices{},"worker","work","work",Cell{},true,true,false,work,LifeStep{},0,10400,42)
  if b.WorkSeconds!=400||b.ShiftWorked!=300||b.FatigueWorkSeconds!=400||b.Target!=work{t.Fatal("fatigue must cost 25% credited work, never a trip home")}
 }
+// Baseline fixes, plan 3 (21.11, doc 09 «санблок ≤10 мин»): on duty the washroom answers for itself — the brain takes
+// the washroom's own check of the whole absence and its return second, not a copy of the formula. Before this the brain
+// let a seller go when 2*travel+180 fit (up to 210 s of road) and the cubicle took him only within ~57 s of road: from
+// the far stalls he walked to the door and back every two hours.
+func TestNPC1WashroomBreakAsksTheWashroom(t *testing.T){
+ m:=brainFixture();post:=LifeStep{Level:"market",At:Cell{2,2},Activity:"service"};m.Places=[]LifeAffordance{{ID:"washroom",Kind:"hygiene",Level:post.Level,At:Cell{9,2},Close:86400}}
+ start:=func()LifeBrain{return LifeBrain{Initialized:true,RationOrder:m.RationOrder,LastSecond:40000,HygieneAt:30000,Needs:[5]int64{100000,100000,800000,0,0},WorkDays:map[int64]int64{},LunchDay:-1}}
+ asked:=0;var got [3]int64
+ svc:=LifeBrainServices{TravelSeconds:func(string,Cell,Cell)int64{return 21}}
+ // the kernel's own estimate lets him go (2*21+180 <= 600); the washroom says the whole absence does not fit: he stays
+ svc.HygieneBreak=func(id,level string,at Cell,seconds,budget int64)(int64,bool){asked++;got=[3]int64{seconds,budget,int64(at.X)};return 0,false}
+ b:=start();b.advance(m,svc,"seller","market","service",post.At,true,true,false,post,LifeStep{Level:"home",Activity:"sleep"},0,40000,42)
+ if asked==0||got!=([3]int64{40000,600,2})||b.BreakKind!=""||b.Target!=post{t.Fatalf("the brain did not ask the washroom or went anyway: asked %d %v %+v",asked,got,b.Target)}
+ // it fits: the break is the washroom's, and the return second is the one the washroom gave
+ svc.HygieneBreak=func(id,level string,at Cell,seconds,budget int64)(int64,bool){return seconds+500,true}
+ b=start();b.advance(m,svc,"seller","market","service",post.At,true,true,false,post,LifeStep{Level:"home",Activity:"sleep"},0,40000,42)
+ if b.BreakKind!="hygiene"||b.BreakUntil!=40600||b.BreakReturnAt!=40500{t.Fatalf("expected the washroom's bound: %+v",b)}
+ // no host check: the kernel's own estimate stays (a standalone package)
+ svc.HygieneBreak=nil
+ b=start();b.advance(m,svc,"seller","market","service",post.At,true,true,false,post,LifeStep{Level:"home",Activity:"sleep"},0,40000,42)
+ if b.BreakKind!="hygiene"||b.BreakReturnAt!=40000+600-21-120{t.Fatalf("the kernel estimate changed without a host check: %+v",b)}
+}
+// Baseline fixes (21.11): a standing cell of a place taken by another person is not his; the next free one is, and with
+// none free he does not go (before: the cell by hash alone, so a place with one cell left drew everybody to it — nine
+// people round the bunk corner of the housing block at ×10).
+func TestNPC1StandingCellsOfAPlaceAreNotTakenTwice(t *testing.T){
+ m:=brainFixture();post:=LifeStep{Level:"market",At:Cell{2,2},Activity:"service"};slots:=[]Cell{{9,2},{9,3}}
+ m.Places=[]LifeAffordance{{ID:"washroom",Kind:"hygiene",Level:post.Level,At:slots[0],Slots:slots,Close:86400}}
+ start:=func()LifeBrain{return LifeBrain{Initialized:true,RationOrder:m.RationOrder,LastSecond:40000,HygieneAt:30000,Needs:[5]int64{100000,100000,800000,0,0},WorkDays:map[int64]int64{},LunchDay:-1}}
+ taken:=map[Cell]bool{};svc:=LifeBrainServices{TravelSeconds:func(string,Cell,Cell)int64{return 21},SlotTaken:func(level string,at Cell,self string)bool{return level==post.Level&&self=="seller"&&taken[at]}}
+ run:=func()LifeBrain{b:=start();b.advance(m,svc,"seller","market","service",post.At,true,true,false,post,LifeStep{Level:"home",Activity:"sleep"},0,40000,42);return b}
+ b:=run();own:=b.Target.At
+ if b.BreakKind!="hygiene"||own!=slots[0]&&own!=slots[1]{t.Fatalf("expected a washroom break to a standing cell: %+v",b)}
+ other:=slots[0];if own==other{other=slots[1]}
+ taken[own]=true
+ if b=run();b.BreakKind!="hygiene"||b.Target.At!=other{t.Fatalf("his cell is taken: expected the free one %v, got %+v",other,b.Target)}
+ taken[other]=true
+ if b=run();b.BreakKind!=""||b.Target!=post{t.Fatalf("every cell taken: expected him to stay at his post, got %+v",b)}
+ // already heading for his cell, he keeps it
+ b=start();b.Place=m.Places[0];b.Target=LifeStep{Level:post.Level,At:other};delete(taken,own)
+ if got,ok:=b.slotFor(m.Places[0],"seller",42,svc);!ok||got!=other{t.Fatalf("the cell he heads for changed: %v %v",got,ok)}
+ // no host check and no Life kernel: the cell by hash, as before
+ svc.SlotTaken=nil;if b=run();b.Target.At!=own{t.Fatalf("without the check the cell changed: %v, was %v",b.Target.At,own)}
+}
+// Doc 09 (21.11, the housing block): in the morning residents leave home each at his own second — in the first half of
+// the last hour before his step away, by seed — not all in the minute their needs say (before: the whole block came
+// out at once, ~04:50, and stood in its corridor).
+func TestNPC1ResidentsLeaveHomeAtTheirOwnSecond(t *testing.T){
+ m:=LifeModel{Brain:brainFixture()};m.Brain.LeaveHomeSeconds=3600
+ steps:=[]LifeStep{{AtMinute:0,Level:"home",At:Cell{1,1},Activity:"sleep"},{AtMinute:360,Level:"market",At:Cell{2,2},Activity:"service",Obligation:true},{AtMinute:1320,Level:"home",At:Cell{1,1},Activity:"sleep"}}
+ for i:=0;i<8;i++{m.Actors=append(m.Actors,LifePerson{ID:string(rune('a'+i)),Steps:steps})}
+ seen:=map[int64]bool{}
+ for _,p:=range m.Actors{
+  leave,hold:=m.leaveHome(p.ID,5*3600,42)
+  if !hold||leave<5*3600||leave>=5*3600+1800{t.Fatalf("%s leaves at %d, hold %v: expected 05:00-05:30",p.ID,leave,hold)}
+  seen[leave]=true
+  for _,at:=range []int64{2*3600,7*3600,23*3600}{if _,hold:=m.leaveHome(p.ID,at,42);hold{t.Fatalf("%s is held at %d (the first half of the night, a step away, the evening step)",p.ID,at)}}
+ }
+ if len(seen)<6{t.Fatalf("eight people leave in only %d distinct seconds",len(seen))}
+ // the brain: at home before his second only his bed is a choice; from it, the washroom
+ home:=steps[0];m.Brain.Places=[]LifeAffordance{{ID:"washroom",Kind:"hygiene",Level:"home",At:Cell{3,1},Close:86400}}
+ svc:=LifeBrainServices{TravelSeconds:func(string,Cell,Cell)int64{return 10},LeaveHome:func(id string,seconds int64)(int64,bool){return m.leaveHome(id,seconds,42)}}
+ leave,_:=m.leaveHome("a",5*3600,42)
+ fresh:=func(at int64)LifeBrain{return LifeBrain{Initialized:true,RationOrder:m.Brain.RationOrder,LastSecond:at,Needs:[5]int64{100000,100000,900000,0,0},WorkDays:map[int64]int64{},LunchDay:-1}}
+ b:=fresh(leave-60);b.advance(m.Brain,svc,"a","home","sleep",home.At,true,true,false,home,home,0,leave-60,42)
+ if b.Place.ID!=""||b.Target!=home{t.Fatalf("before his second he went out: %+v",b.Target)}
+ b=fresh(leave);b.advance(m.Brain,svc,"a","home","sleep",home.At,true,true,false,home,home,0,leave,42)
+ if b.Place.ID!="washroom"{t.Fatalf("from his second he did not go to the washroom: %+v",b.Target)}
+ // hungry past critical he goes out at once
+ b=fresh(leave-60);b.Needs[0]=m.Brain.FoodCritical+1;m.Brain.Places=append(m.Brain.Places,LifeAffordance{ID:"canteen",Kind:"ration",Level:"home",At:Cell{4,1},Close:86400})
+ b.advance(m.Brain,svc,"a","home","sleep",home.At,true,true,false,home,home,0,leave-60,42)
+ if b.Place.ID==""{t.Fatalf("critical hunger held him at home: %+v",b.Target)}
+}
 func TestNPC1LunchBoundAndSaveReturn(t *testing.T){
  m:=brainFixture();post:=LifeStep{Level:"market",At:Cell{2,2},Activity:"service"};m.Places=[]LifeAffordance{{ID:"packed",Kind:"ration",Level:post.Level,At:post.At,Close:86400}}
  b:=LifeBrain{Initialized:true,RationOrder:m.RationOrder,LastSecond:40000,Needs:[5]int64{700000,950000,0,0,0},WorkDays:map[int64]int64{},LunchDay:-1}

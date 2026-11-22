@@ -197,9 +197,17 @@ func(g *liftingDeckState)advance(d liftingDeckDefinition,now,seconds int64,prese
  }
  g.UpdatedNS=now;g.LastGameSecond=seconds
 }
+// Baseline fixes (21.11.2026, plan 7; doc 09: behaviour does not depend on the calendar rate): a deck whose landings
+// the hero is on neither of runs its machine on game time — its frame advances as many ×1 ticks as the game seconds
+// that passed, so the morning lot rides up at ×30 when it does at ×1. With the hero on a landing it runs in real time as
+// he sees it. The timeline is moved back by the extra time and stays in the server's clock (a later look matches it).
+func(g *liftingDeckState)shiftNS(by int64){
+ g.StartNS-=by;g.UpdatedNS-=by;if g.ClearSinceNS>0{g.ClearSinceNS-=by};if g.FreightLandedNS>0{g.FreightLandedNS-=by};if g.LowerSettleNS>0{g.LowerSettleNS-=by}
+}
 func(r *Runtime)advanceLiftingDecks(seconds int64){
  if r.world.LiftingDecks==nil||!r.state.Life.Enabled{return};now:=r.state.Tick*r.tickNS()
  for _,d:=range r.world.LiftingDecks.Decks{g,ok:=r.state.LiftingDecks[d.ID];if !ok{continue};before:=g.Phase
+  if by:=r.liftingDeckGameTimeNS(d,g,now,seconds);by>0{g.shiftNS(by)}
   // Nobody may stand on the lower barrier line while the deck is about to leave that landing.
   present:=r.liftingDeckPresent(d)||(!g.LowerAway&&r.liftingDeckLowerEdgeBusy(d))
   g.advance(d,now,seconds,present,r.state.Life.LocationLockdown[d.LevelID],r.state.Life.LocationPowerLost[d.LevelID]);r.state.LiftingDecks[d.ID]=g
@@ -220,6 +228,15 @@ func(r *Runtime)advanceLiftingDecks(seconds int64){
   }
  }
  r.applyLiftingDeckTerrain()
+}
+// liftingDeckGameTimeNS: how far a deck's timeline moves back this frame to run on game time (see shiftNS).
+func(r *Runtime)liftingDeckGameTimeNS(d liftingDeckDefinition,g liftingDeckState,now,seconds int64)int64{
+ if h:=r.state.Life.Actor(playerActorID);h!=nil&&h.Trip==nil&&(h.Level==d.LevelID||d.Lower!=nil&&h.Level==d.Lower.LevelID){return 0}
+ if g.LastGameSecond<=0||seconds<=g.LastGameSecond||g.UpdatedNS<=0||now<g.UpdatedNS||g.DurationNS<=0{return 0}
+ // never before the server's first tick: a saved timeline keeps non-negative stamps
+ by:=max(0,(seconds-g.LastGameSecond)*r.tickNS()-(now-g.UpdatedNS))
+ for _,v:=range []int64{g.StartNS,g.UpdatedNS}{by=min(by,v)};if g.ClearSinceNS>0{by=min(by,g.ClearSinceNS)};if g.FreightLandedNS>0{by=min(by,g.FreightLandedNS-1)};if g.LowerSettleNS>0{by=min(by,g.LowerSettleNS-1)}
+ return max(0,by)
 }
 // The deck is floor while it stands flush with the hall. Riders wait on it while the departure barrier
 // rises; the raised barrier line, not the deck, keeps newcomers out, and the deck stops being floor

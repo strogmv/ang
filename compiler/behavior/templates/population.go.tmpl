@@ -28,6 +28,13 @@ type PopulationClosure struct {
 	ArriveTo    int64    `json:"arrive_to"`
 	SeatedUntil int64    `json:"seated_until"`
 	NightRoster []string `json:"night_roster,omitempty"`
+	// EarlyRoster (baseline fixes, 21.11, plan 9): who comes in before the opening by his own routine, from which second —
+	// the eight stalls of the first set taking their lot (doc 09, 11.11); read by the test of the night too, not a rule.
+	EarlyRoster []PopulationEarly `json:"early_roster,omitempty"`
+}
+type PopulationEarly struct {
+	Actor      string `json:"actor"`
+	FromSecond int64  `json:"from_second"`
 }
 
 func (p PopulationModel) closedFor(id, level string, seconds, seed int64) (bool, PopulationClosure) {

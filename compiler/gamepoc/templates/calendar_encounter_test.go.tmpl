@@ -15,7 +15,16 @@ func TestCalendarEncounterElevenRealDaysAndMidweekLoad(t *testing.T){
    if a.RoutineOverride==nil{t.Fatalf("day %d selling routine bypassed Life needs/work",day)}
    if a.Manual {
     var ok bool;leased,ok=r.state.Sanitary.Users[a.ID]
-    if !ok||leased.PriorManual||!r.sanitaryAttached(a.ID)||!a.CombatHold||leased.PhaseEndNS<=leased.PhaseStartNS||r.simNS()<leased.PhaseStartNS||r.simNS()>leased.PhaseEndNS{t.Fatalf("day %d manual actor lacks a valid temporary service owner: %+v",day,leased)}
+    if !ok||leased.PriorManual{t.Fatalf("day %d manual actor lacks a valid temporary service owner: %+v",day,leased)}
+    // Baseline fixes (21.11, plan 11): the check second may fall in the queue, the walk to the door or its opening, where
+    // the lease is his but he is not inside yet — wait (in ordinary frames, both worlds) until he is attached, at most
+    // the washroom's own wait limit; the same lease (serial) must hold all the way in.
+    for limit:=r.state.Life.Seconds+r.world.SanitaryServices.unit(leased.UnitID).MaxWaitSeconds;!r.sanitaryAttached(a.ID)&&r.state.Life.Seconds<limit;{
+     encounterAdvanceTo(t,r,r.state.Life.Seconds+30);encounterAdvanceTo(t,same,same.state.Life.Seconds+30);a=r.state.Life.Actor(e.Actor)
+     if current,ok:=r.state.Sanitary.Users[a.ID];!ok||current.Serial!=leased.Serial{t.Fatalf("day %d the lease ended before he was inside: %+v",day,current)}
+    }
+    leased=r.state.Sanitary.Users[a.ID]
+    if !r.sanitaryAttached(a.ID)||!a.CombatHold||leased.PhaseEndNS<leased.PhaseStartNS||r.simNS()<leased.PhaseStartNS||leased.PhaseEndNS>leased.PhaseStartNS&&r.simNS()>leased.PhaseEndNS{t.Fatalf("day %d manual actor lacks a valid temporary service owner: %+v",day,leased)}
     if err:=r.validateSanitary(r.state);err!=nil{t.Fatal(err)}
    }
   }
@@ -164,4 +173,36 @@ func TestCalendarEncounterDoesNotStealServiceApproach(t *testing.T) {
   after,_:=json.Marshal(a)
   if string(before)!=string(after){t.Fatalf("calendar stole %s approach before physical hold: before=%s after=%s",kind,before,after)}
  })}
+}
+
+// Baseline fixes, plan 5 (21.11.2026): the hub guard waited for the hero at Prokhor's return scene under a manual order
+// from the morning of day 11 for good (a manual person's brain does not eat) and starved on day 12 at 21:05 at ×10 and
+// ×30. The scene is his shift in its hours; out of them he goes back to his own post and its ration.
+func TestCalendarEncounterGuardGoesBackToHisPostOutOfTheSceneHours(t *testing.T) {
+	if testing.Short() {
+		t.Skip("thirteen days of the calendar")
+	}
+	r := encounterFixture(t)
+	e := r.world.CalendarEncounter
+	post := r.world.Life.Person(e.Guard).Steps[0]
+	return1 := int64(e.FirstDays+e.MissingDays) * 86400
+	encounterAdvanceTo(t, r, return1+e.Morning+1800)
+	g := r.state.Life.Actor(e.Guard)
+	if r.state.CalendarEncounter.Phase != "return" || !g.Manual {
+		t.Fatalf("the scene did not call the guard in its hours: phase %s manual %v", r.state.CalendarEncounter.Phase, g.Manual)
+	}
+	peak := int64(0)
+	night := false
+	for r.state.Life.Seconds < return1+2*86400+e.Morning {
+		encounterAdvanceTo(t, r, r.state.Life.Seconds+300)
+		g = r.state.Life.Actor(e.Guard)
+		peak = max(peak, g.Brain.Needs[0])
+		if clock := r.state.Life.Seconds % 86400; clock > e.Evening+4*3600 || clock < e.Morning-1800 {
+			night = night || g.Level == post.Level && !g.Manual
+		}
+	}
+	t.Logf("guard's peak hunger over the two return days %d ppm, back at his post at night %v", peak, night)
+	if !night || peak >= r.world.Life.Brain.FoodCritical {
+		t.Fatalf("the guard stayed in the scene out of its hours or went hungry (back at night %v, peak hunger %d)", night, peak)
+	}
 }

@@ -119,9 +119,13 @@ func TestTransportHubModularStoryGeometryAndSemanticConsumers(t *testing.T) {
  guard:=r.world.Life.Person("char.poc_hub_guard");if guard==nil||len(guard.Steps)!=1||guard.Steps[0].Level!=hub||guard.Steps[0].At!=(behavior.Cell{X:72,Y:24}){t.Fatal("guard post disagrees with SDK semantic anchor")}
  numbers:=map[int]bool{}
  for _,d:=range r.world.Wayfinding.Destinations{if d.Level==hub{if !r.world.Life.Walks(hub,d.At){t.Fatal("blocked wayfinding approach",d.ID)};numbers[d.MarkerNumber]=true}}
- for n:=1;n<=6;n++{if !numbers[n]{t.Fatal("missing hub marker",n)}}
+ // Markers 1–4 and 6: the freight lift (5) was taken out in hub v4 (game da74c885); the numbering is kept (doc 09, 21.11).
+ for _,n:=range []int{1,2,3,4,6}{if !numbers[n]{t.Fatal("missing hub marker",n)}};if numbers[5]{t.Fatal("hub marker 5 is back without its freight lift")}
  objects:=0;for _,o:=range r.world.Life.Inspection.Objects{if o.Level==hub{objects++;if !r.world.Life.Walks(hub,o.At){t.Fatal("blocked inspection approach",o.ID)}}};if objects!=7{t.Fatal("hub inspections lost",objects)}
- deliveries:=0;for _,d:=range r.world.Inventory.Deliveries{if d.Pickup.Level==hub{deliveries++;if !r.world.Life.Walks(hub,behavior.Cell{X:d.Pickup.At.X,Y:d.Pickup.At.Y}){t.Fatal("delivery pickup is outside compiled floor",d.ID)}}};if deliveries!=8{t.Fatal("hub deliveries lost",deliveries)}
+ // The eight morning lots: since cargo to the market v1 part B (game 8edf4e10) the cargo carries them from the copper dock
+ // through the hub and they are picked up at the lockers in the market, not at the hub's receiving cells (found when the
+ // marker check above stopped failing first; baseline fixes, 21.11).
+ deliveries:=0;for _,d:=range r.world.Inventory.Deliveries{if d.Pickup.Level==hub{t.Fatal("a delivery is picked up in the hub again",d.ID)};if d.Pickup.Level=="level.c7_market"{deliveries++;if !r.world.Life.Walks(d.Pickup.Level,behavior.Cell{X:d.Pickup.At.X,Y:d.Pickup.At.Y}){t.Fatal("delivery pickup is outside compiled floor",d.ID)}}};if deliveries!=8{t.Fatal("market deliveries lost",deliveries)}
  for _,id:=range []string{"station_hub_walk","hub_station_walk","market_hub_walk","hub_market_walk","station_hub_rail","hub_station_rail"}{e:=r.world.Life.Edge(id);if e==nil||!r.world.Life.Walks(e.From,e.Exit)||!r.world.Life.Walks(e.To,e.Entry){t.Fatal("Life edge differs from semantic entrances",id)}}
  // Exercise actual controlled transitions on the new physical geometry.
  for _,id:=range []string{"station_hub_walk","hub_market_walk","market_hub_walk","hub_station_walk"}{

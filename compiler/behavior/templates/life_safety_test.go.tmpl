@@ -35,6 +35,13 @@ func TestLifeGaitEmergencyCadenceAndIncidentReturn(t *testing.T) {
   actor.IncidentDelayedWork=false;if m.NamedRunning(actor){t.Fatal("ordinary work trip changed")}
   actor.Safety=&LifeSafetyOverride{Activity:situation};actor.Sneaking=true;if m.NamedRunning(actor){t.Fatal("sneaking must prevent running")}
  })}
+ // Baseline fixes, plan 8: to an unnamed noise he walks (situation investigate_noise, false in the data), to a person
+ // seen he runs; the situation key is known to the model.
+ m:=lifeFixture();m.Gait=LifeGaitPolicy{RunFactor:1.5,Situations:map[string]bool{"investigate":true,"investigate_noise":false}}
+ if err:=m.Validate();err!=nil{t.Fatal(err)}
+ guard:=&LifeActor{ID:"guard",Safety:&LifeSafetyOverride{Activity:"investigate",Noise:true}}
+ if m.NamedRunning(guard){t.Fatal("a guard ran to an unnamed noise")}
+ guard.Safety.Noise=false;if !m.NamedRunning(guard){t.Fatal("a guard did not run to a person he saw")}
 }
 
 func TestLifeSafetyWalksWithoutTeleportAndResumes(t *testing.T) {

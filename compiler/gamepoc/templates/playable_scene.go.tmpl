@@ -565,7 +565,7 @@ func (r *Runtime) playableInteract(id string) error {
 			if heard, audible := next.combatWorldHeard(observer, action.At, action.Loudness); audible {
 				now := next.state.Life.Seconds
 				next.combatWorldRemember(guard.ID, behavior.Fact{Subject: fmt.Sprintf("noise.playable.%s.%d", d.ID, next.state.Stealth.NoiseSequence), Kind: "combat.noise", Source: "sound", Value: true, Position: heard.Estimate, Radius: heard.Radius, Strength: heard.Intensity, ObservedTick: now, ExpiresTick: now + next.world.Stealth.SoundMemorySeconds, Priority: 10})
-				next.stealthSearch(observer, heard.Estimate, now+next.world.Stealth.SoundMemorySeconds)
+				next.stealthSearch(observer, heard.Estimate, now+next.world.Stealth.SoundMemorySeconds, true)
 			}
 		}
 	case "exit":

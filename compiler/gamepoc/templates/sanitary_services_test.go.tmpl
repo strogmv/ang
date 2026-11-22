@@ -957,3 +957,89 @@ func TestHubServicesOwnLevelTopology(t *testing.T) {
  r.syncLifeHero()
  if err:=r.validateLifeSave(r.snapshotState());err!=nil {t.Fatal("hub reservation save",err)}
 }
+
+// Baseline fixes, plan 3 (21.11.2026, doc 09 «санблок ≤10 мин»): on duty the washroom break is the whole absence — to
+// the cubicle and back, the queue, the doors and the basin — within the brain's 10 minutes, one bound for the brain and
+// the cubicle, at every calendar rate. Before: the brain let a seller go up to 210 s of road, the cubicle took him only
+// within ~57 s (and its doors, timed in real seconds, cost 640 game seconds at ×10 and 1 920 at ×30, so at those rates
+// nobody was ever let in): from far posts he walked to the door and back every two hours. A post the washroom cannot
+// serve in 10 minutes does not leave at all (design/world-life/washroom-reach.md lists them).
+func TestSanitaryDutyBreakIsTheWholeAbsenceAtEveryRate(t *testing.T) {
+	for _, rate := range []int64{1, 10, 30} {
+		r, u := sanitaryFixture(t, "basin")
+		r.world.SanitaryServices.NPCHygiene = true
+		r.state.Life.SecondsPerTick = rate
+		hero := r.state.Life.Actor(playerActorID)
+		hero.Position, hero.Goal, hero.Body = behavior.Cell{X: 12, Y: 44}, behavior.Cell{X: 12, Y: 44}, nil
+		r.syncLifeHero()
+		duty := func(id string) behavior.LifeStep {
+			for _, step := range r.world.Life.Person(id).Steps {
+				if step.Level == u.LevelID && step.Activity == "service" {
+					return step
+				}
+			}
+			t.Fatalf("no shop post of %s", id)
+			return behavior.LifeStep{}
+		}
+		place := func(id string) behavior.LifeStep {
+			a := r.state.Life.Actor(id)
+			post := duty(id)
+			a.Level, a.Position, a.Goal, a.Path, a.PendingPath, a.Trip, a.ResidenceID, a.Body = post.Level, post.At, post.At, nil, nil, nil, "", nil
+			a.Manual, a.CombatHold, a.Arrived, a.Activity, a.Label = false, false, true, post.Activity, post.Label
+			a.RoutineOverride = &post
+			a.Brain.AdvanceServiceNeeds(r.world.Life.Brain, id, r.state.Life.Seconds, r.state.Seed, 0)
+			a.Brain.Needs = [5]int64{0, 0, 800000, 0, 0}
+			a.Brain.BreakKind, a.Brain.Returning, a.Brain.HygieneAt, a.Brain.LunchDay = "", false, r.state.Life.Seconds-7200, r.state.Life.Seconds/86400
+			return post
+		}
+		// resident 09 (stall at (19,58)): 460 s with nobody queueing; the grill cook (68,59): 760 s, the list says so
+		near, far := "char.market_resident_09", "char.market_grill_cook"
+		nearPost, farPost := place(near), place(far)
+		if _, ok := r.sanitaryBreak(near, nearPost.Level, nearPost.At, r.state.Life.Seconds, r.world.Life.Brain.HygieneSeconds); !ok {
+			t.Fatal("the near stall does not fit the 10 minutes")
+		}
+		if _, ok := r.sanitaryBreak(far, farPost.Level, farPost.At, r.state.Life.Seconds, r.world.Life.Brain.HygieneSeconds); ok {
+			t.Fatal("the grill fits the 10 minutes")
+		}
+		before := uint64(r.state.Sanitary.Completed[u.ID])
+		for _, b := range r.world.SanitaryServices.Units {
+			if b.Kind == "basin" && b.ID != u.ID {
+				before += r.state.Sanitary.Completed[b.ID]
+			}
+		}
+		left, back, farLeft := int64(-1), int64(-1), false
+		end := r.state.Life.Seconds + 1800
+		for r.state.Life.Seconds < end && back < 0 {
+			r.state.Tick++
+			if err := r.state.Inventory.Advance(r.state.Tick); err != nil {
+				t.Fatal(err)
+			}
+			if err := r.advanceLifeFrameBy(rate); err != nil {
+				t.Fatal(err)
+			}
+			a := r.state.Life.Actor(near)
+			if left < 0 && a.Position != nearPost.At {
+				left = r.state.Life.Seconds - rate
+			}
+			if left >= 0 && a.Position == nearPost.At && a.Arrived && a.Brain.BreakKind == "" {
+				back = r.state.Life.Seconds
+			}
+			if c := r.state.Life.Actor(far); c.Position != farPost.At || r.sanitaryReserved(far) {
+				farLeft = true
+			}
+		}
+		done := uint64(0)
+		for _, b := range r.world.SanitaryServices.Units {
+			if b.Kind == "basin" {
+				done += r.state.Sanitary.Completed[b.ID]
+			}
+		}
+		t.Logf("rate %d: left the post %d s, back after %d s, basin visits %d", rate, left, back-left, done-before)
+		if left < 0 || back < 0 || back-left > r.world.Life.Brain.HygieneSeconds+rate || done-before < 1 {
+			t.Fatalf("rate %d: the washroom break is not the whole absence within 10 min (left %d, back %d, visits %d)", rate, left, back, done-before)
+		}
+		if farLeft {
+			t.Fatalf("rate %d: the grill cook left a post the washroom cannot serve in 10 min", rate)
+		}
+	}
+}

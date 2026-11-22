@@ -466,7 +466,7 @@ func TestStealthStateSavesAndSearchDoesNotUseHiddenHeroPosition(t *testing.T) {
 	observer, _ := r.combatWorldActor(target)
 	fact, _ := r.state.CombatWorld.Memories[target].Best("combat.noise")
 	r.clearStealthSearch(target)
-	r.stealthSearch(observer, fact.Position, fact.ExpiresTick)
+	r.stealthSearch(observer, fact.Position, fact.ExpiresTick, false)
 	goal := r.state.Life.Actor(target).Safety.Goal
 	// Projection/planning-only initial-pose variant: a hidden coordinate is not
 	// a new sensed event. The same real path planner must retain its same goal.
@@ -474,7 +474,7 @@ func TestStealthStateSavesAndSearchDoesNotUseHiddenHeroPosition(t *testing.T) {
 	h.Position = before.Life.Actor(playerActorID).Position
 	h.Position.X++
 	r.clearStealthSearch(target)
-	r.stealthSearch(observer, fact.Position, fact.ExpiresTick)
+	r.stealthSearch(observer, fact.Position, fact.ExpiresTick, false)
 	if r.state.Life.Actor(target).Safety.Goal != goal {
 		t.Fatal("search used a hidden current hero position instead of remembered noise")
 	}
@@ -537,7 +537,7 @@ func stealthSearchFixture(t *testing.T, terrain []string, at behavior.Cell, budg
 func stealthSearchStep(t *testing.T, r *Runtime, estimate behavior.Cell, until int64) {
 	t.Helper()
 	a := r.state.Life.Actor("search.guard")
-	r.stealthSearch(combatLifeObserver{ID: a.ID, Level: a.Level, At: a.Position}, estimate, until)
+	r.stealthSearch(combatLifeObserver{ID: a.ID, Level: a.Level, At: a.Position}, estimate, until, false)
 	from := a.Position
 	r.state.Tick++
 	r.state.Life.Advance(r.world.Life, r.state.Tick)
@@ -550,7 +550,7 @@ func TestStealthPartialArrivalContinuesAndSaveRoundTripKeepsTheSameTrace(t *test
 	estimate := behavior.Cell{X: 39, Y: 1}
 	until := r.state.Life.Seconds + 160
 	a := r.state.Life.Actor("search.guard")
-	r.stealthSearch(combatLifeObserver{ID: a.ID, Level: a.Level, At: a.Position}, estimate, until)
+	r.stealthSearch(combatLifeObserver{ID: a.ID, Level: a.Level, At: a.Position}, estimate, until, false)
 	first := a.Safety.Goal
 	if first == estimate || first.X <= a.Position.X || first.X-a.Position.X > r.world.CombatLife.MaxSafetyCells-1 {
 		t.Fatalf("fixture did not produce a bounded partial destination: %+v", first)
@@ -610,7 +610,7 @@ func TestStealthUnreachableEstimateStaysPhysicalAndExpires(t *testing.T) {
 	}
 	before := r.snapshotState()
 	a := r.state.Life.Actor("search.guard")
-	r.stealthSearch(combatLifeObserver{ID: a.ID, Level: a.Level, At: a.Position}, estimate, r.state.Life.Seconds)
+	r.stealthSearch(combatLifeObserver{ID: a.ID, Level: a.Level, At: a.Position}, estimate, r.state.Life.Seconds, false)
 	if !reflect.DeepEqual(before, r.snapshotState()) {
 		t.Fatal("an expired remembered estimate restarted search")
 	}
@@ -627,7 +627,7 @@ func TestStealthSearchIgnoresHiddenBodiesButExecutionCannotWalkThroughThem(t *te
 	until := r.state.Life.Seconds + 40
 	a := r.state.Life.Actor("search.guard")
 	observer := combatLifeObserver{ID: a.ID, Level: a.Level, At: a.Position}
-	r.stealthSearch(observer, estimate, until)
+	r.stealthSearch(observer, estimate, until, false)
 	if a.Safety == nil || a.Safety.Goal != estimate {
 		t.Fatal("planning consulted an unseen body's current position")
 	}
@@ -640,7 +640,7 @@ func TestStealthSearchIgnoresHiddenBodiesButExecutionCannotWalkThroughThem(t *te
 	h.Position = behavior.Cell{X: 11, Y: 1}
 	h.Goal = h.Position
 	r.clearStealthSearch(a.ID)
-	r.stealthSearch(combatLifeObserver{ID: a.ID, Level: a.Level, At: a.Position}, estimate, until)
+	r.stealthSearch(combatLifeObserver{ID: a.ID, Level: a.Level, At: a.Position}, estimate, until, false)
 	if a.Safety == nil || a.Safety.Goal != estimate {
 		t.Fatal("moving a hidden body changed the remembered search destination")
 	}
@@ -649,7 +649,7 @@ func TestStealthRememberedSearchKeepsTheExistingClosedGatePhysical(t *testing.T)
 	r, _, d := playableFixture(t, false)
 	a := r.state.Life.Actor(d.Guard)
 	estimate := playableTakeAction(t, d, d.GoalSource).At
-	r.stealthSearch(combatLifeObserver{ID: a.ID, Level: a.Level, At: a.Position}, estimate, r.state.Life.Seconds+120)
+	r.stealthSearch(combatLifeObserver{ID: a.ID, Level: a.Level, At: a.Position}, estimate, r.state.Life.Seconds+120, false)
 	if r.state.Life.Gates[d.Gate].Passable() || a.Safety == nil || a.Safety.Goal == estimate {
 		t.Fatal("search treated a lowered physical gate as a passable route")
 	}

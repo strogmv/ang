@@ -388,11 +388,20 @@ func applyFixtures(c *Compiled, in *FixtureCatalog) error {
 		}
 	}
 	workers := map[string]map[int]map[string]bool{}
+	// the places of each worker inside each area (plan 4 of the baseline fixes: checkWorkLines)
+	places := map[string]map[int]workLinePosts{}
 	hire := func(level string, at Point, actor string) {
 		i, ok := areaAt[level][at]
 		if !ok || actor == "" {
 			return
 		}
+		if places[level] == nil {
+			places[level] = map[int]workLinePosts{}
+		}
+		if places[level][i] == nil {
+			places[level][i] = workLinePosts{}
+		}
+		places[level][i][actor] = append(places[level][i][actor], at)
 		if workers[level] == nil {
 			workers[level] = map[int]map[string]bool{}
 		}
@@ -507,6 +516,13 @@ func applyFixtures(c *Compiled, in *FixtureCatalog) error {
 			sort.Strings(areas[i].Workers)
 			if areas[i].Workers == nil {
 				areas[i].Workers = []string{}
+			}
+			t, err := terrain(level)
+			if err != nil {
+				return err
+			}
+			if err := checkWorkLines(level, areas[i], places[level][i], func(p Point) bool { return floorAt(t, p) }); err != nil {
+				return err
 			}
 		}
 		locations[level]["work"], _ = json.Marshal(areas)
