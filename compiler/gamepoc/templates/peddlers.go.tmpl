@@ -185,52 +185,67 @@ func (r *Runtime) peddlerGrade(i inv.Item) (int, string) {
 // the hub now (crafting economy) × the risk of its legality in the dome, × the peddler's appraisal of the grade and the
 // wear (a dead thing keeps 30 %). At least one minor unit.
 func (r *Runtime) peddlerLawPrice(i inv.Item, stock map[string]int64) int64 {
-	d := r.world.Inventory.Definitions[i.Definition]
-	base, err := inv.Quote(d, 1)
-	if err != nil || base < 1 {
-		return 0
-	}
-	price := base * 1000
-	if c, _, ok := r.world.Crafting.PartOf(i.Definition); ok {
-		price = price * r.world.Crafting.ScarcityPermille(c.ID, stock[c.ID]) / 1000
-	}
-	legal := r.world.Peddlers.Legality[i.Definition]
-	if legal == "" {
-		legal = "legal"
-	}
-	if risk := r.world.Crafting.Economy.RiskPermille[legal]; risk > 0 {
-		price = price * risk / 1000
-	}
-	a := r.world.Peddlers.Appraisal
-	q, o := r.peddlerGrade(i)
-	if q >= 1 && q <= len(a.QualityPermille) {
-		price = price * a.QualityPermille[q-1] / 1000
-	}
-	if k := a.OriginPermille[o]; k > 0 {
-		price = price * k / 1000
-	}
-	price = price * (300 + 700*i.Condition/1000000) / 1000
-	return max(1, (price+999)/1000)
+    price, _ := r.peddlerAppraisal(i, stock)
+    return price
+}
+
+func (r *Runtime) peddlerAppraisal(i inv.Item, stock map[string]int64) (int64, [5]int64) {
+    d := r.world.Inventory.Definitions[i.Definition]
+    base, err := inv.Quote(d, 1)
+    factors := [5]int64{1000, 1000, 1000, 1000, 300 + 700*i.Condition/1000000}
+    if err != nil || base < 1 {
+        return 0, factors
+    }
+    price := base * 1000
+    if c, _, ok := r.world.Crafting.PartOf(i.Definition); ok {
+        factors[0] = r.world.Crafting.ScarcityPermille(c.ID, stock[c.ID])
+        price = price * factors[0] / 1000
+    }
+    legal := r.world.Peddlers.Legality[i.Definition]
+    if legal == "" {
+        legal = "legal"
+    }
+    if risk := r.world.Crafting.Economy.RiskPermille[legal]; risk > 0 {
+        factors[1] = risk
+        price = price * risk / 1000
+    }
+    a := r.world.Peddlers.Appraisal
+    q, o := r.peddlerGrade(i)
+    if q >= 1 && q <= len(a.QualityPermille) {
+        factors[2] = a.QualityPermille[q-1]
+        price = price * factors[2] / 1000
+    }
+    if k := a.OriginPermille[o]; k > 0 {
+        factors[3] = k
+        price = price * k / 1000
+    }
+    price = price * factors[4] / 1000
+    return max(1, (price+999)/1000), factors
 }
 
 // peddlerBuyPrice: what the cart man pays for one unit of a carried thing (by weight on his steelyard, never under the
 // floor share of the law's price), and whether he takes it at all (his classes and things; nothing forbidden in the dome).
 func (r *Runtime) peddlerBuyPrice(p peddlerDef, i inv.Item, stock map[string]int64) (int64, bool) {
-	b := p.Buys
-	if b == nil || r.world.Peddlers.Legality[i.Definition] == "forbidden" || i.Location.Slot != "" {
-		return 0, false
+	price, _, ok := r.peddlerBuyQuote(p, i, stock)
+    return price, ok
+}
+
+func (r *Runtime) peddlerBuyQuote(p peddlerDef, i inv.Item, stock map[string]int64) (price int64, byFloor, accepts bool) {
+    b := p.Buys
+    if b == nil || r.world.Peddlers.Legality[i.Definition] == "forbidden" || i.Location.Slot != "" {
+		return 0, false, false
 	}
 	takes := includesString(b.Items, i.Definition)
 	if c, _, ok := r.world.Crafting.PartOf(i.Definition); ok && includesString(b.Classes, c.ID) {
 		takes = true
 	}
 	if !takes {
-		return 0, false
+		return 0, false, false
 	}
 	d := r.world.Inventory.Definitions[i.Definition]
 	weight := (d.Mass*b.MinorPerKg + 999) / 1000
 	floor := r.peddlerLawPrice(i, stock) * b.FloorPermille / 1000
-	return max(1, weight, floor), true
+	return max(1, weight, floor), floor > weight, true
 }
 
 func (r *Runtime) peddlerAccount(owner string) (inv.Account, bool) {

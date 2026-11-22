@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"slices"
 	"maps"
 	"strings"
 
@@ -48,6 +49,8 @@ type memoryCatalog struct {
 	Trade memoryTradeDef `json:"trade"`
 }
 type memoryTradeDef struct {
+	ColumnMax int `json:"column_max"`
+	BuybackScreen bool `json:"buyback_screen"`
 	Rows    int    `json:"rows"`
 	More    string `json:"more"`
 	Prev    string `json:"prev"`
@@ -442,6 +445,9 @@ type talkTrade struct {
 	On   bool `json:",omitempty"`
 	Sell bool `json:",omitempty"`
 	Page int  `json:",omitempty"`
+	Screen bool `json:",omitempty"`
+	Basket []tradePiece `json:"-"`
+	BasketRevision uint64 `json:"-"`
 }
 
 func (s memoryState) clone() memoryState {
@@ -486,6 +492,7 @@ func (s memoryState) clone() memoryState {
 		out.Talks = make(map[string]*talkState, len(s.Talks))
 		for id, t := range s.Talks {
 			c := *t
+			c.Trade.Basket = slices.Clone(t.Trade.Basket)
 			c.dialogueSession = t.dialogueSession.clone()
 			if h, ok := out.Once[id]; ok {
 				c.Chosen, c.Checks = h.Chosen, h.Checks
@@ -1444,7 +1451,9 @@ func (r *Runtime) talkChoose(id string) (string, bool, error) {
 				c.t.dialogueSession = previous
 				return "", false, err
 			}
-			c.t.Trade = talkTrade{On: true}
+			goods := r.talkGoods("", c.self, false)
+            layout := r.world.Memory.Trade
+            c.t.Trade = talkTrade{On: true, Screen: len(goods.rows) > layout.ColumnMax || goods.buys && layout.BuybackScreen}
 			return "", false, nil
 		}
 		reply, do, next, word := o.Reply, o.Do, o.Next, o.Close
@@ -1669,9 +1678,15 @@ func (r *Runtime) conversationCommand(q *pb.PocLifeCommand) error {
 		return nil
 	case "conversation_buy", "conversation_sell", "conversation_trade":
 		c, ok := r.talkOpenNow()
-		if !ok || !r.talkAllowed(c) || !c.t.Trade.On || !r.talkSelfTrades(c.self) {
+		if !ok || !r.talkAllowed(c) || !c.t.Trade.On {
 			return textError{Key: "error.encounter.unavailable"}
 		}
+        if c.t.Trade.Screen {
+            return r.tradeScreenCommand(c, q.Action, q.Destination)
+        }
+        if !r.talkSelfTrades(c.self) {
+            return textError{Key: "error.encounter.unavailable"}
+        }
 		return r.talkTradeCommand(c, q.Action, q.Destination)
 	}
 	return textError{Key: "error.encounter.unavailable"}
@@ -1789,6 +1804,8 @@ func (r *Runtime) appendConversation(msg *pb.PocGameState, locale string) {
 	v := &pb.PocConversation{Required: r.openingTalk(c), Kind: "talk", Id: fmt.Sprintf("%s#%d", key, t.Serial), Speaker: speaker, Text: text, Lines: r.dialogueLog(locale, t.dialogueSession)}
 	if t.Until > 0 {
 		v.Kind, v.Leave = "reply", true
+	} else if t.Trade.On && t.Trade.Screen {
+		v.Trade = &pb.PocConversationTrade{Screen: r.tradeScreen(c, locale)}
 	} else if t.Trade.On && r.talkSelfTrades(self) {
 		r.appendTalkTrade(v, c, locale)
 	} else if n := d.Nodes[t.Node]; n != nil && !t.Staging {
@@ -2054,8 +2071,22 @@ func (r *Runtime) talkTradeCommand(c talkCtx, action, id string) error {
 		r.talkTradeNote(c, k.Gone, "", 0, false)
 		return nil
 	}
+	result := r.talkDeal(c.self, item, sell)
+	r.talkTradeNote(c, result.key, result.definition, result.minor, result.ok)
+	return nil
+}
+
+type talkDealResult struct {
+	key, definition string
+	minor int64
+	ok bool
+}
+
+// talkDeal is the ordinary single-piece command used by both trade presentations.
+func (r *Runtime) talkDeal(self string, item inv.Item, sell bool) talkDealResult {
+    k := r.world.Memory.Trade
 	q := &pb.PocInventoryCommand{Epoch: r.state.Epoch, Action: "buy", ItemId: item.ID, Quantity: 1, ExpectedRevision: item.Revision, Sequence: r.state.Inventory.Cursors[playerActorID].Sequence + 1}
-	p, _, _ := r.talkSeller(c.self)
+	p, _, _ := r.talkSeller(self)
 	if sell {
 		q.Action, q.StoreId = "sell", p.Tray
 	} else if item.Location.Kind == "store" {
@@ -2063,33 +2094,27 @@ func (r *Runtime) talkTradeCommand(c talkCtx, action, id string) error {
 	}
 	tag, err := inventoryTag(q)
 	if err != nil {
-		return textError{Key: "error.encounter.unavailable"}
+		return talkDealResult{key: k.Failed}
 	}
 	if p.Actor != "" {
-		// a peddler: his own trade decides and words it (peddlerHeroResult)
 		result := &pb.PocInventoryResult{}
 		if !r.peddlerCommand(nil, q, tag, result) {
-			r.talkTradeNote(c, k.Failed, "", 0, false)
-			return nil
+			return talkDealResult{key: k.Failed}
 		}
 		h := r.state.Peddlers.Hero[p.Actor]
-		r.talkTradeNote(c, h.Key, h.Item, h.Minor, result.Ok)
-		return nil
+		return talkDealResult{key: h.Key, definition: h.Item, minor: h.Minor, ok: result.Ok}
 	}
-	// a stall: the ordinary purchase; short money is said as the row said it
 	d := r.world.Inventory.Definitions[item.Definition]
 	price, _ := inv.Quote(d, 1)
 	from, _, has := r.tradeAccounts(item.Owner, d.PriceUnit)
 	if _, err := r.executeActorAction(inv.Action{Actor: playerActorID, Kind: "buy", Item: item.ID, Store: q.StoreId, Quantity: 1, ExpectedRevision: item.Revision, Sequence: q.Sequence, RequestTag: tag}); err != nil {
-		if !has || from.Balance < price {
-			r.talkTradeNote(c, k.Short, item.Definition, 0, false)
-		} else {
-			r.talkTradeNote(c, k.Failed, item.Definition, 0, false)
-		}
-		return nil
+		key := k.Failed
+        if !has || from.Balance < price {
+            key = k.Short
+        }
+        return talkDealResult{key: key, definition: item.Definition}
 	}
-	r.talkTradeNote(c, k.Bought, item.Definition, price, true)
-	return nil
+	return talkDealResult{key: k.Bought, definition: item.Definition, minor: price, ok: true}
 }
 
 // sanitizeMemory: a saved memory keeps only what the content still has (a fact, topic, person, conversation, answer,

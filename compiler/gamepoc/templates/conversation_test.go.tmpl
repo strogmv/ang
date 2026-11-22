@@ -1040,6 +1040,7 @@ func TestTalkWithAnyoneOpensTheSharedTalk(t *testing.T) {
 // the piece moving exactly as through the old window's command; a refusal is worded by the same server text.
 func TestTalkTradeWithAPeddlerInsideTheTalk(t *testing.T) {
 	r := memoryDay(t, 5)
+	legacyTradeColumn(r)
 	akim := akimAt(t, r)
 	old := memoryDay(t, 5)
 	akimAt(t, old)
@@ -1239,6 +1240,7 @@ func stallCounter(t *testing.T, r *Runtime) (inv.Shopfront, bool) {
 // bought with the money and the piece moving exactly as through the old window's command.
 func TestTalkTradeAtAStallInsideTheTalk(t *testing.T) {
 	r := memoryDay(t, 5)
+	legacyTradeColumn(r)
 	old := memoryDay(t, 5)
 	shop, ok := stallCounter(t, r)
 	for tries := 0; !ok && tries < 24; tries++ {
@@ -1326,6 +1328,7 @@ func TestTalkTradeAtAStallInsideTheTalk(t *testing.T) {
 // back to the talk, and a page out of range is brought back in.
 func TestTalkTradePagesKeepNineRows(t *testing.T) {
 	r := memoryDay(t, 5)
+	legacyTradeColumn(r)
 	rows := r.world.Memory.Trade.Rows
 	many := talkGoods{}
 	for i := 0; i < 20; i++ {

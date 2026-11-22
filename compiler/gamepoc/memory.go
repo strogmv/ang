@@ -47,25 +47,27 @@ type Memory struct {
 // the conversation column. Rows is how many numbered rows fit (a longer list pages); the rest are text keys of its own
 // rows, of the summary above them and of what the stall trade says (a peddler's trade words its own).
 type MemoryTrade struct {
-	Rows    int    `json:"rows"`
-	More    string `json:"more"`
-	Prev    string `json:"prev"`
-	Done    string `json:"done"`
-	Sell    string `json:"sell"`
-	Buy     string `json:"buy"`
-	Balance string `json:"balance"`
-	Cash    string `json:"cash"`
-	Load    string `json:"load"`
-	Count   string `json:"count"`
-	Mass    string `json:"mass"`
-	Bought  string `json:"bought"`
-	Short   string `json:"short"`
-	Gone    string `json:"gone"`
-	Failed  string `json:"failed"`
-	Closed  string `json:"closed"`
-	Away    string `json:"away"`
-	Empty   string `json:"empty"`
-	Nothing string `json:"nothing"`
+	ColumnMax     int    `json:"column_max"`
+	BuybackScreen bool   `json:"buyback_screen"`
+	Rows          int    `json:"rows"`
+	More          string `json:"more"`
+	Prev          string `json:"prev"`
+	Done          string `json:"done"`
+	Sell          string `json:"sell"`
+	Buy           string `json:"buy"`
+	Balance       string `json:"balance"`
+	Cash          string `json:"cash"`
+	Load          string `json:"load"`
+	Count         string `json:"count"`
+	Mass          string `json:"mass"`
+	Bought        string `json:"bought"`
+	Short         string `json:"short"`
+	Gone          string `json:"gone"`
+	Failed        string `json:"failed"`
+	Closed        string `json:"closed"`
+	Away          string `json:"away"`
+	Empty         string `json:"empty"`
+	Nothing       string `json:"nothing"`
 }
 
 // MemoryFact is one significant event of the hero's story, defined ahead like an item (doc 103 §1).
