@@ -353,6 +353,8 @@ type receipt struct {
 }
 
 type Runtime struct {
+ allowDeveloper bool
+ dev *dialogueDev
  story storySchedule
 <<ANG if .GodotScreens ANG>> screenRoutes *screenAccessRoutes <<ANG end ANG>>
  playableWorlds map[string]worldData

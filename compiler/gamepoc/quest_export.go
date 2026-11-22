@@ -82,23 +82,9 @@ func ExportQuestView(gameRoot string) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	sources, err := readQuestSources(gameRoot, scripts, convs)
+	sources, err := questConversationSources(world, gameRoot, scripts, convs)
 	if err != nil {
 		return nil, err
-	}
-
-	calendar, err := questRaw(world, "calendar_encounter.talk")
-	if err != nil {
-		return nil, err
-	}
-	if values, ok := calendar.(map[string]any); ok && scripts["01"] != "" {
-		for _, role := range sortedKeys(values) {
-			id := values[role].(string)
-			if convs[id] != nil && sources.conversations[id] == "" {
-				sources.conversations[id] = "01"
-				sources.count["01"]++
-			}
-		}
 	}
 	compiled, _, err := readCompiled(project)
 	if err != nil {
@@ -126,13 +112,7 @@ func ExportQuestView(gameRoot string) (map[string]string, error) {
 	}
 	q.scriptCards(scripts, sources)
 	for _, id := range sortedKeys(convs) {
-		path := id + "/scene.twee"
-		if script := sources.conversations[id]; script != "" {
-			path = "scene-" + script + "/" + strings.TrimPrefix(id, "dlg.") + ".twee"
-			if sources.count[script] == 1 {
-				path = "scene-" + script + "/scene.twee"
-			}
-		}
+		path := sources.path(id)
 		if err := q.conversation(path, convs[id], memory); err != nil {
 			return nil, fmt.Errorf("%s: %w", id, err)
 		}
@@ -170,6 +150,39 @@ type questSource struct {
 	conversations, interjections map[string]string
 	count                        map[string]int
 	title                        map[string]string
+}
+
+func (s questSource) path(id string) string {
+	script := s.conversations[id]
+	if script == "" {
+		return id + "/scene.twee"
+	}
+	if s.count[script] == 1 {
+		return "scene-" + script + "/scene.twee"
+	}
+	return "scene-" + script + "/" + strings.TrimPrefix(id, "dlg.") + ".twee"
+}
+
+func questConversationSources(world cue.Value, gameRoot string, scripts map[string]string, convs map[string]*Conversation) (questSource, error) {
+	sources, err := readQuestSources(gameRoot, scripts, convs)
+	if err != nil {
+		return sources, err
+	}
+
+	calendar, err := questRaw(world, "calendar_encounter.talk")
+	if err != nil {
+		return sources, err
+	}
+	if values, ok := calendar.(map[string]any); ok && scripts["01"] != "" {
+		for _, role := range sortedKeys(values) {
+			id := values[role].(string)
+			if convs[id] != nil && sources.conversations[id] == "" {
+				sources.conversations[id] = "01"
+				sources.count["01"]++
+			}
+		}
+	}
+	return sources, nil
 }
 
 func readQuestSources(root string, scripts map[string]string, convs map[string]*Conversation) (questSource, error) {

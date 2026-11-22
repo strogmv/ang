@@ -128,8 +128,8 @@ type memKnows struct {
 type memWhen struct {
 	TrainBerth string `json:"train_berth,omitempty"`
 	DeckPhase *storyDeckPhase `json:"deck_phase,omitempty"`
-	FileTrait string `json:"file_trait"`
-	FileStrength string `json:"file_strength"`
+	FileTrait string `json:"file_trait,omitempty"`
+	FileStrength string `json:"file_strength,omitempty"`
 	Quest *storyQuestStep `json:"quest,omitempty"`
 	Hour *storyHours `json:"hour,omitempty"`
 	Present *storyPresence `json:"present,omitempty"`
@@ -1022,6 +1022,7 @@ func (r *Runtime) memoryDo(c talkCtx, list []memDo) error {
 		if err := r.storyEffect(d); err != nil {
 			return err
 		}
+		if r.dev != nil { r.devEffect(d) }
 		switch {
 		case d.Fact != "":
 			r.memoryWrite(d.Fact, d.Args, c)
@@ -1097,7 +1098,9 @@ func (r *Runtime) talkSpeak(c talkCtx, lines []convLine) {
 		if l.Speaker == "narrator" {
 			line.Kind, line.Speaker = "narration", ""
 		}
+		index := len(c.t.Lines)
 		r.dialogueSay(&c.t.dialogueSession, line)
+		if r.dev != nil { r.devLine(c, index, l.Text, line.Text, l.When, l.Variants) }
 	}
 }
 
@@ -1127,10 +1130,17 @@ func (r *Runtime) talkArrive(c talkCtx, n *convNode) {
 	_ = r.memoryDo(c, n.Do)
 	r.talkSpeak(c, n.Lines)
 	for _, v := range n.Voices {
-		if c.t.voiced(v.ID) || r.dialogueSkill(v.Skill) < v.AtLeast || !r.memoryHolds(c, v.When) {
-			continue
+		reason := "fired"
+		switch {
+		case c.t.voiced(v.ID): reason = "said"
+		case r.dialogueSkill(v.Skill) < v.AtLeast: reason = "skill"
+		case !r.memoryHolds(c, v.When): reason = "condition"
 		}
-		r.dialogueSay(&c.t.dialogueSession, dialogueEntry{Kind: "voice", Skill: v.Skill, Text: r.lineText(c, v.Text, v.Variants)})
+		if r.dev != nil { r.devRule(c, v.ID, reason, fmt.Sprintf("%s %d / %d", v.Skill, r.dialogueSkill(v.Skill), v.AtLeast), v.When) }
+		if reason != "fired" { continue }
+		text, index := r.lineText(c, v.Text, v.Variants), len(c.t.Lines)
+		r.dialogueSay(&c.t.dialogueSession, dialogueEntry{Kind: "voice", Skill: v.Skill, Text: text})
+		if r.dev != nil { r.devLine(c, index, v.Text, text, v.When, v.Variants) }
 		c.t.Voiced = append(c.t.Voiced, v.ID)
 		r.memoryDo(c, v.Do)
 	}
@@ -1296,7 +1306,9 @@ func (r *Runtime) talkOpen(conv, self string) error {
 	c := talkCtx{conv: d, key: key, self: self, t: t}
 	r.talkThings(c)
 	preferred := r.talkEntry(c)
-	if in := r.talkInterjection(c); in != nil && (preferred == nil || !preferred.NoInterjection) {
+	in := r.talkInterjection(c)
+	if r.dev != nil && r.world.Memory != nil { r.devInterjections(c, in, preferred) }
+	if in != nil && (preferred == nil || !preferred.NoInterjection) {
 		if r.state.Memory.Said == nil {
 			r.state.Memory.Said = map[string]int64{}
 		}
@@ -1304,12 +1316,16 @@ func (r *Runtime) talkOpen(conv, self string) error {
 		t.Interjected = true
 		r.learnStoryFromSpeaker(self, in.Fact)
 		r.dialogueSay(&t.dialogueSession, dialogueEntry{Kind: "line", Speaker: self, Text: in.Text})
-		if v := in.Voice; v != nil && r.dialogueSkill(v.Skill) >= v.AtLeast && r.memoryHolds(c, v.When) {
-			r.dialogueSay(&t.dialogueSession, dialogueEntry{Kind: "voice", Skill: v.Skill, Text: v.Text})
+		if v := in.Voice; v != nil {
+			reason := "fired"
+			if r.dialogueSkill(v.Skill) < v.AtLeast { reason = "skill" } else if !r.memoryHolds(c, v.When) { reason = "condition" }
+			if r.dev != nil { r.devRule(c, in.ID+"/voice", reason, fmt.Sprintf("%s %d / %d", v.Skill, r.dialogueSkill(v.Skill), v.AtLeast), v.When) }
+			if reason == "fired" { r.dialogueSay(&t.dialogueSession, dialogueEntry{Kind: "voice", Skill: v.Skill, Text: v.Text}) }
 		}
 		r.memoryDo(c, in.Do)
 	}
 	e := r.talkEntry(c)
+	if r.dev != nil { r.devEntry(c,e) }
 	if e == nil {
 		r.talkDrop()
 		return textError{Key: "error.encounter.unavailable"}
@@ -1379,17 +1395,18 @@ func (r *Runtime) talkTick() {
 // optionShown: an answer of the node the hero may pick now (a locked retry check is shown, locked); an answer another
 // shown answer replaces is not.
 func (r *Runtime) optionShown(c talkCtx, o convOption) bool {
-	if !r.optionOwn(c, o) {
-		return false
-	}
+	return r.optionOwn(c, o) && r.optionReplacement(c, o.ID) == ""
+}
+
+func (r *Runtime) optionReplacement(c talkCtx, id string) string {
 	if n := c.conv.Nodes[c.t.Node]; n != nil {
 		for _, other := range n.Options {
-			if other.Replaces == o.ID && r.optionOwn(c, other) {
-				return false
+			if other.Replaces == id && r.optionOwn(c, other) {
+				return other.ID
 			}
 		}
 	}
-	return true
+	return ""
 }
 
 // optionOwn: the answer's own condition, once and check.
@@ -1422,12 +1439,19 @@ func (r *Runtime) talkChoose(id string) (string, bool, error) {
 		return "", false, textError{Key: "error.encounter.condition"}
 	}
 	c.t.Trade = talkTrade{}
-	for _, o := range n.Options {
+	for index, o := range n.Options {
 		if o.ID != id {
 			continue
 		}
 		if !r.optionShown(c, o) {
 			return "", false, textError{Key: "error.encounter.condition"}
+		}
+		if index >= dialogueAnswerLimit {
+			shown := 0
+			for _, earlier := range n.Options[:index] {
+				if r.optionShown(c, earlier) { shown++ }
+			}
+			if shown >= dialogueAnswerLimit { return "", false, textError{Key: "error.encounter.condition"} }
 		}
 		if o.Check != nil {
 			if open, _ := r.dialogueCheckOpen(&c.t.dialogueSession, o.ID, *o.Check); !open {
@@ -1442,7 +1466,9 @@ func (r *Runtime) talkChoose(id string) (string, bool, error) {
 		if o.Continue {
 			c.t.recordChoice(o.ID)
 		} else {
-			r.dialogueAnswer(&c.t.dialogueSession, o.ID, r.lineText(c, o.Text, o.Variants))
+			text, index := r.lineText(c, o.Text, o.Variants), len(c.t.Lines)
+			r.dialogueAnswer(&c.t.dialogueSession, o.ID, text)
+			if r.dev != nil { r.devLine(c, index, o.Text, text, o.When, o.Variants) }
 		}
 		if o.Trade {
 			// the person's word about his goods, then the goods in place of the answers
@@ -1497,9 +1523,12 @@ func (r *Runtime) talkEvent(event string) string {
 	if e == nil {
 		return ""
 	}
+	var finish func(string)
+	if r.dev != nil { finish = r.devStep(c, "event."+event) }
 	r.talkSpeak(c, e.Lines)
 	r.memoryDo(c, e.Do)
 	r.talkClose(c, e.Close)
+	if finish != nil { finish("fired") }
 	return e.Close
 }
 
@@ -1668,12 +1697,20 @@ func (r *Runtime) conversationCommand(q *pb.PocLifeCommand) error {
 		if !ok || !r.talkAllowed(c) {
 			return textError{Key: "error.encounter.unavailable"}
 		}
+		var finish func(string)
+		if r.dev != nil { finish = r.devStep(c, q.Destination) }
 		word, failed, err := r.talkChoose(q.Destination)
 		if err != nil {
+			if finish != nil { finish("refused") }
 			return err
 		}
 		if word != "" {
 			r.talkClosed(c, word, failed)
+		}
+		if finish != nil {
+			outcome := "chosen"
+			if failed { outcome = "failed" }
+			finish(outcome)
 		}
 		return nil
 	case "conversation_buy", "conversation_sell", "conversation_trade":
@@ -1681,15 +1718,21 @@ func (r *Runtime) conversationCommand(q *pb.PocLifeCommand) error {
 		if !ok || !r.talkAllowed(c) || !c.t.Trade.On {
 			return textError{Key: "error.encounter.unavailable"}
 		}
-        if c.t.Trade.Screen {
-            return r.tradeScreenCommand(c, q.Action, q.Destination)
-        }
-        if !r.talkSelfTrades(c.self) {
-            return textError{Key: "error.encounter.unavailable"}
-        }
-		return r.talkTradeCommand(c, q.Action, q.Destination)
+		if r.dev == nil { return r.conversationTradeCommand(c, q) }
+		finish := r.devStep(c, q.Destination)
+		err := r.conversationTradeCommand(c, q)
+		outcome := "chosen"
+		if err != nil { outcome = "refused" }
+		finish(outcome)
+		return err
 	}
 	return textError{Key: "error.encounter.unavailable"}
+}
+
+func (r *Runtime) conversationTradeCommand(c talkCtx, q *pb.PocLifeCommand) error {
+	if c.t.Trade.Screen { return r.tradeScreenCommand(c, q.Action, q.Destination) }
+	if !r.talkSelfTrades(c.self) { return textError{Key: "error.encounter.unavailable"} }
+	return r.talkTradeCommand(c, q.Action, q.Destination)
 }
 
 // talkAllowed: the open talk may go on — its owner still holds it (the encounter's phase and guard) and the hero stands
@@ -1819,6 +1862,7 @@ func (r *Runtime) appendConversation(msg *pb.PocGameState, locale string) {
 			}
 			choice.Action = "conversation_choice"
 			v.Choices = append(v.Choices, choice)
+			if len(v.Choices) == dialogueAnswerLimit { break }
 		}
 	}
 	if v.Required {
@@ -1835,6 +1879,10 @@ func (r *Runtime) appendConversation(msg *pb.PocGameState, locale string) {
 	v.CasteName = r.localText(locale, "ui.caste."+v.Skin, "")
 	v.SpeakerColour = r.dialogueCasteColour(v.Speaker)
 	msg.Conversation = v
+	if r.dev != nil {
+		if msg.Developer == nil { r.appendDeveloper(msg) }
+		r.appendDialogueDev(msg,c,v)
+	}
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

@@ -378,6 +378,7 @@ func (r *Runtime) sendLifeState(c *connection) {
  r.appendBiomonitors(view, hero, msg.SceneAgents)
 <<ANG if .GodotScreens ANG>> r.appendScreenTrade(msg,c.locale);r.appendScreenServices(msg,c.locale) <<ANG end ANG>>
  view.CartParkingJson=r.cartParkingJSON(hero,msg.PlayerView)
+ r.appendDeveloper(msg)
  r.appendConversation(msg,c.locale)
  r.appendStoryJournal(msg,c.locale)
  r.appendBuskerConversation(msg,c.locale)
@@ -423,6 +424,7 @@ func (r *Runtime) sendLifeState(c *connection) {
 	r.send(c, &pb.ServerMessage{Msg: &pb.ServerMessage_GameState{GameState: msg}})
 }
 func (r *Runtime) lifeCommand(q *pb.PocLifeCommand) error {
+ if q.Action == "developer_view" { return r.developerCommand(q) }
  if r.state.Memory.Opening && q.Action != "conversation_choice" && q.Action != "conversation_leave" && q.Action != "rate" {
   return textError{Key: "error.encounter.unavailable"}
  }

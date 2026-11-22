@@ -30,12 +30,14 @@ func main() {
  wsAddr:=flag.String("ws-listen","127.0.0.1:0","protojson WebSocket listener")
  allowRemote:=flag.Bool("allow-remote",false,"explicitly permit non-loopback WebSocket")
 <<ANG end ANG>>
+ dev := flag.Bool("dev", false, "enable designer diagnostics for local development")
  flag.Parse()
  token:=os.Getenv("GAME_BOOTSTRAP_TOKEN")
  if token=="" { fmt.Fprintln(os.Stderr,"GAME_BOOTSTRAP_TOKEN is required");os.Exit(1) }
  ctx,cancel:=signal.NotifyContext(context.Background(),os.Interrupt,syscall.SIGTERM);defer cancel()
  if *parent { go func(){_,_=io.Copy(io.Discard,os.Stdin);cancel()}() }
  runtime,err:=poc.New(*data,token);if err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(1)}
+ runtime.SetDeveloperMode(*dev)
  lis,err:=net.Listen("tcp",*addr);if err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(1)}
  ip,_,err:=net.SplitHostPort(lis.Addr().String());if err!=nil || !net.ParseIP(ip).IsLoopback(){fmt.Fprintln(os.Stderr,"POC accepts only a loopback listener");os.Exit(1)}
  server:=grpc.NewServer(grpc.MaxRecvMsgSize(16384),grpc.MaxConcurrentStreams(2))

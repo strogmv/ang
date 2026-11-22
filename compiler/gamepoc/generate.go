@@ -283,6 +283,7 @@ type Menu struct {
 }
 
 type Compiled struct {
+	dialogueDev  dialogueDevAssets
 	ExitZones    *ExitZoneCatalog    `json:"exit_zones,omitempty"`
 	LiftingDecks *LiftingDeckCatalog `json:"lifting_decks,omitempty"`
 	TurretWatch  *TurretWatchCatalog `json:"turret_watch,omitempty"`
@@ -1201,6 +1202,13 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 			return out, nil, fmt.Errorf("missing CUE message %s", name)
 		}
 	}
+	if w.LookupPath(cue.ParsePath("developerInput")).Exists() {
+		out.dialogueDev, err = compileDialogueDev(filepath.Dir(project), w, world, out)
+		if err != nil {
+			return out, nil, err
+		}
+	}
+
 	return out, def, nil
 }
 
@@ -1424,6 +1432,10 @@ func generatePOC(project string, legacyUnity bool) error {
 		return err
 	}
 	phases.mark("emit: save key")
+	if err := writeDialogueDev(files, project, compiled.dialogueDev); err != nil {
+		return err
+	}
+
 	inventoryFiles, err := inventory.Render()
 	if err != nil {
 		return err
@@ -1607,6 +1619,8 @@ func generatePOC(project string, legacyUnity bool) error {
 		"story_journal_test.go.tmpl":            filepath.Join(project, "internal/poc/story_journal_generated_test.go"),
 		"trade_screen.go.tmpl":                  filepath.Join(project, "internal/poc/trade_screen.gen.go"),
 		"trade_screen_test.go.tmpl":             filepath.Join(project, "internal/poc/trade_screen_generated_test.go"),
+		"dialogue_dev.go.tmpl":                  filepath.Join(project, "internal/poc/dialogue_dev.gen.go"),
+		"dialogue_dev_test.go.tmpl":             filepath.Join(project, "internal/poc/dialogue_dev_generated_test.go"),
 		"conversation.go.tmpl":                  filepath.Join(project, "internal/poc/conversation.gen.go"),
 		"story_rules.go.tmpl":                   filepath.Join(project, "internal/poc/story_rules.gen.go"),
 		"story_rules_test.go.tmpl":              filepath.Join(project, "internal/poc/story_rules_generated_test.go"),
