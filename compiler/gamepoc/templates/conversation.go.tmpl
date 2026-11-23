@@ -317,6 +317,8 @@ func (o convOption) question() bool { return o.Next == "" && o.Close == "" && !o
 const memoryMigrationVersion = 1
 
 type memoryState struct {
+ Act string `json:",omitempty"`
+ Returned map[string]string `json:",omitempty"`
 	Opening bool `json:",omitempty"`
 	OpeningPlayed bool `json:",omitempty"`
  StoryVersion int `json:",omitempty"`
@@ -1266,7 +1268,7 @@ func (r *Runtime) talkInterjection(c talkCtx) *interjectionDef {
 // talkEntry: the first entry whose condition holds.
 func (r *Runtime) talkEntry(c talkCtx) *convEntryDef {
 	for i := range c.conv.Entries {
-		if r.memoryHolds(c, c.conv.Entries[i].When) {
+		if r.actConversationEntry(c.conv.ID, c.conv.Entries[i].ID) && r.memoryHolds(c, c.conv.Entries[i].When) {
 			return &c.conv.Entries[i]
 		}
 	}
@@ -1292,6 +1294,10 @@ func (r *Runtime) talkState(key string) *talkState {
 func (r *Runtime) talkOpen(conv, self string) error {
 	d := r.world.Conversations[conv]
 	if d == nil || d.StageLevel != "" && d.StageLevel != r.currentLevel() {
+		return textError{Key: "error.encounter.unavailable"}
+	}
+	if allowed, back := r.actConversation(conv); !allowed {
+		if back.Message != "" { return textError{Key: back.Message} }
 		return textError{Key: "error.encounter.unavailable"}
 	}
 	key := talkKey(conv, self)
@@ -2321,6 +2327,7 @@ func (r *Runtime) validateMemorySave(s state) error {
 			return errors.New("invalid saved story opening")
 		}
 	}
+	if err := r.validateStoryActsSave(s); err != nil { return err }
 	if err := r.validateStoryProgress(s); err != nil {
 		return err
 	}

@@ -45,6 +45,23 @@ func runQuest(args []string) error {
 			}
 		}
 		return nil
+	case "acts":
+		if len(args) != 2 {
+			return fmt.Errorf("использование: ang quest acts <выгрузка>")
+		}
+		view, err := gamepoc.ReadQuestView(args[1])
+		if err != nil {
+			return err
+		}
+		if view["Сводка.md"] == "" || view["Акты.canvas"] == "" {
+			return fmt.Errorf("сначала выгрузите карты и сводку актов из CUE")
+		}
+		if report := view["Решения автора.md"]; report != "" {
+			fmt.Print(report)
+			return fmt.Errorf("есть окна или судьбы с пометкой «не решено»")
+		}
+		fmt.Println("Окна и судьбы утверждены.")
+		return nil
 	case "compare", "diff", "validate":
 		if len(args) != 3 {
 			return fmt.Errorf("использование: ang quest %s <база> <правки>", args[0])
@@ -60,6 +77,13 @@ func runQuest(args []string) error {
 		if args[0] == "validate" {
 			if err := gamepoc.ValidateQuestView(edited, base); err != nil {
 				return err
+			}
+			requests, err := gamepoc.QuestViewRequests(edited, base)
+			if err != nil {
+				return err
+			}
+			for _, request := range requests {
+				fmt.Println("Нужно новое · " + request)
 			}
 			fmt.Println("Проверка файлов дизайнера пройдена.")
 			return nil

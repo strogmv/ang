@@ -3,6 +3,8 @@ package gamepoc
 import (
 	"strings"
 	"testing"
+
+	"github.com/strogmv/ang/compiler/questnotation"
 )
 
 func TestQuestStoryDeterministicAndInsertionKeepsIDs(t *testing.T) {
@@ -79,5 +81,66 @@ func TestQuestConditionsAndEffectsRoundTrip(t *testing.T) {
 	after, err = parseQuestFields(readable, " · ")
 	if err != nil || !questRawEqual(effect, after) {
 		t.Fatalf("%s: %v %v", readable, after, err)
+	}
+}
+
+func TestQuestSentencesAreReversible(t *testing.T) {
+	terms := map[string][]string{
+		"self": {"роль", "Варя"}, "sq.demo": {"квест", "Рассада"}, "fact.first": {"факт", "У лотка пахнет землёй."},
+		"fact.other": {"факт", "Кассета опломбирована."}, "item.box": {"предмет", "опломбированная кассета"},
+		"place.demo": {"место", "пакет земли"},
+	}
+	w := newQuestWords(terms)
+	format := questnotation.Formatter(func(id string) string { return w.names[id] })
+	for _, tc := range []struct {
+		source string
+		effect bool
+	}{
+		{`{"any":[{"quest":{"id":"sq.demo","step":"done"}},{"trust":{"who":"self","at_least":0.1}}]}`, false},
+		{`{"not":{"not_fact":"fact.first","item":{"item":"item.box","held":true,"owner":"hero"}}}`, false},
+		{`{"fact":{"id":"fact.first","args":{"by":"someone"}}}`, false},
+		{`{"transfer":{"to":"hero","placement":"place.demo","pay_crd_minor":300},"when":{"fact":{"id":"fact.other"}}}`, true},
+		{`{"trust":{"who":"self","delta":0.1}}`, true},
+		{`{"trust":{"who":"self","delta":-0.1}}`, true},
+	} {
+		var source map[string]any
+		if err := questJSON([]byte(tc.source), &source); err != nil {
+			t.Fatal(err)
+		}
+		var phrase string
+		read := w.condition
+		if tc.effect {
+			phrase, read = format.Effect(source), w.effect
+		} else {
+			phrase = format.Sentence(source)
+		}
+		got, err := read(phrase)
+		if err != nil || !questRawEqual(source, got) {
+			t.Fatalf("%s: got %v (%v), want %s", phrase, got, err, tc.source)
+		}
+	}
+	w.add("fact.ambiguous", "У лотка пахнет землёй.")
+	if _, err := w.condition("известно: «У лотка пахнет землёй.»"); err == nil || !strings.Contains(err.Error(), "Уточните название") {
+		t.Fatalf("ambiguous name was accepted: %v", err)
+	}
+}
+
+func TestQuestStoryRequiresItsDeclaredStart(t *testing.T) {
+	story := questStory{ID: "dlg.proof", Title: "Проверка"}
+	story.card("Start", "dispatch", []string{"Начало"})
+	legacy := story.render()
+	missing := strings.Replace(legacy, ":: Start ", ":: Lost ", 1)
+	if _, err := parseQuestStory(missing); err == nil {
+		t.Fatal("accepted a story whose initial passage was removed")
+	}
+	renamed := strings.Replace(legacy, ":: Start [dispatch]", ":: О сцене [id.Start вход]", 1)
+	renamed = strings.Replace(renamed, `"start":"Start"`, `"start":"О сцене"`, 1)
+	pages, err := parseQuestStory(renamed)
+	if err != nil || passageID(pages["О сцене"].tags, "id.") != "Start" {
+		t.Fatalf("renamed v2 start lost its identity: %v", err)
+	}
+	missing = strings.Replace(renamed, ":: О сцене ", ":: Потеряна ", 1)
+	if _, err := parseQuestStory(missing); err == nil {
+		t.Fatal("accepted a v2 story whose initial passage was removed")
 	}
 }

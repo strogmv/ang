@@ -91,7 +91,9 @@ func (r *Runtime) devClauseTree(c talkCtx, when *memWhen, depth int32) []*pb.Poc
 			continue
 		}
 		rows = append(rows, &pb.PocDialogueClauseDebug{
-			Notation: r.dev.formatter().Condition(single),
+			Notation: questnotation.Formatter(func(id string) string {
+ if id == "self" { return r.dev.Names[c.self] }; return r.dev.Names[id]
+ }).Sentence(single),
 			Holds: r.memoryHolds(c, &atom), Depth: depth,
 		})
 		for i := range atom.Any {
@@ -363,5 +365,5 @@ func (r *Runtime) devStep(c talkCtx, id string) func(string) {
 
 func (r *Runtime) devEffect(effect memDo) {
 	if r.dev.effectSink == nil { return }
-	*r.dev.effectSink = append(*r.dev.effectSink, r.dev.formatter().Fields(dialogueDevObject(effect)))
+	*r.dev.effectSink = append(*r.dev.effectSink, r.dev.formatter().Effect(dialogueDevObject(effect)))
 }

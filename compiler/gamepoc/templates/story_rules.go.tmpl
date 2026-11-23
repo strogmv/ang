@@ -145,6 +145,17 @@ func (r *Runtime) memoryHeld(definition string) (inv.Item, bool) {
 }
 
 func (r *Runtime) storySetQuest(q storyQuestStep) {
+	if a := r.world.StoryActs; a != nil {
+		if res, exists := a.Quests[q.ID]; exists {
+			if allowed, _ := r.storyActWindow(res); !allowed { return }
+			step := r.state.Memory.QuestSteps[q.ID].Step
+			if step != "" && res.Fate.Step == step && (res.Fate.Mode == "fail" || res.Fate.Mode == "expire") { return }
+		}
+	}
+	r.setStoryQuestStep(q)
+}
+
+func (r *Runtime) setStoryQuestStep(q storyQuestStep) {
 	m := &r.state.Memory
 	if m.QuestSteps == nil {
 		m.QuestSteps = map[string]storyQuestStep{}
@@ -258,6 +269,7 @@ func (r *Runtime) advanceStoryTalks(level string) {
 }
 
 func (r *Runtime) storyArrived(level, edge string) {
+	r.storyActArrived(level)
 	if r.world.Memory == nil || edge == "" {
 		return
 	}

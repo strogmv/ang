@@ -50,12 +50,15 @@ func compileDialogueDev(root string, source, world cue.Value, compiled Compiled)
 	}
 	result := dialogueDevAssets{input.ToggleKey, map[string]string{}, map[string]string{}}
 	for id := range convs {
-		result.Paths[id] = "quests/" + paths.path(id)
+		result.Paths[id] = "quests/" + questActFolder(compiled.StoryActs, id) + paths.path(id)
 	}
 	for id, term := range q.glossary {
 		if term.Name != id {
 			result.Names[id] = term.Name
 		}
+	}
+	for id, name := range questAliases {
+		result.Names[id] = name
 	}
 	return result, nil
 }

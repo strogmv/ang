@@ -20,6 +20,11 @@ type questValidation struct {
 }
 
 func ValidateQuestView(view, trusted map[string]string) error {
+	normalized, _, err := questV2View(view, trusted)
+	if err != nil {
+		return err
+	}
+	view = normalized
 	glossary, err := questTable(trusted["glossary.tsv"], 4)
 	if err != nil {
 		return fmt.Errorf("словарь CUE: %w", err)
@@ -53,8 +58,8 @@ func ValidateQuestView(view, trusted map[string]string) error {
 	if len(v.ifids) == 0 {
 		return fmt.Errorf("в папке нет историй Twee")
 	}
-	if view["act-one-chain.canvas"] == "" {
-		return fmt.Errorf("нет карты act-one-chain.canvas")
+	if view["act-one-chain.canvas"] == "" && view["акт-1/Цепочки.canvas"] == "" {
+		return fmt.Errorf("нет карты цепочек первого акта")
 	}
 	return nil
 }
@@ -220,7 +225,7 @@ func (v questValidation) validateStory(path, text string) error {
 			if m := questText.FindStringSubmatch(line); m != nil {
 				key, ru := m[3], m[2]
 				if strings.TrimSpace(ru) == "" || v.translations[key] == nil {
-					return fmt.Errorf("%s / %s: отсутствует русский или английский текст", id, key)
+					return fmt.Errorf("%s / %s: добавьте русский текст и строку с английским текстом и контекстом в translations.tsv", id, key)
 				}
 				if questMarkup.MatchString(ru) || strings.Contains(ru, "<") {
 					return fmt.Errorf("%s / %s: экранируйте разметку в реплике", id, key)
@@ -330,7 +335,7 @@ func (v questValidation) validateStory(path, text string) error {
 			exits = append(exits, id)
 		default:
 			if toTransition == 0 {
-				return fmt.Errorf("%s: тупик, нет перехода", id)
+				return fmt.Errorf("%s: добавьте ссылку на следующую карточку или итог", id)
 			}
 		}
 		if kind == "answer" {

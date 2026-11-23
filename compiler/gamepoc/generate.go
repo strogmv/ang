@@ -284,7 +284,8 @@ type Menu struct {
 }
 
 type Compiled struct {
-	ClientPackage string `json:"-"`
+	StoryActs     *storyActs `json:"story_acts,omitempty"`
+	ClientPackage string     `json:"-"`
 	dialogueDev   dialogueDevAssets
 	ExitZones     *ExitZoneCatalog    `json:"exit_zones,omitempty"`
 	LiftingDecks  *LiftingDeckCatalog `json:"lifting_decks,omitempty"`
@@ -634,6 +635,9 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 		}
 	}
 	if out.Memory, out.Conversations, err = readMemory(world); err != nil {
+		return out, nil, err
+	}
+	if err := readStoryActs(world, &out); err != nil {
 		return out, nil, err
 	}
 	if out.HeroFile, err = readHeroFile(world); err != nil {
@@ -1276,6 +1280,9 @@ func generatePOC(project string, legacyUnity bool) error {
 	if err := checkMemory(&compiled); err != nil {
 		return err
 	}
+	if _, err := checkStoryActs(&compiled); err != nil {
+		return err
+	}
 	if err := compileWounds(&compiled); err != nil {
 		return err
 	}
@@ -1636,6 +1643,8 @@ func generatePOC(project string, legacyUnity bool) error {
 		"dialogue_dev.go.tmpl":                  filepath.Join(project, "internal/poc/dialogue_dev.gen.go"),
 		"dialogue_dev_test.go.tmpl":             filepath.Join(project, "internal/poc/dialogue_dev_generated_test.go"),
 		"conversation.go.tmpl":                  filepath.Join(project, "internal/poc/conversation.gen.go"),
+		"story_acts_test.go.tmpl":               filepath.Join(project, "internal/poc/story_acts_generated_test.go"),
+		"story_acts.go.tmpl":                    filepath.Join(project, "internal/poc/story_acts.gen.go"),
 		"story_rules.go.tmpl":                   filepath.Join(project, "internal/poc/story_rules.gen.go"),
 		"story_rules_test.go.tmpl":              filepath.Join(project, "internal/poc/story_rules_generated_test.go"),
 		"story_hub_test.go.tmpl":                filepath.Join(project, "internal/poc/story_hub_generated_test.go"),

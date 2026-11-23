@@ -116,6 +116,7 @@ type worldData struct {
 	// conversation like Disco Elysium (owner 20.11): skill checks and inner voices (dialogue.go)
 	DialogueRules *dialogueRules `json:"dialogue_rules"`
 	// story memory (doc 103 step 1): facts, topics, interjections, talks, and every conversation (conversation.go)
+	StoryActs *storyActCatalog `json:"story_acts"`
 	Memory        *memoryCatalog              `json:"memory"`
 	Conversations map[string]*conversationDef `json:"conversations"`
 	Start *storyStartDef `json:"start"`

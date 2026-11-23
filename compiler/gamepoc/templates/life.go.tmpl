@@ -152,6 +152,7 @@ func (r *Runtime) advanceLifeFrameBy(delta int64) error {
  // story memory: topics from heard barks, the talk's life (conversation.go)
  r.memoryAfterFrame()
  r.advanceStoryRules()
+ r.advanceStoryAct()
  if err:=r.advanceCombatCare();err!=nil{return err}
  if err:=r.advanceMedicalCapsules();err!=nil{return err}
  if err:=r.advanceSanitaryServices();err!=nil{return err}
@@ -769,6 +770,7 @@ func (r *Runtime) validateLifeSave(s state) error {
 }
 
 func (r *Runtime) lifeExitKnown(edge behavior.LifeEdge) bool {
+ if !r.storyRouteOpen(edge.From,edge.To) { return false }
 	hero := r.state.Life.Actor(playerActorID)
 	if e:=r.world.CalendarEncounter;e!=nil&&(edge.ID==e.MedicalEdge||edge.ID==e.GateEdge){return false}
  if hero == nil || hero.Trip != nil || hero.Level != edge.From {

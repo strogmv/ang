@@ -1743,6 +1743,14 @@ func checkMemory(c *Compiled) error {
 	if err := k.checkStoryRules(life.Locations); err != nil {
 		return err
 	}
+	if acts := c.StoryActs; acts != nil {
+		for _, id := range sortedKeys(acts.Quests) {
+			f := acts.Quests[id].Fate
+			if f.Mode == "expire" || f.Mode == "fail" {
+				k.links.add(k.links.factWriters, f.Fact, "встреча: смена акта "+f.At)
+			}
+		}
+	}
 	if err := k.checkWriters(); err != nil {
 		return err
 	}

@@ -42,7 +42,7 @@ func parseQuestStory(s string) (map[string]questPassage, error) {
 		if strings.HasPrefix(line, "::") {
 			save()
 			m := questHeader.FindStringSubmatch(line)
-			if m == nil || !questID.MatchString(m[1]) {
+			if m == nil || strings.TrimSpace(m[1]) == "" {
 				return nil, fmt.Errorf("неверный или пустой ID карточки: %s", line)
 			}
 			id = m[1]
@@ -68,9 +68,29 @@ func parseQuestStory(s string) (map[string]questPassage, error) {
 		body = append(body, line)
 	}
 	save()
-	for _, name := range []string{"StoryTitle", "StoryData", "Start"} {
+	for _, name := range []string{"StoryTitle", "StoryData"} {
 		if _, ok := result[name]; !ok {
 			return nil, fmt.Errorf("отсутствует карточка %s", name)
+		}
+	}
+	data, err := questStoryData(result["StoryData"].body)
+	if err != nil {
+		return nil, err
+	}
+	start, _ := data["start"].(string)
+	if _, exists := result[start]; start == "" || !exists {
+		return nil, fmt.Errorf("отсутствует начальная карточка %q", start)
+	}
+	// V2 stores stable ASCII identifiers in tags and gives passages author
+	// names. Legacy stories still use their passage names as identifiers.
+	if passageID(result[start].tags, "id.") != "Start" {
+		if _, exists := result["Start"]; !exists {
+			return nil, fmt.Errorf("отсутствует карточка Start")
+		}
+		for name := range result {
+			if !questID.MatchString(name) {
+				return nil, fmt.Errorf("неверный ID карточки: %s", name)
+			}
 		}
 	}
 	return result, nil
@@ -88,6 +108,10 @@ func questStoryData(body string) (map[string]any, error) {
 }
 
 func IsQuestViewFile(name string) bool {
+	switch filepath.Base(name) {
+	case "Словарь.md", "Сводка.md", "Решения автора.md":
+		return true
+	}
 	switch filepath.Ext(name) {
 	case ".twee", ".canvas", ".tsv":
 		return true
@@ -256,6 +280,19 @@ func normalizeQuestBody(body string) string {
 // CompareQuestViews compares workspace text only. Its normal form has no dependency
 // on the CUE source or on the version of an editor installed on this machine.
 func CompareQuestViews(before, after map[string]string) ([]string, error) {
+	left, _, err := questV2View(before, before)
+	if err != nil {
+		return nil, err
+	}
+	vocabulary := before
+	if !strings.Contains(before["translations.tsv"], "\tСтроки") {
+		vocabulary = after
+	}
+	right, _, err := questV2View(after, vocabulary)
+	if err != nil {
+		return nil, err
+	}
+	before, after = left, right
 	var changes []string
 	for _, name := range questUnion(before, after) {
 		a, aok := before[name]
@@ -272,6 +309,10 @@ func CompareQuestViews(before, after map[string]string) ([]string, error) {
 			continue
 		}
 		switch filepath.Ext(name) {
+		case ".md":
+			if name != "Словарь.md" && questLF(a) != questLF(b) {
+				changes = append(changes, "Изменён "+name)
+			}
 		case ".twee":
 			x, err := parseQuestStory(a)
 			if err != nil {

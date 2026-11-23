@@ -47,7 +47,7 @@ func TestScene03DeveloperWireGate(t *testing.T) {
 	}
 	assertAbsent()
 	r.SetDeveloperMode(true)
-	if v := developerTalkView(r); v.GetDeveloper().GetDialogue().GetStoryFile() != "quests/scene-03/scene.twee" {
+	if v := developerTalkView(r); v.GetDeveloper().GetDialogue().GetStoryFile() != "quests/акт-1/scene-03/scene.twee" {
 		t.Fatalf("missing designer view: %v", v.GetDeveloper())
 	}
 	raw, err := (protojson.MarshalOptions{UseProtoNames: true}).Marshal(developerTalkView(r))
@@ -58,9 +58,9 @@ func TestScene03DeveloperWireGate(t *testing.T) {
 
 func TestScene03DeveloperAnswerComplement(t *testing.T) {
 	for _, tt := range []struct{ tag, hidden, clause, shown string; funds int64 }{
-		{"покупка", "haggle", "денег не меньше", "buy", 300},
-		{"нет денег", "buy", "денег не меньше", "haggle", 299},
-		{"возвращение", "ask_prokhor", "fact.prokhor.met", "ask_box", 1000},
+		{"покупка", "haggle", "у героя не меньше", "buy", 300},
+		{"нет денег", "buy", "у героя не меньше", "haggle", 299},
+		{"возвращение", "ask_prokhor", "Старик Прохор с мешком", "ask_box", 1000},
 	} {
 		t.Run(tt.tag, func(t *testing.T) {
 			r := varyaSetup(t)
@@ -69,7 +69,7 @@ func TestScene03DeveloperAnswerComplement(t *testing.T) {
 			varyaOpen(t, r, "e.first")
 			open := developerTalkView(r).Developer.Dialogue
 			if open.Entry != "e.first" || open.Node != "intro" || !slices.ContainsFunc(open.Entries, func(e *pb.PocDialogueRuleDebug) bool {
-				return e.Id == "e.first" && e.Shown && len(e.Clauses) == 1 && e.Clauses[0].Holds && strings.Contains(e.Clauses[0].Notation, "fact.varya.met")
+				return e.Id == "e.first" && e.Shown && len(e.Clauses) == 1 && e.Clauses[0].Holds && strings.Contains(e.Clauses[0].Notation, "Варя продаёт рассаду")
 			}) { t.Fatalf("entry was evaluated after its own effects: %v", open.Entries) }
 			if tt.shown == "ask_box" {
 				varyaChoose(t, r, "intro_bye")
@@ -133,7 +133,7 @@ func TestScene03DeveloperChangeTracksPurchaseAndDeadline(t *testing.T) {
 	if r.state.Memory.Facts[fact].Count != 1 || !slices.Contains(changes["fact/"+fact].GetKnownBy(), playerActorID) {
 		t.Fatalf("wrong fact or visibility: %v", step.Changes)
 	}
-	if len(step.Effects) == 0 || !strings.Contains(step.Effects[0], "плата (сотые CRD) = 300") {
+	if len(step.Effects) == 0 || !strings.Contains(step.Effects[0], "плата 300 сотых CRD") {
 		t.Fatalf("the purchase is missing workspace notation: %v", step.Effects)
 	}
 	varyaChoose(t, r, "leave")

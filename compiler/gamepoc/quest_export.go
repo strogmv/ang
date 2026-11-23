@@ -30,6 +30,7 @@ type questExport struct {
 	used     map[string]bool
 	canvas   questCanvas
 	subjects map[string]string
+	briefs   map[string][]string
 }
 
 func questRead(v cue.Value, path string, into any) error {
@@ -99,7 +100,7 @@ func ExportQuestView(gameRoot string) (map[string]string, error) {
 	}
 
 	q := questExport{files: map[string]string{}, glossary: map[string]questTerm{}, lex: map[string]questTranslation{},
-		used: map[string]bool{}, subjects: map[string]string{}}
+		used: map[string]bool{}, subjects: map[string]string{}, briefs: map[string][]string{}}
 	var translations []questTranslation
 	if err := questRead(world, "localization.messages", &translations); err != nil {
 		return nil, err
@@ -110,9 +111,43 @@ func ExportQuestView(gameRoot string) (map[string]string, error) {
 	if err := q.loadTerms(world, memory, compiled.Life); err != nil {
 		return nil, err
 	}
+	pending, err := checkStoryActs(&compiled)
+	if err != nil {
+		return nil, err
+	}
 	q.scriptCards(scripts, sources)
 	for _, id := range sortedKeys(convs) {
-		path := sources.path(id)
+		path := questActFolder(compiled.StoryActs, id) + sources.path(id)
+		if compiled.StoryActs != nil {
+			a := compiled.StoryActs
+			res := storyResidence(a.Scenes, id, a.Default)
+			name := func(key string) string {
+				if title := questAliases[key]; title != "" {
+					return title
+				}
+				return q.glossary[key].Name
+			}
+			q.briefs[id] = append(q.briefs[id], questPolicySentence(a, res, name))
+			if res.Place != "" {
+				q.briefs[id] = append(q.briefs[id], "Место — "+name(res.Place)+".")
+			}
+			if script := sources.conversations[id]; script != "" {
+				q.briefs[id] = append(q.briefs[id], "Сюжетная сцена — "+sources.title[script]+".")
+				if purpose := questScenePurpose[script]; purpose != "" {
+					q.briefs[id] = append(q.briefs[id], purpose)
+				}
+			}
+			policy := questPolicySentence(a, res, name)
+			if err := q.conversation(path, convs[id], memory); err != nil {
+				return nil, fmt.Errorf("%s: %w", id, err)
+			}
+			for _, note := range q.canvas.nodes {
+				if note["id"] == id {
+					note["text"] = fmt.Sprint(note["text"]) + "\n\n" + policy
+				}
+			}
+			continue
+		}
 		if err := q.conversation(path, convs[id], memory); err != nil {
 			return nil, fmt.Errorf("%s: %w", id, err)
 		}
@@ -122,6 +157,18 @@ func ExportQuestView(gameRoot string) (map[string]string, error) {
 	}
 	q.storyLinks(compiled.memoryLinks)
 
+	terms := map[string][]string{}
+	for id, term := range q.glossary {
+		if name := questAliases[id]; name != "" {
+			term.Name = name
+			q.glossary[id] = term
+		}
+		terms[id] = []string{term.Kind, term.Name}
+	}
+	writer := questPageWriter{&q, newQuestWords(terms), map[string][]string{}, map[string]int{}}
+	if err := writer.rewrite(q.files); err != nil {
+		return nil, err
+	}
 	var glossary, table strings.Builder
 	g, t := csv.NewWriter(&glossary), csv.NewWriter(&table)
 	g.Comma, t.Comma = '\t', '\t'
@@ -141,8 +188,24 @@ func ExportQuestView(gameRoot string) (map[string]string, error) {
 	g.Flush()
 	t.Flush()
 	q.files["glossary.tsv"] = glossary.String()
-	q.files["translations.tsv"] = table.String()
-	q.files["act-one-chain.canvas"] = q.canvas.render()
+	tableV2, err := questTranslationsV2(table.String(), writer.slots)
+	if err != nil {
+		return nil, err
+	}
+	q.files["translations.tsv"] = tableV2
+	if compiled.StoryActs != nil {
+		plan, err := readQuestPlan(gameRoot)
+		if err != nil {
+			return nil, err
+		}
+		q.emitActs(compiled.StoryActs, plan, memory, convs, sources, scripts)
+		if len(pending) > 0 {
+			q.files["Решения автора.md"] = "# Решения автора\n\n- " + strings.Join(pending, "\n- ") + "\n"
+		}
+	} else {
+		q.files["act-one-chain.canvas"] = q.canvas.render()
+	}
+	q.emitReadableGlossary()
 	return q.files, nil
 }
 
