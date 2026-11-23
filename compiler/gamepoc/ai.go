@@ -192,6 +192,10 @@ func clientResource(c Compiled) ([]byte, error) {
 	if c.TacticalMode != nil {
 		view["tactical_mode"] = c.TacticalMode
 	}
+	// The loading screen between places (loading_screen.go): kinds, stages, places with their names, pictures and nodes.
+	if c.LoadingScreen != nil {
+		view["loading_screen"] = clientLoadingScreen(c.LoadingScreen)
+	}
 	// Combat pace (owner 20.11): the client's playback of a fight; the server never reads it.
 	if c.CombatPace != nil {
 		view["combat_pace"] = c.CombatPace

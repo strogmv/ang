@@ -90,6 +90,8 @@ type worldData struct {
  TurretWatch *turretWatchCatalog `json:"turret_watch,omitempty"`
  Biomonitor *biomonitorCatalog `json:"biomonitor,omitempty"`
  Hud *chipHudCatalog `json:"hud,omitempty"`
+ // the loading screen between places (loading_screen.go): the facts and topics a place's line may name
+ LoadingScreen *loadingScreenCatalog `json:"loading_screen,omitempty"`
  AccessZones []accessZone `json:"access_zones,omitempty"`
  MedicalCapsules *medicalCatalog `json:"medical_capsules"`
  SanitaryServices *sanitaryCatalog `json:"sanitary_services"`

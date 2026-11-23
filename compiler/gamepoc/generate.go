@@ -400,6 +400,11 @@ type Compiled struct {
 	// Combat pace (combat_pace.go, owner 20.11): how the client plays one turn-based fight, turn-based or fast
 	// turn-based; presentation only, never in the server's world, so no pace can change an outcome.
 	CombatPace *CombatPace `json:"-"`
+	// The loading screen between places (loading_screen.go, owner 23.11): what the client shows on a journey
+	// (presentation.json); the server reads only the knowledge of each place (world.json loading_screen) to choose the
+	// one line of what the hero knows of a place.
+	LoadingScreen    *JourneyScreen       `json:"-"`
+	LoadingKnowledge *loadingScreenServer `json:"loading_screen,omitempty"`
 	// Combat look (combat_look.go, world.combat_look): how the Godot client draws a fight — clips, props, contact
 	// points, reactions, sounds; presentation only, never in the server's world.
 	CombatLook json.RawMessage `json:"-"`
@@ -699,6 +704,12 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	}
 	if out.CombatPace, err = readCombatPace(world); err != nil {
 		return out, nil, err
+	}
+	if out.LoadingScreen, err = readLoadingScreen(world); err != nil {
+		return out, nil, err
+	}
+	if out.LoadingScreen != nil {
+		out.LoadingKnowledge = out.LoadingScreen.Server
 	}
 	if out.CombatLook, err = readCombatLook(world); err != nil {
 		return out, nil, err
@@ -1304,6 +1315,9 @@ func generatePOC(project string, legacyUnity bool) error {
 	if err := validateChipHud(compiled); err != nil {
 		return err
 	}
+	if err := validateLoadingScreen(project, compiled); err != nil {
+		return err
+	}
 	if compiled.BarksView == nil {
 		compiled.BarksView = defaultBarksView()
 	}
@@ -1638,6 +1652,8 @@ func generatePOC(project string, legacyUnity bool) error {
 		"story_journal.go.tmpl":                 filepath.Join(project, "internal/poc/story_journal.gen.go"),
 		"story_barks.go.tmpl":                   filepath.Join(project, "internal/poc/story_barks.gen.go"),
 		"story_journal_test.go.tmpl":            filepath.Join(project, "internal/poc/story_journal_generated_test.go"),
+		"loading_screen.go.tmpl":                filepath.Join(project, "internal/poc/loading_screen.gen.go"),
+		"loading_screen_test.go.tmpl":           filepath.Join(project, "internal/poc/loading_screen_generated_test.go"),
 		"trade_screen.go.tmpl":                  filepath.Join(project, "internal/poc/trade_screen.gen.go"),
 		"trade_screen_test.go.tmpl":             filepath.Join(project, "internal/poc/trade_screen_generated_test.go"),
 		"dialogue_dev.go.tmpl":                  filepath.Join(project, "internal/poc/dialogue_dev.gen.go"),

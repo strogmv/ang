@@ -312,6 +312,8 @@ func (r *Runtime) sendLifeState(c *connection) {
 			view.TravelRemainingSeconds = 0
 		}
 	}
+	// the loading screen (loading_screen.go): the trip's level and kind, what the hero knows of where he is or goes
+	r.appendPlaceNote(view, hero, c.locale)
 	ids := make([]string, 0, len(r.world.Life.Locations))
 	for id := range r.world.Life.Locations {
 		ids = append(ids, id)
