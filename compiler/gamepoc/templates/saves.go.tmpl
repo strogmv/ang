@@ -320,6 +320,7 @@ func (r *Runtime) autosaveWhenDue() {
 		return
 	}
 	snapshot := r.snapshotState()
+	if r.client.ownsPause(r.state) { snapshot.Paused = false }
 	if snapshot.PhaseNS >= r.tickNS() {
 		snapshot.PhaseNS = r.tickNS() - 1
 	}

@@ -711,6 +711,7 @@ func (r *Runtime) heroFileView(locale string, req *pb.PocHeroFileRequest) *pb.Po
 		confirm = w.Recheck.Confirm
 	}
 	v.Confirm = text(confirm)
+	v.EpisodeLimit = int32(w.EpisodesPick)
 	v.StartCap = int32(w.Strengths.StartCap)
 	v.StrengthsLeft = int32(max(0, w.Strengths.Count-len(c.Strengths)))
 	if d := r.world.DialogueRules; d != nil {

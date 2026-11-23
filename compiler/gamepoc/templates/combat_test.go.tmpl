@@ -507,7 +507,7 @@ func TestCombatLifeGRPCStreamCommandsAndIdempotency(t *testing.T) {
 			}
 		}
 	}
-	send(&pb.ClientMessage{Msg: &pb.ClientMessage_Hello{Hello: &pb.Hello{SessionToken: "token", Locale: "en"}}})
+	send(&pb.ClientMessage{Msg: &pb.ClientMessage_Hello{Hello: &pb.Hello{ClientVersion:pb.ClientPackage,SessionToken: "token", Locale: "en"}}})
 	_, view := recv("")
 	send(&pb.ClientMessage{Msg: &pb.ClientMessage_NewGame{NewGame: &pb.PocNewGameRequest{Epoch: view.Epoch, RequestId: "grpc.new", Scenario: "life", Seed: 777}}})
 	result, view := recv("grpc.new")

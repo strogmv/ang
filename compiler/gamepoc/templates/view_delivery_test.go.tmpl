@@ -171,7 +171,7 @@ func TestViewDeliveryStreamReconnectSaveLoad(t *testing.T) {
  go func(){_ = server.Serve(listener)}();defer server.Stop()
  conn,err:=grpc.NewClient(listener.Addr().String(),grpc.WithTransportCredentials(insecure.NewCredentials()));if err!=nil {t.Fatal(err)};defer conn.Close()
  client:=pb.NewGameServiceClient(conn)
- open:=func()pb.GameService_PlayClient {t.Helper();stream,err:=client.Play(ctx);if err!=nil {t.Fatal(err)};err=stream.Send(&pb.ClientMessage{Msg:&pb.ClientMessage_Hello{Hello:&pb.Hello{SessionToken:"token",ViewSubscription:&pb.ViewSubscription{StaticOnChange:true}}}});if err!=nil {t.Fatal(err)};return stream}
+ open:=func()pb.GameService_PlayClient {t.Helper();stream,err:=client.Play(ctx);if err!=nil {t.Fatal(err)};err=stream.Send(&pb.ClientMessage{Msg:&pb.ClientMessage_Hello{Hello:&pb.Hello{ClientVersion:pb.ClientPackage,SessionToken:"token",ViewSubscription:&pb.ViewSubscription{StaticOnChange:true}}}});if err!=nil {t.Fatal(err)};return stream}
  stream:=open()
  state:=func()*pb.PocGameState {t.Helper();for {msg,err:=stream.Recv();if err!=nil {t.Fatal(err)};if s:=msg.GetGameState();s!=nil {return s}}}
  send:=func(m *pb.ClientMessage){t.Helper();if err:=stream.Send(m);err!=nil {t.Fatal(err)}}
@@ -231,7 +231,7 @@ func TestWebSocketPlayLifeSaveReconnect(t *testing.T) {
  serve:=make(chan error,1);go func(){serve<-transport.ServeWebSocket(ctx,lis,transport.Handlers{GameService:r},transport.WebSocketOptions{})}()
  defer func(){cancel();if err:=<-serve;err!=nil{t.Error(err)}}()
  url:="ws://"+lis.Addr().String()+"/game.v1.GameService/Play"
- open:=func(token string)*websocket.Conn{t.Helper();c,_,err:=websocket.DefaultDialer.DialContext(ctx,url,nil);if err!=nil{t.Fatal(err)};_ = c.SetReadDeadline(time.Now().Add(90*time.Second));b,_:=protojson.Marshal(&pb.ClientMessage{Msg:&pb.ClientMessage_Hello{Hello:&pb.Hello{SessionToken:token,ViewSubscription:&pb.ViewSubscription{StaticOnChange:true}}}});if err:=c.WriteMessage(websocket.TextMessage,b);err!=nil{t.Fatal(err)};return c}
+ open:=func(token string)*websocket.Conn{t.Helper();c,_,err:=websocket.DefaultDialer.DialContext(ctx,url,nil);if err!=nil{t.Fatal(err)};_ = c.SetReadDeadline(time.Now().Add(90*time.Second));b,_:=protojson.Marshal(&pb.ClientMessage{Msg:&pb.ClientMessage_Hello{Hello:&pb.Hello{ClientVersion:pb.ClientPackage,SessionToken:token,ViewSubscription:&pb.ViewSubscription{StaticOnChange:true}}}});if err:=c.WriteMessage(websocket.TextMessage,b);err!=nil{t.Fatal(err)};return c}
  bad:=open("bad");_,_,err=bad.ReadMessage();var closeErr *websocket.CloseError;if !errors.As(err,&closeErr)||closeErr.Code!=websocket.ClosePolicyViolation{t.Fatalf("bad token accepted: %v",err)};_ = bad.Close()
  c:=open("token");defer func(){_ = c.Close()}()
  send:=func(m *pb.ClientMessage){t.Helper();b,err:=(protojson.MarshalOptions{UseProtoNames:true}).Marshal(m);if err!=nil{t.Fatal(err)};if err:=c.WriteMessage(websocket.TextMessage,b);err!=nil{t.Fatal(err)}}

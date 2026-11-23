@@ -157,6 +157,9 @@ func clientResource(c Compiled) ([]byte, error) {
 		view["cloth_motion"] = clientClothMotion(c.ClothMotion)
 	}
 	// People read v1 only in worlds that have it: per level, the grade of the surroundings, the haze and the people's pass.
+	if c.MarketFinish != nil {
+		view["market_finish"] = c.MarketFinish
+	}
 	if c.PeopleRead != nil {
 		view["people_read"] = clientPeopleRead(c.PeopleRead)
 	}

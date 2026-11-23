@@ -44,6 +44,7 @@ type configuration struct {
 	DebugPerception    bool       `json:"debug_perception"`
 	LevelID            string     `json:"level_id"`
 	CaptureDemo        demoPolicy `json:"capture_demo"`
+	PlayerStartSecondsPerTick int64 `json:"player_start_seconds_per_tick,omitempty"`
 	SchedulerHz        int        `json:"scheduler_hz"`
 	TickHz             int        `json:"tick_hz"`
 	GameSecondsPerTick int64      `json:"game_seconds_per_tick"`
@@ -315,6 +316,8 @@ func (p saveProblem) textKey() string {
 }
 func damagedSave(reason string) error { return saveProblem{damaged: true, reason: reason} }
 type connection struct {
+	playerPackage bool
+	screenPause, pauseEpoch string
 <<ANG if .ViewDelivery ANG>>
  delivery *pb.ViewProjector
  deliveryEpoch string
@@ -467,6 +470,11 @@ func (r *Runtime) Play(stream pb.GameService_PlayServer) error {
 	if hello == nil || subtle.ConstantTimeCompare([]byte(hello.GetSessionToken()), []byte(r.token)) != 1 {
 		return status.Error(codes.Unauthenticated, "invalid local session")
 	}
+	<<ANG if .GodotTargets ANG>>
+	if hello.ClientVersion != pb.ClientPackage {
+		return status.Error(codes.FailedPrecondition, "client package differs")
+	}
+	<<ANG end ANG>>
 	if !r.connected.CompareAndSwap(false, true) {
 		return status.Error(codes.ResourceExhausted, "one local player supported")
 	}
@@ -474,7 +482,7 @@ func (r *Runtime) Play(stream pb.GameService_PlayServer) error {
 	// Connection setup can overlap the simulation loop switching scenario worlds.
 	// Transport capacity/locales belong to immutable session content, not r.world.
 	transport := r.storageRuntime()
-	c := &connection{out: make(chan *pb.ServerMessage, transport.world.Config.QueueCapacity), stop: make(chan struct{}), locale: transport.validLocale(hello.Locale)}
+	c := &connection{playerPackage: hello.PlayerName == "Godot" && hello.ClientVersion == pb.ClientPackage, out: make(chan *pb.ServerMessage, transport.world.Config.QueueCapacity), stop: make(chan struct{}), locale: transport.validLocale(hello.Locale)}
 <<ANG if .ViewDelivery ANG>>
  c.delivery = pb.NewViewProjector(hello.GetViewSubscription())
 <<ANG end ANG>>
@@ -565,6 +573,7 @@ func (r *Runtime) Run(ctx context.Context) {
 		case in := <-r.input:
 			r.advance(time.Now())
 			if in.join {
+				if r.client.ownsPause(r.state) { r.state.Paused = false }
 				r.client = in.client
 				r.sendState(in.client)
 				r.queueDisk(diskJob{client: in.client, action: "list"})
@@ -573,6 +582,7 @@ func (r *Runtime) Run(ctx context.Context) {
 			if in.leave {
 				r.close(in.client)
 				if r.client == in.client {
+					if in.client.ownsPause(r.state) { r.state.Paused = false }
 					r.client = nil
 				}
 				continue
@@ -772,7 +782,7 @@ func (r *Runtime) close(c *connection) {
 }
 func (r *Runtime) send(c *connection, m *pb.ServerMessage) {
 <<ANG if .GodotTargets ANG>>
- if s:=m.GetGameState();s!=nil{s.ServerPublishedUnixMs=time.Now().UnixMilli();s.PublishedAfterTick=r.publishingTick}
+ if s:=m.GetGameState();s!=nil{s.ClientPackage=pb.ClientPackage;s.ServerPublishedUnixMs=time.Now().UnixMilli();s.PublishedAfterTick=r.publishingTick}
 <<ANG end ANG>>
 	if c == nil || c.closed {
 		return
@@ -793,6 +803,9 @@ func (r *Runtime) send(c *connection, m *pb.ServerMessage) {
 	default:
 		r.close(c)
 	}
+}
+func (c *connection) ownsPause(s state) bool {
+	return c != nil && c.screenPause != "" && c.pauseEpoch == s.Epoch && s.Paused && s.Life.PopulationFailure == ""
 }
 func (c *connection) wantsField(name string) bool {
 <<ANG if .ViewDelivery ANG>>
@@ -834,7 +847,9 @@ func (r *Runtime) sendState(c *connection) {
 func (r *Runtime) action(c *connection, id, action, slot string, err error) {
 	result := &pb.PocActionResult{RequestId: id, Action: action, Slot: slot, Ok: err == nil}
 	if err != nil {
-		result.Message = r.localError(c.locale, err)
+		result.ReasonKey = errorKey(err)
+		if result.ReasonKey == "error.action.refused" { fmt.Fprintf(os.Stderr, "action %s refused: %v\n", action, err) }
+		result.Message = r.localText(c.locale, result.ReasonKey, result.ReasonKey)
 	}
 	if rec := r.receipts[id]; rec != nil {
 		rec.result = result
@@ -1034,6 +1049,10 @@ func (r *Runtime) command(in input) {
 				r.action(c, id, action, slot, err)
 				return
 			}
+			if world.Config.PlayerStartSecondsPerTick > 0 && c.playerPackage {
+				life.SecondsPerTick = world.Config.PlayerStartSecondsPerTick
+				if hero := life.Actor(playerActorID); hero != nil { hero.Manual = true }
+			}
 			if layout != "" {
 				life.ControlledActorID = playerActorID
 				life.Actor(playerActorID).Manual = true
@@ -1069,17 +1088,30 @@ func (r *Runtime) command(in input) {
 	case "options":
 		v := m.GetGameOptions()
 		if r.state.Life.PopulationFailure != "" && !v.Paused {
-			r.action(c, id, action, slot, errors.New("Симуляция остановлена после ошибки населения; загрузите сохранение или начните заново"))
+			r.action(c, id, action, slot, textError{Key:"error.options.population"})
 			return
 		}
 		if r.state.Life.Enabled && v.Speed != 1 {
-			r.action(c, id, action, slot, errors.New("В режиме жизни меняйте масштаб календаря"))
+			r.action(c, id, action, slot, textError{Key:"error.options.life_speed"})
 			return
 		}
 		if v.Speed != 1 && v.Speed != 3 && v.Speed != 10 {
-			r.action(c, id, action, slot, errors.New("unsupported speed"))
+			r.action(c, id, action, slot, textError{Key:"error.options.speed"})
 			return
 		}
+		if v.ScreenRequest != "" {
+			if v.Paused {
+				if r.state.Paused || v.ScreenRequest != id {
+					r.action(c, id, action, slot, textError{Key:"error.options.pause_owner"})
+					return
+				}
+				c.screenPause, c.pauseEpoch = id, epoch
+			} else if !c.ownsPause(r.state) || v.ScreenRequest != c.screenPause {
+				r.action(c, id, action, slot, textError{Key:"error.options.pause_owner"})
+				return
+			}
+		}
+		if !v.Paused || v.ScreenRequest == "" { c.screenPause, c.pauseEpoch = "", "" }
 		r.state.Paused = v.Paused
 		r.state.Speed = v.Speed
 		if !v.Paused && r.state.Life.Enabled {
@@ -1107,6 +1139,7 @@ func (r *Runtime) command(in input) {
 			return
 		}
 		copyState := r.snapshotState()
+		if c.ownsPause(r.state) { copyState.Paused = false }
 		if copyState.PhaseNS >= r.tickNS() {
 			copyState.PhaseNS = r.tickNS() - 1
 		}

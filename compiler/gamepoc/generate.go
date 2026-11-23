@@ -52,31 +52,32 @@ type Visibility struct {
 }
 
 type Config struct {
-	GodotTargets          []string          `json:"godot_targets,omitempty"`
-	Rendering             UnityRendering    `json:"rendering"`
-	DebugPerception       bool              `json:"debug_perception"`
-	CaptureDemo           DemoConfig        `json:"capture_demo"`
-	WorldDir              string            `json:"world_dir"`
-	LevelID               string            `json:"level_id"`
-	UnityDir              string            `json:"unity_dir"`
-	Title                 string            `json:"title"`
-	Subtitle              string            `json:"subtitle"`
-	Seed                  int64             `json:"seed"`
-	SchedulerHz           int               `json:"scheduler_hz"`
-	TickHz                int               `json:"tick_hz"`
-	GameSecondsPerTick    int64             `json:"game_seconds_per_tick"`
-	MoveEveryTicks        int64             `json:"move_every_ticks"`
-	InputAckBudgetMS      int               `json:"input_ack_budget_ms"`
-	MinClientFPS          int               `json:"min_client_fps"`
-	PresentationLeadMS    int               `json:"presentation_lead_ms"`
-	PresentationHorizonMS int               `json:"presentation_horizon_ms"`
-	QueueCapacity         int               `json:"queue_capacity"`
-	MaxCatchupSteps       int               `json:"max_catchup_steps"`
-	SaveSlots             []string          `json:"save_slots"`
-	SaveVersion           int               `json:"save_version"`
-	SaveCompatibleHashes  []string          `json:"save_compatible_hashes,omitempty"`
-	MaxSaveBytes          int64             `json:"max_save_bytes"`
-	Labels                map[string]string `json:"labels"`
+	GodotTargets              []string          `json:"godot_targets,omitempty"`
+	Rendering                 UnityRendering    `json:"rendering"`
+	DebugPerception           bool              `json:"debug_perception"`
+	CaptureDemo               DemoConfig        `json:"capture_demo"`
+	WorldDir                  string            `json:"world_dir"`
+	LevelID                   string            `json:"level_id"`
+	UnityDir                  string            `json:"unity_dir"`
+	Title                     string            `json:"title"`
+	Subtitle                  string            `json:"subtitle"`
+	Seed                      int64             `json:"seed"`
+	PlayerStartSecondsPerTick int64             `json:"player_start_seconds_per_tick,omitempty"`
+	SchedulerHz               int               `json:"scheduler_hz"`
+	TickHz                    int               `json:"tick_hz"`
+	GameSecondsPerTick        int64             `json:"game_seconds_per_tick"`
+	MoveEveryTicks            int64             `json:"move_every_ticks"`
+	InputAckBudgetMS          int               `json:"input_ack_budget_ms"`
+	MinClientFPS              int               `json:"min_client_fps"`
+	PresentationLeadMS        int               `json:"presentation_lead_ms"`
+	PresentationHorizonMS     int               `json:"presentation_horizon_ms"`
+	QueueCapacity             int               `json:"queue_capacity"`
+	MaxCatchupSteps           int               `json:"max_catchup_steps"`
+	SaveSlots                 []string          `json:"save_slots"`
+	SaveVersion               int               `json:"save_version"`
+	SaveCompatibleHashes      []string          `json:"save_compatible_hashes,omitempty"`
+	MaxSaveBytes              int64             `json:"max_save_bytes"`
+	Labels                    map[string]string `json:"labels"`
 	// Saves of the other kinds (owner 19.11): the timed autosave and the quick save, each in its own slots rotating
 	// (templates/saves.go.tmpl). Without them a game has only the manual save_slots.
 	AutoSave  *AutoSavePolicy  `json:"auto_save,omitempty"`
@@ -283,10 +284,11 @@ type Menu struct {
 }
 
 type Compiled struct {
-	dialogueDev  dialogueDevAssets
-	ExitZones    *ExitZoneCatalog    `json:"exit_zones,omitempty"`
-	LiftingDecks *LiftingDeckCatalog `json:"lifting_decks,omitempty"`
-	TurretWatch  *TurretWatchCatalog `json:"turret_watch,omitempty"`
+	ClientPackage string `json:"-"`
+	dialogueDev   dialogueDevAssets
+	ExitZones     *ExitZoneCatalog    `json:"exit_zones,omitempty"`
+	LiftingDecks  *LiftingDeckCatalog `json:"lifting_decks,omitempty"`
+	TurretWatch   *TurretWatchCatalog `json:"turret_watch,omitempty"`
 	// The armour's biomonitor (biomonitor.go): the shared table and who wears a look with one.
 	Biomonitor *BiomonitorCatalog `json:"biomonitor,omitempty"`
 	// The hero's chip HUD (chip_hud.go, owner 20.11): what the chip shows him; presentation, read by no rule.
@@ -386,7 +388,8 @@ type Compiled struct {
 	// Cloth motion (cloth_motion.go): strip curtains people push and drapes a named draft sways, presentation only.
 	ClothMotion *ClothMotion `json:"-"`
 	// People read (people_read.go): per level, the surroundings step back and the people step forward, presentation only.
-	PeopleRead *PeopleRead `json:"-"`
+	MarketFinish *marketFinish `json:"-"`
+	PeopleRead   *PeopleRead   `json:"-"`
 	// Painted location (painted_location.go): a corner's painted albedo projected back from the game camera, presentation only.
 	PaintedLocation *PaintedLocation `json:"-"`
 	// Items display v1 (item_display.go): the look of every item in every context, presentation only; nil without it.
@@ -1209,7 +1212,8 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 		}
 	}
 
-	return out, def, nil
+	out.MarketFinish, err = readMarketFinish(world, project, out)
+	return out, def, err
 }
 
 // Generate writes only the explicitly owned POC artifacts and the shared GRPC
@@ -1315,6 +1319,16 @@ func generatePOC(project string, legacyUnity bool) error {
 	if err != nil {
 		return err
 	}
+	// Handshake compatibility includes the emitted scene projection. An emitter change
+	// can move a floor without changing the authored world or the wire field numbers.
+	var locations []byte
+	if len(compiled.GodotTargets) != 0 {
+		locations, err = os.ReadFile(filepath.Join(project, compiled.GodotTargets[0], "generated", "locations.json"))
+		if err != nil {
+			return err
+		}
+	}
+	compiled.ClientPackage = clientPackageID(compiled.ContentHash, emitter.RenderGRPCProto(def, "angelsdemons/server"), viewJSON, locations)
 	phases.mark("emit: presentation.json")
 	if compiled.LocationSDK != nil {
 		if err := checkLocationSDKSurfaceImages(unity, *compiled.LocationSDK); err != nil {
@@ -1768,7 +1782,7 @@ func generatePOC(project string, legacyUnity bool) error {
 		if err != nil {
 			return err
 		}
-		files[filepath.Join(project, def.GDScriptOut)] = gd
+		files[filepath.Join(project, def.GDScriptOut)] = append(gd, []byte(fmt.Sprintf("\nconst PACKAGE_VERSION := %q\n", compiled.ClientPackage))...)
 	}
 	protoRel := emitter.GRPCProtoPath(def)
 	protoText := []byte(emitter.RenderGRPCProto(def, "angelsdemons/server"))
@@ -1779,7 +1793,7 @@ func generatePOC(project string, legacyUnity bool) error {
 		return err
 	}
 	pbDir := filepath.Join(project, "internal/transport/grpc/pb/game/v1")
-	files[filepath.Join(pbDir, pbName)] = pb
+	files[filepath.Join(pbDir, pbName)] = append(pb, []byte(fmt.Sprintf("\n// ClientPackage identifies the compiled game and its wire contract.\nconst ClientPackage = %q\n", compiled.ClientPackage))...)
 	stubs, err := goformat.Source(emitter.RenderGRPCStubs(def, "gamev1"))
 	if err != nil {
 		return err
@@ -1857,4 +1871,14 @@ func generatePOC(project string, legacyUnity bool) error {
 	}
 	fmt.Printf("Generated local POC from CUE: %s, %d x %d, %d world NPCs + %d demo NPCs, content %s\n", compiled.Config.LevelID, len(compiled.Terrain[0]), len(compiled.Terrain), len(compiled.Entities), len(compiled.Config.CaptureDemo.Agents), compiled.ContentHash[:12])
 	return nil
+}
+
+// clientPackageID uses independent hashes so section boundaries are unambiguous.
+func clientPackageID(world, wire string, presentation, locations []byte) string {
+	h := sha256.New()
+	for _, data := range [][]byte{[]byte(world), []byte(wire), presentation, locations} {
+		sum := sha256.Sum256(data)
+		h.Write(sum[:])
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }

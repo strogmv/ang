@@ -76,6 +76,6 @@ func (r *Runtime) stopPopulation(err error) {
 	}
 	r.syncLifeHero()
 	if r.client != nil {
-		r.action(r.client, "", "population", "", fmt.Errorf("%s", message))
+		r.action(r.client, "", "population", "", textError{Key:"error.options.population"})
 	}
 }

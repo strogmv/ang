@@ -278,7 +278,7 @@ namespace AngelsDemons.Poc
         void Connect()
         {
             preferredWireLocale = CurrentLocale();
-            session = new GameServicePlaySession(channel.CreateCallInvoker(), () => new ClientMessage { Hello = new Hello { PlayerName = playerName, ClientVersion = "poc-1", SessionToken = token, Locale = preferredWireLocale } });
+            session = new GameServicePlaySession(channel.CreateCallInvoker(), () => new ClientMessage { Hello = new Hello { PlayerName = playerName, ClientVersion = "<<ANG .ClientPackage ANG>>", SessionToken = token, Locale = preferredWireLocale } });
             session.MaxQueuedResponses = resource.config.queue_capacity;
             session.MaxQueuedCommands = 32;
             session.ResetQueuesOnReconnect = true;

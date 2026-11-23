@@ -36,7 +36,7 @@ func _process(_delta: float) -> bool:
 		message.hello.session_token = token
 		message.hello.player_name = "Godot"
 		message.hello.locale = "ru"
-		message.hello.client_version = "poc-1"
+		message.hello.client_version = C.PACKAGE_VERSION
 		message.hello.view_subscription = C.ViewSubscription.new()
 		message.hello.view_subscription.static_on_change = true
 		_send(message)
