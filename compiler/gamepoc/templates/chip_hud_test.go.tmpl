@@ -361,3 +361,87 @@ func TestChipHudPrepareProofSaves(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// Turn rail: projection is medical and perception-filtered, never a new rule.
+func TestTurnRailMedicalProjection(t *testing.T) {
+ r, h := worldHitFixture(t)
+ v := chipHudOf(r)
+ if v.Bleeding || v.DeadlineKnown { t.Fatal("whole body has a rider") }
+ for i:=0;i<12;i++ { h.Seed++; if _,err:=r.applyWorldHit(playerActorID,h);err!=nil { t.Fatal(err) }; if len(chipHudOf(r).Wounds)>0 {break} }
+ body,ok:=r.biomonitorBody(playerActorID); if !ok { t.Fatal("body missing") }
+ before,_:=json.Marshal(r.state); v=chipHudOf(r); after,_:=json.Marshal(r.state)
+ if !reflect.DeepEqual(before,after) {t.Fatal("HUD changed body")}
+ view:=combatWounds.ViewSelf(body,7*86400)
+ bleeding:=false; for _,line:=range view.Lines {bleeding=bleeding||line.Bleeding}
+ if v.Bleeding!=bleeding || v.ClockDomain!="body" {t.Fatalf("wrong clock %+v",v)}
+ if v.DeadlineKnown && (!bleeding || v.DeadlineSeconds<=0) {t.Fatal("unfounded deadline")}
+ for i,w:=range v.Wounds {if w.Mechanism!=body.Wounds[i].Mechanism || w.Severity=="" {t.Fatal("missing wound mark semantics")}}
+}
+
+var turnRailProof = flag.String("turn-rail-proof", "", "write an ordinary hub save arranged by existing knife proof helpers")
+func TestTurnRailPrepareProofSave(t *testing.T) {
+ if *turnRailProof=="" {t.Skip("opt-in native rail evidence")}
+ r,c,foe:=knifeGuardFixture(t)
+ knifeHand(t,r,knifeOption(t,r),foe)
+ outside:=r.snapshotState()
+ for seed:=int64(1);seed<=500;seed++ {
+  r.state=outside; r.state=r.snapshotState(); r.state.Seed=seed
+  combatStart(t,r,c,foe)
+  base:=r.snapshotState()
+  if !combatEpisodeHeroTurn(r) {continue}
+  wounded:=false; valid:=true
+  for turn:=0;turn<3;turn++ {
+   if !r.state.Combat.Active || !combatEpisodeHeroTurn(r) {valid=false;break}
+   act:=behavior.CombatAction{Type:"end"}
+   if err:=r.performCombatAction(playerActorID,&act);err!=nil {valid=false;break}
+   for n:=0;n<24 && r.state.Combat.Active;n++ {
+    a:=r.state.Combat.Current();if a==nil || a.ID==playerActorID {break}
+    if err:=r.performCombatAction(a.ID,nil);err!=nil {valid=false;break}
+   }
+   v:=chipHudOf(r);wounded=wounded||(v.Bleeding&&v.DeadlineKnown)
+  }
+  hero:=r.state.Combat.Actor(playerActorID)
+  if !valid || !wounded || hero==nil || !hero.Able() || !r.state.Combat.Active {continue}
+  r.state=base; r.data=*turnRailProof
+  if err:=os.MkdirAll(r.data,0755);err!=nil {t.Fatal(err)}
+  if err:=r.writeSave("slot3",r.snapshotState());err!=nil {t.Fatal(err)}
+  if _,_,err:=r.readSave("slot3");err!=nil {t.Fatal("strict reload",err)}
+  raw,_:=json.MarshalIndent(map[string]any{"seed":seed,"foe":foe,"level":r.currentLevel(),"source":"existing knifeGuardFixture + physical inventory handoff; three real AI turns survive and bleed"},"","  ")
+  if err:=os.WriteFile(filepath.Join(r.data,"setup.json"),raw,0644);err!=nil {t.Fatal(err)}
+  return
+ }
+ t.Fatal("no surviving three-turn bleeding sample in 500 seeds")
+}
+
+func TestTurnRailPrepareManySave(t *testing.T) {
+ if *turnRailProof=="" {t.Skip("opt-in many-actor native evidence")}
+ r,c,foe:=knifeGuardFixture(t);combatStart(t,r,c,foe)
+ hero:=r.state.Life.Actor(playerActorID)
+ model:=r.state.Life.GateModel(r.world.Life)
+ space:=model.Space(hero.Level,r.state.Life.BlockedCells(hero.Level,hero.ID))
+ occupied:=map[behavior.Cell]bool{}
+ for _,a:=range r.state.Combat.Actors {occupied[a.Position]=true}
+ var cells []behavior.Cell
+ for dy:=0;dy<=12;dy+=2 {for dx:=2;dx<=14;dx+=2 {
+  at:=behavior.Cell{X:hero.Position.X+dx,Y:hero.Position.Y+dy}
+  if at.X<0||at.Y<0||at.X>=space.Width||at.Y>=space.Height||!space.Walkable(at)||space.Blocked[at]||occupied[at] {continue}
+  inside:=false;for _,z:=range r.world.AccessZones {if z.LevelID==hero.Level&&accessZoneInside(z,int64(at.X)*500+250,int64(at.Y)*500+250){inside=true}}
+  if !inside {cells=append(cells,at)}
+ }}
+ for i:=range r.state.Life.Actors {
+  if len(r.state.Combat.Actors)>=r.world.CombatRuntime.MaxParticipants || len(cells)==0 {break}
+  a:=&r.state.Life.Actors[i]
+  if a.ID==hero.ID||a.ID==foe||!a.OnFloor()||a.CombatHold||r.serviceOwnsActor(a.ID) {continue}
+  a.Level=hero.Level;a.Position=cells[0];a.Goal=a.Position;a.Path=nil;a.PendingPath=nil;a.Body=nil
+  a.Manual=true;a.Arrived=true;a.OverrideLevel="";a.OverrideEdge="";a.MoveStartTick=r.lifeMotionTick()
+  cells=cells[1:]
+  if err:=r.joinCombat(a.ID,"proof.others");err!=nil {t.Fatal(err)}
+ }
+ r.syncCombatLife();r.updateLifeExploration()
+ if len(r.state.Combat.Actors)<8 {t.Fatalf("only %d legal participants fit",len(r.state.Combat.Actors))}
+ r.data=filepath.Join(*turnRailProof,"many");if err:=os.MkdirAll(r.data,0755);err!=nil {t.Fatal(err)}
+ if err:=r.writeSave("slot3",r.snapshotState());err!=nil {t.Fatal(err)}
+ if _,_,err:=r.readSave("slot3");err!=nil {t.Fatal("many strict reload",err)}
+ raw,_:=json.MarshalIndent(map[string]any{"count":len(r.state.Combat.Actors),"limit":r.world.CombatRuntime.MaxParticipants,"source":"existing real Life actors arranged on legal open hub cells; joinCombat; no rules changed"},"","  ")
+ if err:=os.WriteFile(filepath.Join(r.data,"setup.json"),raw,0644);err!=nil {t.Fatal(err)}
+}

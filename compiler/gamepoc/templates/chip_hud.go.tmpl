@@ -103,12 +103,25 @@ func (r *Runtime) appendChipHud(msg *pb.PocGameState, locale string) {
 		v.State = strings.TrimPrefix(view.State, "wounds.state.")
 		v.StateText = text(view.State)
 		v.BloodPermille = int32(max(0, min(1000, 1000-body.LostPermille())))
-		danger := map[string]bool{}
+		v.ClockDomain = "body"
+        // Only actual flowing exterior wounds arm the medical rider. Forecast is the existing model's copy.
+        for _, line := range view.Lines { v.Bleeding = v.Bleeding || line.Bleeding }
+        if v.Bleeding {
+            deadline, kind := int64(-1), ""
+            for _, mark := range []struct{ s int64; kind string }{{view.Forecast.FallS,"fall"},{view.Forecast.DownS,"down"},{view.Forecast.DeadS,"dead"}} {
+                if mark.s > 0 && (deadline < 0 || mark.s < deadline) { deadline, kind = mark.s, mark.kind }
+            }
+            if deadline > 0 { v.DeadlineKnown, v.DeadlineSeconds, v.DeadlineKind = true, deadline, kind }
+        }
+        danger := map[string]bool{}
 		for _, line := range view.Lines {
 			danger[line.Wound] = danger[line.Wound] || line.Danger
 		}
 		for _, w := range body.Wounds {
-			v.Wounds = append(v.Wounds, &pb.PocWoundMark{Zone: w.Zone, Limb: w.Limb, Danger: danger[w.ID]})
+			severity := "light"
+            for _, sid := range w.Structures { if st, _, ok := combatWounds.Structure(sid); ok && st.Severity >= combatWounds.Resolve.SeriousSeverity { severity = "serious" } }
+            if danger[w.ID] { severity = "danger" }
+            v.Wounds = append(v.Wounds, &pb.PocWoundMark{Zone: w.Zone, Limb: w.Limb, Danger: danger[w.ID], Mechanism: w.Mechanism, Severity: severity})
 		}
 	}
 	hero := r.state.Life.Actor(playerActorID)
@@ -375,12 +388,14 @@ func (r *Runtime) appendChipHudFight(v *pb.PocHudView, msg *pb.PocGameState, loc
 		return
 	}
 	for _, a := range r.state.Combat.Actors {
-		if !a.Able() && a.ID != playerActorID {
+		if (!a.Able() || !seen[a.ID]) && a.ID != playerActorID {
 			continue
 		}
 		row := &pb.PocTurnSlot{Current: a.ID == c.CurrentActorId, Own: a.ID == playerActorID}
 		if seen[a.ID] || row.Own {
 			row.Id, row.Title = a.ID, r.chipHudName(locale, a.ID, seen)
+            row.Knowledge = "named"
+            row.Caste = barkCatalog.Castes[a.ID]
 		} else {
 			row.Unknown = true
 		}
