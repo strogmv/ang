@@ -415,11 +415,13 @@ func _node(n: Dictionary, parent: Node, row: C.ProtoMessage) -> void:
 					ui._act(n.action, item)
 			values["selected"] = ui.selected.get(n.id)
 			var focus: Array = widget.configure_screen(values, context, selected_row)
+			if widget.has_signal("focus_controls_changed"):
+				widget.connect("focus_controls_changed", _replace_widget_focus.bind(widget, n.id))
 			if n.get("live", false):
 				ui.live_widgets.append({"widget": widget, "node": n, "row": row})
 			if not n.get("passive", false):
 				for b in focus:
-					if b is Button:
+					if b is Button and not widget.has_signal("focus_controls_changed"):
 						b.action_mode = BaseButton.ACTION_MODE_BUTTON_PRESS
 					b.set_meta("focus_id", n.id)
 					# a button that stands for a row (meta row) is known by the row, as a list's: the focus comes back to
@@ -500,3 +502,23 @@ static func keep_units(copy: String) -> String:
 	var pattern := RegEx.new()
 	pattern.compile("([0-9]) ([A-Za-zА-Яа-яЁё%]+)(?=$|[ .,;:!?)\\n])")
 	return pattern.sub(copy, "$1\u00a0$2", true)
+
+func _replace_widget_focus(controls: Array, restore: String, widget: Control, id: String) -> void:
+	if not is_instance_valid(ui.content) or not ui.content.is_ancestor_of(widget):
+		return
+	for i in range(ui.focus_ids.size()-1,-1,-1):
+		if ui.focus_ids[i] == id:
+			ui.focus_ids.remove_at(i)
+			ui.rail.remove_at(i)
+	var previous: Control
+	for control in controls:
+		control.set_meta("focus_id",id)
+		var key := str(control.get_meta("trade_uid",""))
+		control.set_meta("focus_uid",id+"="+key)
+		ui.rail.append(control)
+		ui.focus_ids.append(id)
+		if not restore.is_empty() and key == restore:
+			previous = control
+	ui._order_focus()
+	if previous != null:
+		previous.grab_focus()

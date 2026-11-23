@@ -8,10 +8,49 @@ class ViewCache extends RefCounted:
 	func reset() -> void:
 		values.clear()
 
-	func decode_Envelope(d: Dictionary) -> Envelope:
-		return Envelope.from_dict(d, values)
+	func decode_Envelope(d: Variant) -> Envelope:
+		if not d is Dictionary: return null
+		var pending := values.duplicate()
+		var decoded := Envelope.from_dict(d, pending)
+		if decoded != null:
+			values = pending
+		return decoded
 
 class ProtoMessage extends RefCounted:
+	static func _integer(v) -> bool:
+		return v is int or (v is float and is_finite(v) and floor(v) == v) or (v is String and v.is_valid_int())
+
+	static func _unsigned64(v) -> bool:
+		if v is int: return v >= 0
+		if v is float: return is_finite(v) and floor(v) == v and v >= 0.0 and v < 18446744073709551616.0
+		if not v is String or v.is_empty(): return false
+		for i in v.length():
+			var digit: int = v.unicode_at(i) - 48
+			if digit < 0 or digit > 9: return false
+		return v.length() < 20 or (v.length() == 20 and v <= "18446744073709551615")
+
+	static func same_value(a, b) -> bool:
+		if typeof(a) != typeof(b):
+			return false
+		if a == b:
+			return true
+		if a is ProtoMessage and b is ProtoMessage:
+			return a.same_fields(b)
+		if a is Array and b is Array and a.size() == b.size():
+			for i in a.size():
+				if not same_value(a[i], b[i]):
+					return false
+			return true
+		if a is Dictionary and b is Dictionary and a.size() == b.size():
+			for key in a:
+				if not b.has(key) or not same_value(a[key], b[key]):
+					return false
+			return true
+		return false
+
+	func same_fields(_other: ProtoMessage) -> bool:
+		return false
+
 	static func _number(v) -> float:
 		if v is String:
 			if v == "NaN": return NAN
@@ -48,53 +87,104 @@ class Envelope extends ProtoMessage:
 	var flag: Variant = null
 	var flag_revision: Variant = 0
 
+	func same_fields(other: ProtoMessage) -> bool:
+		var typed := other as Envelope
+		if typed == null: return false
+		if not same_value(self.diagnostic, typed.diagnostic): return false
+		if not same_value(self.tiles, typed.tiles): return false
+		if not same_value(self.tiles_revision, typed.tiles_revision): return false
+		if not same_value(self.child, typed.child): return false
+		if not same_value(self.rows, typed.rows): return false
+		if not same_value(self.lookup, typed.lookup): return false
+		if not same_value(self.subscription, typed.subscription): return false
+		if not same_value(self.live, typed.live): return false
+		if not same_value(self.settings, typed.settings): return false
+		if not same_value(self.settings_revision, typed.settings_revision): return false
+		if not same_value(self.tags, typed.tags): return false
+		if not same_value(self.tags_revision, typed.tags_revision): return false
+		if not same_value(self.flag, typed.flag): return false
+		if not same_value(self.flag_revision, typed.flag_revision): return false
+		return true
+
 	static func from_dict(d: Dictionary, cache: Variant = null, path: String = "sample.v1.Envelope") -> Envelope:
 		var result := Envelope.new()
 		var v0 = d.get("diagnostic")
 		if v0 != null:
+			if not (v0 is String): return null
 			result.diagnostic = str(v0)
 		var v1 = d.get("tiles")
 		if v1 != null:
-			for item in v1:
-				result.tiles.append(str(item))
+			if not v1 is Array: return null
+			for index in v1.size():
+				if not (v1[index] is String): return null
+				result.tiles.append(str(v1[index]))
+		if d.has("tiles_revision") and d.has("tilesRevision"): return null
 		var v2 = d.get("tiles_revision", d.get("tilesRevision"))
 		if v2 != null:
+			if not (_unsigned64(v2)): return null
 			result.tiles_revision = _uint64(v2)
 		var v3 = d.get("child")
 		if v3 != null:
-			result.child = Row.from_dict(v3, cache, path + "/4")
+			if not (v3 is Dictionary): return null
+			var child := Row.from_dict(v3, cache, path + "/4")
+			if child == null: return null
+			result.child = child
 		var v4 = d.get("rows")
 		if v4 != null:
-			for index in range(v4.size()):
-				result.rows.append(Row.from_dict(v4[index], cache, path + "/5" + "/" + str(index)))
+			if not v4 is Array: return null
+			for index in v4.size():
+				if not (v4[index] is Dictionary): return null
+				var child := Row.from_dict(v4[index], cache, path + "/5" + "/" + str(index))
+				if child == null: return null
+				result.rows.append(child)
 		var v5 = d.get("lookup")
 		if v5 != null:
+			if not v5 is Dictionary: return null
 			for key in v5:
-				result.lookup[key] = Row.from_dict(v5[key], cache, path + "/6" + "/" + JSON.stringify(str(key)))
+				if not (v5[key] is Dictionary): return null
+				var child := Row.from_dict(v5[key], cache, path + "/6" + "/" + JSON.stringify(str(key)))
+				if child == null: return null
+				result.lookup[key] = child
 		var v6 = d.get("subscription")
 		if v6 != null:
-			result.subscription = Subscription.from_dict(v6)
+			if not (v6 is Dictionary): return null
+			var child := Subscription.from_dict(v6)
+			if child == null: return null
+			result.subscription = child
 		var v7 = d.get("live")
 		if v7 != null:
+			if not (v7 is bool): return null
 			result.live = bool(v7)
 		var v8 = d.get("settings")
 		if v8 != null:
-			result.settings = Settings.from_dict(v8)
+			if not (v8 is Dictionary): return null
+			var child := Settings.from_dict(v8)
+			if child == null: return null
+			result.settings = child
+		if d.has("settings_revision") and d.has("settingsRevision"): return null
 		var v9 = d.get("settings_revision", d.get("settingsRevision"))
 		if v9 != null:
+			if not (_unsigned64(v9)): return null
 			result.settings_revision = _uint64(v9)
 		var v10 = d.get("tags")
 		if v10 != null:
+			if not v10 is Dictionary: return null
 			for key in v10:
+				if not (_integer(v10[key])): return null
 				result.tags[key] = int(v10[key])
+		if d.has("tags_revision") and d.has("tagsRevision"): return null
 		var v11 = d.get("tags_revision", d.get("tagsRevision"))
 		if v11 != null:
+			if not (_unsigned64(v11)): return null
 			result.tags_revision = _uint64(v11)
 		var v12 = d.get("flag")
 		if v12 != null:
+			if not (v12 is bool): return null
 			result.flag = bool(v12)
+		if d.has("flag_revision") and d.has("flagRevision"): return null
 		var v13 = d.get("flag_revision", d.get("flagRevision"))
 		if v13 != null:
+			if not (_unsigned64(v13)): return null
 			result.flag_revision = _uint64(v13)
 		if cache != null and result.tiles_revision != 0:
 			var key := path + "/2"
@@ -167,18 +257,33 @@ class Row extends ProtoMessage:
 	var label_revision: Variant = 0
 	var nested: Dictionary = {}
 
+	func same_fields(other: ProtoMessage) -> bool:
+		var typed := other as Row
+		if typed == null: return false
+		if not same_value(self.label, typed.label): return false
+		if not same_value(self.label_revision, typed.label_revision): return false
+		if not same_value(self.nested, typed.nested): return false
+		return true
+
 	static func from_dict(d: Dictionary, cache: Variant = null, path: String = "sample.v1.Row") -> Row:
 		var result := Row.new()
 		var v0 = d.get("label")
 		if v0 != null:
+			if not (v0 is String): return null
 			result.label = str(v0)
+		if d.has("label_revision") and d.has("labelRevision"): return null
 		var v1 = d.get("label_revision", d.get("labelRevision"))
 		if v1 != null:
+			if not (_unsigned64(v1)): return null
 			result.label_revision = _uint64(v1)
 		var v2 = d.get("nested")
 		if v2 != null:
+			if not v2 is Dictionary: return null
 			for key in v2:
-				result.nested[key] = Row.from_dict(v2[key], cache, path + "/6" + "/" + JSON.stringify(str(key)))
+				if not (v2[key] is Dictionary): return null
+				var child := Row.from_dict(v2[key], cache, path + "/6" + "/" + JSON.stringify(str(key)))
+				if child == null: return null
+				result.nested[key] = child
 		if cache != null and result.label_revision != 0:
 			var key := path + "/1"
 			var previous: Dictionary = cache.get(key, {})
@@ -202,10 +307,17 @@ class Row extends ProtoMessage:
 class Settings extends ProtoMessage:
 	var mode: String = ""
 
+	func same_fields(other: ProtoMessage) -> bool:
+		var typed := other as Settings
+		if typed == null: return false
+		if not same_value(self.mode, typed.mode): return false
+		return true
+
 	static func from_dict(d: Dictionary, cache: Variant = null, path: String = "sample.v1.Settings") -> Settings:
 		var result := Settings.new()
 		var v0 = d.get("mode")
 		if v0 != null:
+			if not (v0 is String): return null
 			result.mode = str(v0)
 		return result
 
@@ -220,17 +332,31 @@ class Subscription extends ProtoMessage:
 	var diagnostics_all: bool = false
 	var static_on_change: bool = false
 
+	func same_fields(other: ProtoMessage) -> bool:
+		var typed := other as Subscription
+		if typed == null: return false
+		if not same_value(self.diagnostics, typed.diagnostics): return false
+		if not same_value(self.diagnostics_all, typed.diagnostics_all): return false
+		if not same_value(self.static_on_change, typed.static_on_change): return false
+		return true
+
 	static func from_dict(d: Dictionary, cache: Variant = null, path: String = "sample.v1.Subscription") -> Subscription:
 		var result := Subscription.new()
 		var v0 = d.get("diagnostics")
 		if v0 != null:
-			for item in v0:
-				result.diagnostics.append(str(item))
+			if not v0 is Array: return null
+			for index in v0.size():
+				if not (v0[index] is String): return null
+				result.diagnostics.append(str(v0[index]))
+		if d.has("diagnostics_all") and d.has("diagnosticsAll"): return null
 		var v1 = d.get("diagnostics_all", d.get("diagnosticsAll"))
 		if v1 != null:
+			if not (v1 is bool): return null
 			result.diagnostics_all = bool(v1)
+		if d.has("static_on_change") and d.has("staticOnChange"): return null
 		var v2 = d.get("static_on_change", d.get("staticOnChange"))
 		if v2 != null:
+			if not (v2 is bool): return null
 			result.static_on_change = bool(v2)
 		return result
 

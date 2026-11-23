@@ -274,5 +274,4 @@ func _nearest_where(keep: Callable) -> Dictionary:
 
 func move_result(result: C.PocMoveResult) -> void:
 	if not pending.is_empty() and result.input_seq == pending_sequence and not result.ok:
-		last_walk = Vector2i(-1, -1)
-		retry_after_us = Time.get_ticks_usec() + 300000
+		cancel()

@@ -43,6 +43,9 @@ func _process(_delta: float) -> bool:
 	while socket.get_available_packet_count()>0:
 		var raw := socket.get_packet().get_string_from_utf8()
 		var envelope := cache.decode_ServerMessage(JSON.parse_string(raw))
+		if envelope == null:
+			quit(2)
+			return false
 		print("SCREEN_CAPTURE_MESSAGE ", JSON.parse_string(raw).keys())
 		if envelope.save_slots != null:
 			save_view = envelope.save_slots

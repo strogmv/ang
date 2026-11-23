@@ -13,6 +13,40 @@ class Mode:
 		return v
 
 class ProtoMessage extends RefCounted:
+	static func _integer(v) -> bool:
+		return v is int or (v is float and is_finite(v) and floor(v) == v) or (v is String and v.is_valid_int())
+
+	static func _unsigned64(v) -> bool:
+		if v is int: return v >= 0
+		if v is float: return is_finite(v) and floor(v) == v and v >= 0.0 and v < 18446744073709551616.0
+		if not v is String or v.is_empty(): return false
+		for i in v.length():
+			var digit: int = v.unicode_at(i) - 48
+			if digit < 0 or digit > 9: return false
+		return v.length() < 20 or (v.length() == 20 and v <= "18446744073709551615")
+
+	static func same_value(a, b) -> bool:
+		if typeof(a) != typeof(b):
+			return false
+		if a == b:
+			return true
+		if a is ProtoMessage and b is ProtoMessage:
+			return a.same_fields(b)
+		if a is Array and b is Array and a.size() == b.size():
+			for i in a.size():
+				if not same_value(a[i], b[i]):
+					return false
+			return true
+		if a is Dictionary and b is Dictionary and a.size() == b.size():
+			for key in a:
+				if not b.has(key) or not same_value(a[key], b[key]):
+					return false
+			return true
+		return false
+
+	func same_fields(_other: ProtoMessage) -> bool:
+		return false
+
 	static func _number(v) -> float:
 		if v is String:
 			if v == "NaN": return NAN
@@ -60,66 +94,125 @@ class Envelope extends ProtoMessage:
 	var ids: Dictionary = {}
 	var object_value: _PB_Object = null
 
+	func same_fields(other: ProtoMessage) -> bool:
+		var typed := other as Envelope
+		if typed == null: return false
+		if not same_value(self.signed_value, typed.signed_value): return false
+		if not same_value(self.unsigned_value, typed.unsigned_value): return false
+		if not same_value(self.mode, typed.mode): return false
+		if not same_value(self.child, typed.child): return false
+		if not same_value(self.children, typed.children): return false
+		if not same_value(self.lookup, typed.lookup): return false
+		if not same_value(self.counts, typed.counts): return false
+		if not same_value(self.flags, typed.flags): return false
+		if not same_value(self.present, typed.present): return false
+		if not same_value(self.active, typed.active): return false
+		if not same_value(self.payload, typed.payload): return false
+		if not same_value(self.selected, typed.selected): return false
+		if not same_value(self.text, typed.text): return false
+		if not same_value(self.ratio, typed.ratio): return false
+		if not same_value(self.maximum, typed.maximum): return false
+		if not same_value(self.ids, typed.ids): return false
+		if not same_value(self.object_value, typed.object_value): return false
+		return true
+
 	static func from_dict(d: Dictionary) -> Envelope:
 		var result := Envelope.new()
+		if d.has("signed_value") and d.has("signedValue"): return null
 		var v0 = d.get("signed_value", d.get("signedValue"))
 		if v0 != null:
+			if not (_integer(v0)): return null
 			result.signed_value = int(v0)
+		if d.has("unsigned_value") and d.has("unsignedValue"): return null
 		var v1 = d.get("unsigned_value", d.get("unsignedValue"))
 		if v1 != null:
+			if not (_unsigned64(v1)): return null
 			result.unsigned_value = _uint64(v1)
 		var v2 = d.get("mode")
 		if v2 != null:
+			if not ((v2 is String or _integer(v2))): return null
 			result.mode = Mode.from_json(v2)
 		var v3 = d.get("child")
 		if v3 != null:
-			result.child = Envelope__Child.from_dict(v3)
+			if not (v3 is Dictionary): return null
+			var child := Envelope__Child.from_dict(v3)
+			if child == null: return null
+			result.child = child
 		var v4 = d.get("children")
 		if v4 != null:
-			for item in v4:
-				result.children.append(Envelope__Child.from_dict(item))
+			if not v4 is Array: return null
+			for index in v4.size():
+				if not (v4[index] is Dictionary): return null
+				var child := Envelope__Child.from_dict(v4[index])
+				if child == null: return null
+				result.children.append(child)
 		var v5 = d.get("lookup")
 		if v5 != null:
+			if not v5 is Dictionary: return null
 			for key in v5:
-				result.lookup[key] = Envelope__Child.from_dict(v5[key])
+				if not (v5[key] is Dictionary): return null
+				var child := Envelope__Child.from_dict(v5[key])
+				if child == null: return null
+				result.lookup[key] = child
 		var v6 = d.get("counts")
 		if v6 != null:
-			for item in v6:
-				result.counts.append(int(item))
+			if not v6 is Array: return null
+			for index in v6.size():
+				if not (_integer(v6[index])): return null
+				result.counts.append(int(v6[index]))
 		var v7 = d.get("flags")
 		if v7 != null:
+			if not v7 is Dictionary: return null
 			for key in v7:
+				if key not in ["true", "false"]: return null
+				if not (_integer(v7[key])): return null
 				result.flags[(key == "true")] = int(v7[key])
 		var v8 = d.get("present")
 		if v8 != null:
+			if not (_integer(v8)): return null
 			result.present = int(v8)
 		var v9 = d.get("active")
 		if v9 != null:
+			if not (v9 is bool): return null
 			result.active = bool(v9)
 		var v10 = d.get("payload")
 		if v10 != null:
+			if not (v10 is String): return null
 			result.payload = Marshalls.base64_to_raw(v10)
 		var v11 = d.get("selected")
 		if v11 != null:
-			assert(result.text == null, "multiple members of oneof msg")
-			result.selected = Envelope__Child.from_dict(v11)
+			if result.text != null: return null # multiple members of oneof msg
+			if not (v11 is Dictionary): return null
+			var child := Envelope__Child.from_dict(v11)
+			if child == null: return null
+			result.selected = child
 		var v12 = d.get("text")
 		if v12 != null:
-			assert(result.selected == null, "multiple members of oneof msg")
+			if result.selected != null: return null # multiple members of oneof msg
+			if not (v12 is String): return null
 			result.text = str(v12)
 		var v13 = d.get("ratio")
 		if v13 != null:
+			if not ((v13 is int or v13 is float or (v13 is String and (v13.is_valid_float() or v13 in ["NaN", "Infinity", "-Infinity"])))): return null
 			result.ratio = _number(v13)
 		var v14 = d.get("maximum")
 		if v14 != null:
+			if not (_unsigned64(v14)): return null
 			result.maximum = _uint64(v14)
 		var v15 = d.get("ids")
 		if v15 != null:
+			if not v15 is Dictionary: return null
 			for key in v15:
+				if not _unsigned64(key): return null
+				if not (v15[key] is String): return null
 				result.ids[_uint64(key)] = str(v15[key])
+		if d.has("object_value") and d.has("objectValue"): return null
 		var v16 = d.get("object_value", d.get("objectValue"))
 		if v16 != null:
-			result.object_value = _PB_Object.from_dict(v16)
+			if not (v16 is Dictionary): return null
+			var child := _PB_Object.from_dict(v16)
+			if child == null: return null
+			result.object_value = child
 		return result
 
 	func to_dict() -> Dictionary:
@@ -174,13 +267,22 @@ class Envelope__Child extends ProtoMessage:
 	var label: String = ""
 	var huge: int = 0
 
+	func same_fields(other: ProtoMessage) -> bool:
+		var typed := other as Envelope__Child
+		if typed == null: return false
+		if not same_value(self.label, typed.label): return false
+		if not same_value(self.huge, typed.huge): return false
+		return true
+
 	static func from_dict(d: Dictionary) -> Envelope__Child:
 		var result := Envelope__Child.new()
 		var v0 = d.get("label")
 		if v0 != null:
+			if not (v0 is String): return null
 			result.label = str(v0)
 		var v1 = d.get("huge")
 		if v1 != null:
+			if not (_integer(v1)): return null
 			result.huge = int(v1)
 		return result
 
@@ -197,21 +299,50 @@ class _PB_Object extends ProtoMessage:
 	var pb_pb_class: String = ""
 	var pb_get_instance_id: String = ""
 	var pb_and: int = 0
+	var pb_same_fields: String = ""
+	var pb_same_value: String = ""
+
+	func same_fields(other: ProtoMessage) -> bool:
+		var typed := other as _PB_Object
+		if typed == null: return false
+		if not same_value(self.pb_class, typed.pb_class): return false
+		if not same_value(self.pb_pb_class, typed.pb_pb_class): return false
+		if not same_value(self.pb_get_instance_id, typed.pb_get_instance_id): return false
+		if not same_value(self.pb_and, typed.pb_and): return false
+		if not same_value(self.pb_same_fields, typed.pb_same_fields): return false
+		if not same_value(self.pb_same_value, typed.pb_same_value): return false
+		return true
 
 	static func from_dict(d: Dictionary) -> _PB_Object:
 		var result := _PB_Object.new()
 		var v0 = d.get("class")
 		if v0 != null:
+			if not (v0 is String): return null
 			result.pb_class = str(v0)
+		if d.has("pb_class") and d.has("pbClass"): return null
 		var v1 = d.get("pb_class", d.get("pbClass"))
 		if v1 != null:
+			if not (v1 is String): return null
 			result.pb_pb_class = str(v1)
+		if d.has("get_instance_id") and d.has("getInstanceId"): return null
 		var v2 = d.get("get_instance_id", d.get("getInstanceId"))
 		if v2 != null:
+			if not (v2 is String): return null
 			result.pb_get_instance_id = str(v2)
 		var v3 = d.get("and")
 		if v3 != null:
+			if not (_integer(v3)): return null
 			result.pb_and = int(v3)
+		if d.has("same_fields") and d.has("sameFields"): return null
+		var v4 = d.get("same_fields", d.get("sameFields"))
+		if v4 != null:
+			if not (v4 is String): return null
+			result.pb_same_fields = str(v4)
+		if d.has("same_value") and d.has("sameValue"): return null
+		var v5 = d.get("same_value", d.get("sameValue"))
+		if v5 != null:
+			if not (v5 is String): return null
+			result.pb_same_value = str(v5)
 		return result
 
 	func to_dict() -> Dictionary:
@@ -224,5 +355,9 @@ class _PB_Object extends ProtoMessage:
 			d["get_instance_id"] = pb_get_instance_id
 		if pb_and != 0:
 			d["and"] = pb_and
+		if pb_same_fields != "":
+			d["same_fields"] = pb_same_fields
+		if pb_same_value != "":
+			d["same_value"] = pb_same_value
 		return d
 

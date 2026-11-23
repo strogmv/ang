@@ -29,7 +29,7 @@ message Envelope {
  oneof msg { Child selected=12; string text=13; }
  double ratio=14; uint64 maximum=15; map<uint64,string> ids=16; Object object_value=17;
 }
-message Object { string class=1; string pb_class=2; string get_instance_id=3; int32 and=4;
+message Object { string class=1; string pb_class=2; string get_instance_id=3; int32 and=4; string same_fields=5; string same_value=6;
 }`
 
 func TestGDScriptGoldenAndRuntime(t *testing.T) {
@@ -85,6 +85,14 @@ func _init():
  assert(numeric_enum.to_dict().mode == C.Mode.MODE_READY)
  assert(C.Envelope.from_dict({"mode":1}).mode == C.Mode.MODE_READY)
  assert(C.Envelope.from_dict({"mode":99}).to_dict().mode == 99)
+ assert(C.Envelope.from_dict({"selected": {}, "text": "duplicate"}) == null)
+ assert(C.Envelope.from_dict({"children": [true]}) == null)
+ assert(C.Envelope.from_dict({"lookup": {"a": []}}) == null)
+ assert(C.Envelope.from_dict({"active": "false"}) == null)
+ var named = C.Envelope.from_dict({"object_value":{"same_fields":"field","same_value":"value"}})
+ assert(named.object_value.pb_same_fields == "field" and named.object_value.to_dict().same_value == "value")
+ assert(C.Envelope.from_dict({"maximum": "18446744073709551616"}) == null)
+ assert(C.Envelope.from_dict({"future": [], "active": true}).active)
  assert(d.maximum == "18446744073709551615" and d.ids["18446744073709551615"] == "large")
  assert(d.signed_value == -9007199254740993)
  assert(d.unsigned_value == 9007199254740993)

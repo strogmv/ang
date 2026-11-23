@@ -48,7 +48,7 @@ func gdField(f protoreflect.FieldDescriptor) string {
 
 // GDScriptFieldName shares the contract's injective property mapping with typed UI emitters.
 func GDScriptFieldName(n string) string {
-	reserved := " class class_name extends is in as self tool signal func static const enum var onready export setget breakpoint preload yield assert void null true false if elif else for while match break continue pass return await super set get int float bool String Array Dictionary name new from_dict to_dict get_class get_script get_meta set_meta get_meta_list has_meta remove_meta get_instance_id is_class is_queued_for_deletion notification free call callv call_deferred emit_signal connect disconnect is_connected duplicate reference unreference init_ref get_reference_count set_script get_property_list get_method_list get_signal_list get_signal_connection_list get_incoming_connections has_method has_signal has_user_signal add_user_signal to_string set_deferred notify_property_list_changed property_can_revert property_get_revert tr tr_n set_block_signals is_blocking_signals cancel_free "
+	reserved := " class class_name extends is in as self tool signal func static const enum var onready export setget breakpoint preload yield assert void null true false if elif else for while match break continue pass return await super set get int float bool String Array Dictionary name new from_dict to_dict same_fields same_value _integer _unsigned64 _uint64 _number _json_number get_class get_script get_meta set_meta get_meta_list has_meta remove_meta get_instance_id is_class is_queued_for_deletion notification free call callv call_deferred emit_signal connect disconnect is_connected duplicate reference unreference init_ref get_reference_count set_script get_property_list get_method_list get_signal_list get_signal_connection_list get_incoming_connections has_method has_signal has_user_signal add_user_signal to_string set_deferred notify_property_list_changed property_can_revert property_get_revert tr tr_n set_block_signals is_blocking_signals cancel_free "
 	if strings.Contains(reserved, " "+n+" ") || strings.Contains(gdKeywords, " "+n+" ") || strings.HasPrefix(n, "pb_") {
 		return "pb_" + n
 	}
@@ -132,6 +132,27 @@ func gdDecode(f protoreflect.FieldDescriptor, v string) string {
 		return "int(" + v + ")"
 	}
 }
+
+// gdShape is checked before GDScript converts a protojson scalar or accesses a nested value.
+func gdShape(f protoreflect.FieldDescriptor, value string) string {
+	switch f.Kind() {
+	case protoreflect.MessageKind:
+		return value + " is Dictionary"
+	case protoreflect.StringKind, protoreflect.BytesKind:
+		return value + " is String"
+	case protoreflect.BoolKind:
+		return value + " is bool"
+	case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
+		return "_unsigned64(" + value + ")"
+	case protoreflect.EnumKind:
+		return "(" + value + " is String or _integer(" + value + "))"
+	case protoreflect.FloatKind, protoreflect.DoubleKind:
+		return "(" + value + " is int or " + value + " is float or (" + value + " is String and (" + value + ".is_valid_float() or " + value + " in [\"NaN\", \"Infinity\", \"-Infinity\"])))"
+	default:
+		return "_integer(" + value + ")"
+	}
+}
+
 func gdEncode(f protoreflect.FieldDescriptor, v string) string {
 	switch f.Kind() {
 	case protoreflect.EnumKind:
@@ -256,12 +277,46 @@ func renderGDDescriptor(file protoreflect.FileDescriptor, definitions ...*ir.GRP
 		sort.Strings(responseNames)
 		for _, name := range responseNames {
 			m := file.Messages().ByName(protoreflect.Name(name))
-			w("\n\tfunc decode_%s(d: Dictionary) -> %s:\n\t\treturn %s.from_dict(d, values)\n", gdName(m), gdName(m), gdName(m))
+			w("\n\tfunc decode_%s(d: Variant) -> %s:\n\t\tif not d is Dictionary: return null\n\t\tvar pending := values.duplicate()\n\t\tvar decoded := %s.from_dict(d, pending)\n\t\tif decoded != null:\n\t\t\tvalues = pending\n\t\treturn decoded\n", gdName(m), gdName(m), gdName(m))
 		}
 		w("\n")
 	}
 	// Helpers live on a base class so every inner message can call them.
 	w(`class ProtoMessage extends RefCounted:
+	static func _integer(v) -> bool:
+		return v is int or (v is float and is_finite(v) and floor(v) == v) or (v is String and v.is_valid_int())
+
+	static func _unsigned64(v) -> bool:
+		if v is int: return v >= 0
+		if v is float: return is_finite(v) and floor(v) == v and v >= 0.0 and v < 18446744073709551616.0
+		if not v is String or v.is_empty(): return false
+		for i in v.length():
+			var digit: int = v.unicode_at(i) - 48
+			if digit < 0 or digit > 9: return false
+		return v.length() < 20 or (v.length() == 20 and v <= "18446744073709551615")
+
+	static func same_value(a, b) -> bool:
+		if typeof(a) != typeof(b):
+			return false
+		if a == b:
+			return true
+		if a is ProtoMessage and b is ProtoMessage:
+			return a.same_fields(b)
+		if a is Array and b is Array and a.size() == b.size():
+			for i in a.size():
+				if not same_value(a[i], b[i]):
+					return false
+			return true
+		if a is Dictionary and b is Dictionary and a.size() == b.size():
+			for key in a:
+				if not b.has(key) or not same_value(a[key], b[key]):
+					return false
+			return true
+		return false
+
+	func same_fields(_other: ProtoMessage) -> bool:
+		return false
+
 	static func _number(v) -> float:
 		if v is String:
 			if v == "NaN": return NAN
@@ -310,6 +365,12 @@ func renderGDDescriptor(file protoreflect.FileDescriptor, definitions ...*ir.GRP
 				w("\n")
 			}
 		}
+		w("\n\tfunc same_fields(other: ProtoMessage) -> bool:\n\t\tvar typed := other as %s\n\t\tif typed == null: return false\n", n)
+		for i := 0; i < m.Fields().Len(); i++ {
+			name := gdField(m.Fields().Get(i))
+			w("\t\tif not same_value(self.%s, typed.%s): return false\n", name, name)
+		}
+		w("\t\treturn true\n")
 		if delivery {
 			w("\n\tstatic func from_dict(d: Dictionary, cache: Variant = null, path: String = %q) -> %s:\n\t\tvar result := %s.new()\n", string(m.FullName()), n, n)
 		} else {
@@ -330,36 +391,53 @@ func renderGDDescriptor(file protoreflect.FileDescriptor, definitions ...*ir.GRP
 			if string(f.Name()) != f.JSONName() {
 				get = "d.get(" + key + ", d.get(" + fmt.Sprintf("%q", f.JSONName()) + "))"
 			}
+			if f.JSONName() != string(f.Name()) {
+				w("\t\tif d.has(%q) and d.has(%q): return null\n", f.Name(), f.JSONName())
+			}
 			w("\t\tvar v%d = %s\n\t\tif v%d != null:\n", i, get, i)
 			if o := f.ContainingOneof(); o != nil && !o.IsSynthetic() {
 				for j := 0; j < o.Fields().Len(); j++ {
 					other := o.Fields().Get(j)
 					if other != f {
-						w("\t\t\tassert(result.%s == null, %q)\n", gdField(other), "multiple members of oneof "+string(o.Name()))
+						w("\t\t\tif result.%s != null: return null # multiple members of oneof %s\n", gdField(other), o.Name())
 					}
 				}
 			}
+			value := fmt.Sprintf("v%d", i)
+			assign := func(field protoreflect.FieldDescriptor, item, suffix, indent, dest string, appendItem bool) {
+				w("%sif not (%s): return null\n", indent, gdShape(field, item))
+				expr := decode(field, item, suffix)
+				if field.Kind() == protoreflect.MessageKind {
+					w("%svar child := %s\n%sif child == null: return null\n", indent, expr, indent)
+					expr = "child"
+				}
+				if appendItem {
+					w("%s%s.append(%s)\n", indent, dest, expr)
+				} else {
+					w("%s%s = %s\n", indent, dest, expr)
+				}
+			}
 			if f.IsMap() {
-				w("\t\t\tfor key in v%d:\n", i)
+				w("\t\t\tif not %s is Dictionary: return null\n\t\t\tfor key in %s:\n", value, value)
 				k := "key"
 				switch f.MapKey().Kind() {
 				case protoreflect.BoolKind:
+					w("\t\t\t\tif key not in [\"true\", \"false\"]: return null\n")
 					k = `(key == "true")`
-				case protoreflect.StringKind:
-				case protoreflect.Uint64Kind:
+				case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
+					w("\t\t\t\tif not _unsigned64(key): return null\n")
 					k = "_uint64(key)"
+				case protoreflect.StringKind:
 				default:
+					w("\t\t\t\tif not key is String or not key.is_valid_int(): return null\n")
 					k = "int(key)"
 				}
-				w("\t\t\t\tresult.%s[%s] = %s\n", fn, k, decode(f.MapValue(), fmt.Sprintf("v%d[key]", i), ` + "/" + JSON.stringify(str(key))`))
+				assign(f.MapValue(), value+"[key]", ` + "/" + JSON.stringify(str(key))`, "\t\t\t\t", "result."+fn+"["+k+"]", false)
 			} else if f.IsList() {
-				if delivery && f.Kind() == protoreflect.MessageKind && needsCache[f.Message().FullName()] {
-					w("\t\t\tfor index in range(v%d.size()):\n\t\t\t\tresult.%s.append(%s)\n", i, fn, decode(f, fmt.Sprintf("v%d[index]", i), ` + "/" + str(index)`))
-				} else {
-					w("\t\t\tfor item in v%d:\n\t\t\t\tresult.%s.append(%s)\n", i, fn, gdDecode(f, "item"))
-				}
+				w("\t\t\tif not %s is Array: return null\n\t\t\tfor index in %s.size():\n", value, value)
+				assign(f, value+"[index]", ` + "/" + str(index)`, "\t\t\t\t", "result."+fn, true)
 			} else {
-				w("\t\t\tresult.%s = %s\n", fn, decode(f, fmt.Sprintf("v%d", i), ""))
+				assign(f, value, "", "\t\t\t", "result."+fn, false)
 			}
 		}
 		for i := 0; i < m.Fields().Len(); i++ {

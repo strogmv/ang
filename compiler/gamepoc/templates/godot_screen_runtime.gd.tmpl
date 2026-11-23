@@ -15,7 +15,8 @@ var rail: Array[Control] = []
 var focus_ids: Array[String] = []
 var content: Control
 var status: Label
-var last_signature := ""
+var last_signature: Variant = null
+var refresh_pending := false
 var last_focus_uid := ""
 ## Where the focus stood on each screen another screen replaced (screen id -> focus uid): a way back (present with
 ## resume) gives the focus back to that control, not to the screen's first one.
@@ -114,11 +115,11 @@ func accept(snapshot: C.PocGameState) -> void:
 			_dismiss()
 			return
 	if visible:
-		_refresh()
+		refresh_pending = true
 
 func _snapshot(v: Variant) -> Variant:
-	if v is C.ProtoMessage:
-		return v.to_dict()
+	if v is Dictionary:
+		return v.duplicate(true)
 	if v is Array:
 		return v.map(_snapshot)
 	return v
@@ -146,10 +147,11 @@ func _motion() -> bool:
 	return host != null and host.reduced_motion
 
 func _refresh() -> void:
+	refresh_pending = false
 	var build_started := Time.get_ticks_usec()
 	_resolve_lists(spec.controls)
-	var signature := JSON.stringify(_signature(spec.controls))
-	if signature == last_signature:
+	var signature := _signature(spec.controls)
+	if C.ProtoMessage.same_value(signature, last_signature):
 		_update_live()
 		return
 	last_signature = signature
@@ -448,6 +450,8 @@ func _node(n: Dictionary, parent: Node, row: C.ProtoMessage) -> void:
 func _input(event: InputEvent) -> void:
 	navigation._input(event)
 func _process(delta: float) -> void:
+	if refresh_pending and visible:
+		_refresh()
 	navigation._process(delta)
 
 func select_key(id: String, key: String, wanted: Variant) -> void:

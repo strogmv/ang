@@ -21,11 +21,10 @@ func server_screens(received_us := 0) -> void:
 			if app.game_ui.visible and app.game_ui.screen_id == entry.id:
 				app.game_ui._close()
 			continue
-		var signature := JSON.stringify(trigger.to_dict() if trigger is C.ProtoMessage else trigger)
 		if (not app.screen_open or (entry.get("opening_mode", "") == "replace" and
 			app.game_ui.screen_id != entry.id)) and \
-			auto_screens.get(entry.id, "") != signature:
-			auto_screens[entry.id] = signature
+			not C.ProtoMessage.same_value(auto_screens.get(entry.id), trigger):
+			auto_screens[entry.id] = trigger
 			app.open_game_screen(entry.id, received_us)
 
 func shortcut(event: InputEvent) -> bool:
