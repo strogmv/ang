@@ -78,6 +78,18 @@ func cycle(id: String, direction := 1) -> void:
 			var count := roundi((entry.max-entry.min)/entry.step)+1
 			var index := roundi((float(value(id))-entry.min)/entry.step)
 			set_value(id, entry.min+posmod(index+direction, count)*entry.step)
+## One step back (-1) or forward (1), as the arrows on a settings card: a number stops at its ends (0 % stays 0 %),
+## a choice or a toggle goes round as cycle does.
+func step(id: String, direction: int) -> void:
+	var entry := definition(id)
+	if str(entry.kind) != "stepped_number":
+		cycle(id, direction)
+		return
+	var count := roundi((entry.max-entry.min)/entry.step)+1
+	var index := roundi((float(value(id))-entry.min)/entry.step)
+	var next := clampi(index+direction, 0, count-1)
+	if next != index:
+		set_value(id, entry.min+next*entry.step)
 func display(id: String) -> String:
 	var entry := definition(id)
 	var current = value(id)

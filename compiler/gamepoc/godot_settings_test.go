@@ -71,6 +71,10 @@ func TestGodotSettingsDataExtensionParsesAndBadConfigFallsBack(t *testing.T) {
 	if !strings.Contains(string(raw), "var music_volume: float = 1") {
 		t.Fatal("data-only entry did not become typed field")
 	}
+	// the arrows of a settings card (step) stop a number at its ends; Enter (cycle) goes round
+	if !strings.Contains(string(raw), "func step(id: String, direction: int) -> void:") || !strings.Contains(string(raw), "clampi(index+direction, 0, count-1)") {
+		t.Fatal("the generated settings have no clamped step")
+	}
 	bin := os.Getenv("ANG_GODOT_BIN")
 	if bin == "" {
 		t.Log("set ANG_GODOT_BIN for actual Godot parse and config runtime")
@@ -104,6 +108,18 @@ func _initialize():
  var a=Settings.new()
  a.load_file(path)
  assert(a.volume==0.0 and a.music_volume==1.0 and a.warnings.size()==2)
+ a.cycle("music_volume")
+ assert(a.music_volume==0.0)
+ a.step("music_volume",-1)
+ assert(a.music_volume==0.0)
+ a.step("music_volume",1)
+ assert(a.music_volume>0.0)
+ a.step("music_volume",1)
+ a.step("music_volume",1)
+ a.step("music_volume",1)
+ a.step("music_volume",1)
+ a.step("music_volume",1)
+ assert(a.music_volume==1.0)
  a.cycle("music_volume")
  assert(a.music_volume==0.0)
  a.set_value("volume",0.25)
