@@ -319,6 +319,19 @@ static func _read_%s(
 // target that trades with him, as the world action on him would.
 var screenHostCommands = map[string]bool{"host.close": true, "host.open": true, "host.back": true, "host.main": true, "host.quit": true, "host.setting": true, "host.toggle": true, "host.delete_save": true, "host.world": true, "host.trade": true}
 
+// screenUnitStep: a literal step of host.setting's direction, 1 or -1 (CUE gives a number, JSON decodes it as float64).
+func screenUnitStep(v any) bool {
+	switch n := v.(type) {
+	case float64:
+		return n == 1 || n == -1
+	case int:
+		return n == 1 || n == -1
+	case int64:
+		return n == 1 || n == -1
+	}
+	return false
+}
+
 // The verbs of host.world: the HUD's touches of the world, through the world targets the client already has (doc 09,
 // «Касание мира»): use = the peaceful action on the pointed or nearest target (E/X), talk = the nearest person's,
 // approach = walk to the pointed or nearest target without using it, inspect = point at the next target near the hero
@@ -333,11 +346,16 @@ func (g *screenCompiler) action(a *ScreenAction, row, field string) error {
 	a.Ref = fmt.Sprintf("a%d", g.serial)
 	if screenHostCommands[a.Command] {
 		allowed := map[string]string{}
+		optional := map[string]bool{}
 		switch a.Command {
 		case "host.open":
 			allowed["screen"] = "screen"
 		case "host.setting":
 			allowed["id"] = "setting"
+			// the way of the step (the painted settings screen, 25.11: ← and → change a value): 1 the next value, as
+			// without it; -1 the one before
+			allowed["direction"] = "direction"
+			optional["direction"] = true
 		case "host.toggle":
 			allowed["control"] = "control"
 		case "host.delete_save":
@@ -353,7 +371,7 @@ func (g *screenCompiler) action(a *ScreenAction, row, field string) error {
 			}
 		}
 		for key := range allowed {
-			if _, ok := a.Params[key]; !ok {
+			if _, ok := a.Params[key]; !ok && !optional[key] {
 				return fmt.Errorf("screen %s field %s.params.%s: required", g.id, field, key)
 			}
 		}
@@ -374,6 +392,14 @@ func (g *screenCompiler) action(a *ScreenAction, row, field string) error {
 				}
 				if p.typ != "string" || p.repeated {
 					return fmt.Errorf("screen %s field %s.params.%s: %s cannot bind a string", g.id, field, key, p.typ)
+				}
+				a.Params[key] = v
+				continue
+			}
+			if kind == "direction" {
+				// a literal step, never read from the state
+				if v.Path != "" || !screenUnitStep(v.Value) {
+					return fmt.Errorf("screen %s field %s.params.%s: expected 1 or -1", g.id, field, key)
 				}
 				a.Params[key] = v
 				continue

@@ -90,3 +90,35 @@ func TestGodotScreenDeleteSaveReadsTheSlotFromTheRow(t *testing.T) {
 		t.Fatalf("named actions on a list: %v", err)
 	}
 }
+
+// The painted settings screen (25.11): ← and → step a setting back and forth through host.setting's optional direction,
+// a literal 1 or -1; without it the step goes forward, as Enter does.
+func TestGodotScreenSettingDirection(t *testing.T) {
+	setting := func(t *testing.T, params map[string]ScreenValue) (Compiled, string, error) {
+		root, c, d := screenFixture(t)
+		c.GodotSettings = &GodotSettings{Appliers: map[string]SettingApplier{"bus": {Script: "res://appliers.gd", Method: "audio_bus"}}, Profiles: map[string]any{}, Entries: []GodotSetting{{ID: "volume", Section: "audio", Key: "volume", Kind: "stepped_number", Min: 0, Max: 1, Step: .25, Default: float64(0), Label: "ui.test.title", ValueKey: "ui.test.action", DisplayScale: 100, Applier: "bus", Params: map[string]any{"bus": "Master"}}}}
+		a := c.GodotScreens.Screens[0].Controls[0].Children[0].Action
+		a.Command = "host.setting"
+		a.Params = params
+		out, err := compileGodotScreens(root, c, d)
+		return c, string(out), err
+	}
+	for _, step := range []float64{1, -1} {
+		_, out, err := setting(t, map[string]ScreenValue{"id": {Value: "volume"}, "direction": {Value: step}})
+		if err != nil {
+			t.Fatalf("direction %v: %v", step, err)
+		}
+		if !strings.Contains(out, `\"direction\":{\"value\":`) {
+			t.Fatalf("direction %v is not in the catalog", step)
+		}
+	}
+	if _, _, err := setting(t, map[string]ScreenValue{"id": {Value: "volume"}}); err != nil {
+		t.Fatalf("a step without a direction must stay valid: %v", err)
+	}
+	for _, bad := range []ScreenValue{{Value: float64(2)}, {Value: float64(0)}, {Value: "back"}, {Path: "state.epoch"}} {
+		_, _, err := setting(t, map[string]ScreenValue{"id": {Value: "volume"}, "direction": bad})
+		if err == nil || !strings.Contains(err.Error(), "controls.take.action.params.direction: expected 1 or -1") {
+			t.Fatalf("direction %+v passed: %v", bad, err)
+		}
+	}
+}
