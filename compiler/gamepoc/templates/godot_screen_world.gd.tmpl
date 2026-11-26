@@ -2,6 +2,8 @@
 extends RefCounted
 const C = preload("res://generated/game_contract.gd")
 const Catalog = preload("res://generated/screens/catalog.gd")
+## The input actions (world.input_actions): the peaceful and the hostile touch are actions' keys and buttons
+const Keys = preload("res://generated/input_actions.gd")
 var host
 var targets: Array[Dictionary] = []
 var highlighted := ""
@@ -173,13 +175,8 @@ func nearest() -> Dictionary:
 	return selected
 
 func matches(event: InputEvent, shortcut: Dictionary) -> bool:
-	if event is InputEventKey and event.pressed and not event.echo:
-		return event.physical_keycode == OS.find_keycode_from_string(shortcut.key)
-	if event is InputEventJoypadButton and event.pressed:
-		var pads := {"X": JOY_BUTTON_X, "Y": JOY_BUTTON_Y, "Start": JOY_BUTTON_START,
-	"Back":
-		JOY_BUTTON_BACK, "L1": JOY_BUTTON_LEFT_SHOULDER, "R1": JOY_BUTTON_RIGHT_SHOULDER}
-		return event.button_index == pads.get(shortcut.pad, -1)
+	if event is InputEventKey or event is InputEventJoypadButton:
+		return Keys.pressed(event, shortcut.action)
 	return false
 
 func input(event: InputEvent) -> bool:

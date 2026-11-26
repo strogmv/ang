@@ -47,8 +47,10 @@ type ScreenCombatCategory struct {
 	Key    string   `json:"text_key"`
 	Groups []string `json:"groups"`
 }
+
+// ScreenHotkey: the keyboard key of an input action (world.input_actions) presses a row of a control or steps its choice.
 type ScreenHotkey struct {
-	Key       string `json:"key"`
+	Action    string `json:"action"`
 	Control   string `json:"control"`
 	Index     int    `json:"index,omitempty"`
 	Direction int    `json:"direction,omitempty"`
@@ -107,9 +109,10 @@ type ScreenLauncher struct {
 	Screen string `json:"screen"`
 	Key    string `json:"text_key"`
 }
+
+// ScreenShortcut names the input action (world.input_actions) whose key and gamepad button do it.
 type ScreenShortcut struct {
-	Key string `json:"key,omitempty"`
-	Pad string `json:"pad,omitempty"`
+	Action string `json:"action"`
 }
 type GodotScreen struct {
 	// The HUD (routes.hud): its own runtime shows it under every other screen while the game is played; the world keeps
@@ -205,6 +208,8 @@ type screenCompiler struct {
 	def      *normalizer.GRPCDef
 	messages map[string]normalizer.GRPCMessage
 	selected map[string]string
+	// the input actions the screens' shortcuts, hotkeys and the world's input name
+	inputs   *InputActions
 	bindings strings.Builder
 	readers  []string
 	actions  strings.Builder
@@ -779,7 +784,7 @@ func compileGodotScreens(project string, c Compiled, def *normalizer.GRPCDef) ([
 		}
 		return nil, fmt.Errorf("screen %s field skin: no godot_theme skins declared", id)
 	}
-	g := &screenCompiler{screens: c.GodotScreens, settings: c.GodotSettings, def: def, messages: map[string]normalizer.GRPCMessage{}, selected: map[string]string{}}
+	g := &screenCompiler{screens: c.GodotScreens, settings: c.GodotSettings, inputs: c.InputActions, def: def, messages: map[string]normalizer.GRPCMessage{}, selected: map[string]string{}}
 	for _, m := range def.Messages {
 		g.messages[m.Name] = m
 	}
@@ -835,11 +840,8 @@ func compileGodotScreens(project string, c Compiled, def *normalizer.GRPCDef) ([
 		}
 		seen[s.ID] = true
 		if s.Shortcut != nil {
-			if s.Shortcut.Key != "" && (len(s.Shortcut.Key) != 1 || s.Shortcut.Key[0] < 'A' || s.Shortcut.Key[0] > 'Z') {
-				return nil, fmt.Errorf("screen %s field shortcut.key: expected A-Z", s.ID)
-			}
-			if s.Shortcut.Pad != "" && !strings.Contains(" X Y Start Back L1 R1 ", " "+s.Shortcut.Pad+" ") {
-				return nil, fmt.Errorf("screen %s field shortcut.pad: unknown button", s.ID)
+			if _, ok := c.InputActions.action(s.Shortcut.Action); !ok {
+				return nil, fmt.Errorf("screen %s field shortcut.action: unknown input action %q", s.ID, s.Shortcut.Action)
 			}
 		}
 		if s.Chrome != "folk" && s.Chrome != "tactical" {
@@ -936,12 +938,10 @@ func compileGodotScreens(project string, c Compiled, def *normalizer.GRPCDef) ([
 		keys := map[string]bool{}
 		for index, key := range s.Hotkeys {
 			field := fmt.Sprintf("hotkeys.%d", index)
-			valid := len(key.Key) == 1 && strings.Contains("123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ", key.Key)
-			valid = valid || key.Key == "Space" || key.Key == "Left" || key.Key == "Right" || key.Key == "Tab"
-			if !valid || keys[key.Key] {
-				return nil, fmt.Errorf("screen %s field %s.key: unknown/duplicate key", s.ID, field)
+			if action, ok := c.InputActions.action(key.Action); !ok || len(action.Keys) == 0 || keys[key.Action] {
+				return nil, fmt.Errorf("screen %s field %s.action: unknown/duplicate input action or one without a key", s.ID, field)
 			}
-			keys[key.Key] = true
+			keys[key.Action] = true
 			if !interactive[key.Control] {
 				return nil, fmt.Errorf("screen %s field %s.control: unknown control", s.ID, field)
 			}
@@ -1063,9 +1063,18 @@ func writeGodotScreens(project string, c Compiled, def *normalizer.GRPCDef) erro
 	if err != nil {
 		return err
 	}
+	input, err := compileGodotInput(c)
+	if err != nil {
+		return err
+	}
 	for _, target := range c.GodotTargets {
 		if settings != nil {
 			if err := os.WriteFile(filepath.Join(project, target, "generated/settings.gd"), settings, 0644); err != nil {
+				return err
+			}
+		}
+		if input != nil {
+			if err := os.WriteFile(filepath.Join(project, target, "generated/input_actions.gd"), input, 0644); err != nil {
 				return err
 			}
 		}

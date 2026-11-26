@@ -115,6 +115,7 @@ func run() -> void:
 				assert(reachable, "scrolling details have no reachable control")
 				var page := InputEventKey.new()
 				page.keycode = KEY_PAGEDOWN
+				page.physical_keycode = KEY_PAGEDOWN
 				page.pressed = true
 				page.set_meta("bilibin_proof", true)
 				Input.parse_input_event(page)

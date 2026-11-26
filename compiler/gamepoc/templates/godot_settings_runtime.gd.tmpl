@@ -32,6 +32,9 @@ func load_file(path: String = "user://settings.cfg") -> void:
 	if result != OK and result != ERR_FILE_NOT_FOUND:
 		_warn("settings load: "+error_string(result))
 	for section in file.get_sections():
+		# another table's section (the input actions' player keys): read by it, kept as it is when the file is saved
+		if section in specification().get("foreign", []):
+			continue
 		for key in file.get_section_keys(section):
 			var known := false
 			for entry in specification().entries:

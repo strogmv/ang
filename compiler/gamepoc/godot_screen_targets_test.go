@@ -95,10 +95,8 @@ func TestGodotWorldInputNegative(t *testing.T) {
 		field  string
 		mutate func(*ScreenWorldInput)
 	}{
-		{"peaceful.key", func(i *ScreenWorldInput) { i.Peaceful.Key = "typo" }},
-		{"peaceful.pad", func(i *ScreenWorldInput) { i.Peaceful.Pad = "typo" }},
-		{"hostile.key", func(i *ScreenWorldInput) { i.Hostile.Key = "typo" }},
-		{"hostile.pad", func(i *ScreenWorldInput) { i.Hostile.Pad = "typo" }},
+		{"peaceful.action", func(i *ScreenWorldInput) { i.Peaceful.Action = "typo" }},
+		{"hostile.action", func(i *ScreenWorldInput) { i.Hostile.Action = "typo" }},
 		{"engage_list", func(i *ScreenWorldInput) { i.EngageList = "typo" }},
 		{"engage_key", func(i *ScreenWorldInput) { i.EngageKey = "typo" }},
 		{"engage_screen", func(i *ScreenWorldInput) { i.EngageScreen = "typo" }},
@@ -106,7 +104,8 @@ func TestGodotWorldInputNegative(t *testing.T) {
 	} {
 		t.Run(test.field, func(t *testing.T) {
 			root, c, d := targetFixture(t)
-			c.GodotScreens.WorldInput = &ScreenWorldInput{Peaceful: ScreenShortcut{Key: "E", Pad: "X"}, Hostile: ScreenShortcut{Key: "F", Pad: "R1"}, Fallback: "bag", EngageScreen: "bag", EngageList: "items", EngageKey: "id"}
+			c.InputActions = testInputActions()
+			c.GodotScreens.WorldInput = &ScreenWorldInput{Peaceful: ScreenShortcut{Action: "interact"}, Hostile: ScreenShortcut{Action: "attack"}, Fallback: "bag", EngageScreen: "bag", EngageList: "items", EngageKey: "id"}
 			test.mutate(c.GodotScreens.WorldInput)
 			_, err := compileGodotScreens(root, c, d)
 			if err == nil || !strings.Contains(err.Error(), "field world_input."+test.field) {

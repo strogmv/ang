@@ -14,12 +14,13 @@ import (
 // publishes the events; it never waits on a clock and never learns the pace. Presentation only: the block goes to the
 // client (presentation.json, the Godot combat playback) and never into the server's world (json:"-" on Compiled), so
 // no pace can change an outcome. The two modes the owner named must both exist; the settings entry that holds the
-// choice offers exactly these modes, in this order, with the pace's default.
+// choice offers exactly these modes, in this order, with the pace's default. Action is the input action
+// (world.input_actions) that switches the pace; its key is shown on the HUD's tile.
 type CombatPace struct {
 	Default      string             `json:"default"`
 	Modes        []CombatPaceMode   `json:"modes"`
 	Setting      string             `json:"setting"`
-	Key          string             `json:"key"`
+	Action       string             `json:"action"`
 	Beats        map[string]float64 `json:"beats"`
 	BeatDefaultS float64            `json:"beat_default_s"`
 	Shifts       map[string]float64 `json:"shifts"`
@@ -204,8 +205,8 @@ func (p CombatPace) validate() error {
 	if fast.BeatShare > turn.BeatShare || fast.PauseS > turn.PauseS {
 		return fmt.Errorf("modes fast_turn_based: its beat_share and pause_s may not exceed turn_based's")
 	}
-	if p.Setting == "" || p.Key == "" {
-		return fmt.Errorf("setting and key are required")
+	if p.Setting == "" || p.Action == "" {
+		return fmt.Errorf("setting and action are required")
 	}
 	if _, ok := p.mode(p.AfterFight); !ok {
 		return fmt.Errorf("after_fight: %q is not one of the modes", p.AfterFight)

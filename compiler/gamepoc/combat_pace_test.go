@@ -16,7 +16,7 @@ func paceOK() CombatPace {
 			{ID: "turn_based", TextKey: "ui.combat.pace.turn_based", Move: "walk", WalkMPS: 1.3, BeatShare: 1, PauseS: .35},
 			{ID: "fast_turn_based", TextKey: "ui.combat.pace.fast_turn_based", Move: "slide", SlideS: .15, BeatShare: .35, PauseS: .05},
 		},
-		Setting: "combat_pace", Key: "Q",
+		Setting: "combat_pace", Action: "combat_pace",
 		Beats: map[string]float64{"attack": .7, "wound": 0}, BeatDefaultS: .45,
 		Shifts:    map[string]float64{"roll": .5},
 		HandoverS: .12, CameraLagS: .18, CameraSettle: 1.2, AfterFight: "fast_turn_based",
@@ -84,7 +84,7 @@ func TestCombatPaceModesAndDefault(t *testing.T) {
 		"after":      func(p *CombatPace) { p.AfterFight = "real_time" },
 		"beat type":  func(p *CombatPace) { p.Beats["atack"] = .7 },
 		"shift type": func(p *CombatPace) { p.Shifts["rol"] = .5 },
-		"key":        func(p *CombatPace) { p.Key = "" },
+		"action":     func(p *CombatPace) { p.Action = "" },
 	} {
 		p := paceOK()
 		p.Beats = map[string]float64{"attack": .7, "wound": 0}

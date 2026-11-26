@@ -20,7 +20,8 @@ func gridFixture(t *testing.T) (string, Compiled, *normalizer.GRPCDef) {
 		Name: "allowed", Type: "string", Repeated: true,
 	})
 	c.GodotScreens.Screens[0].Focus = []string{"items"}
-	c.GodotScreens.Screens[0].Hotkeys = []ScreenHotkey{{Key: "1", Control: "items"}}
+	c.InputActions = testInputActions()
+	c.GodotScreens.Screens[0].Hotkeys = []ScreenHotkey{{Action: "choose_1", Control: "items"}}
 	return root, c, d
 }
 
@@ -54,8 +55,11 @@ func TestGodotScreenGridNegative(t *testing.T) {
 		{"hotkey control", "hotkeys.0.control", func(c *Compiled) {
 			c.GodotScreens.Screens[0].Hotkeys[0].Control = "absent"
 		}},
-		{"hotkey key", "hotkeys.0.key", func(c *Compiled) {
-			c.GodotScreens.Screens[0].Hotkeys[0].Key = "absent"
+		{"hotkey action", "hotkeys.0.action", func(c *Compiled) {
+			c.GodotScreens.Screens[0].Hotkeys[0].Action = "absent"
+		}},
+		{"hotkey action without a key", "hotkeys.0.action", func(c *Compiled) {
+			c.GodotScreens.Screens[0].Hotkeys[0].Action = "pad_only"
 		}},
 		{"initial focus", "initial_focus", func(c *Compiled) {
 			c.GodotScreens.Screens[0].InitialFocus = "absent"

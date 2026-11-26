@@ -2,6 +2,8 @@
 extends RefCounted
 const C = preload("res://generated/game_contract.gd")
 const Catalog = preload("res://generated/screens/catalog.gd")
+## The input actions (world.input_actions): every key and button below is an action's, never a letter
+const Keys = preload("res://generated/input_actions.gd")
 var ui
 ## the HUD's rail is being walked with the gamepad: its hotkeys then leave the focus where it is
 var pad_rail := false
@@ -18,48 +20,46 @@ func _input(event: InputEvent) -> void:
 	# the HUD (a persistent screen) takes only its hotkeys and the D-pad's left and right along its rail (A or Enter
 	# presses the focused button through the game's foreground control); everything else stays the game's and the world's
 	if ui.persistent:
-		if event is InputEventJoypadButton and event.pressed and event.button_index in [JOY_BUTTON_DPAD_LEFT,
-				JOY_BUTTON_DPAD_RIGHT]:
+		if event is InputEventJoypadButton and (Keys.pressed(event, Keys.RAIL_PREVIOUS) or Keys.pressed(event, Keys.RAIL_NEXT)):
 			pad_rail = true
-			_navigate(-1 if event.button_index == JOY_BUTTON_DPAD_LEFT else 1)
+			_navigate(-1 if Keys.pressed(event, Keys.RAIL_PREVIOUS) else 1)
 			ui.get_viewport().set_input_as_handled()
 		elif event is InputEventMouseButton and event.pressed:
 			pad_rail = false
 		return
-	if event is InputEventKey and (event.keycode in [KEY_ENTER, KEY_KP_ENTER] or
-		event.physical_keycode in [KEY_ENTER, KEY_KP_ENTER]):
+	if event is InputEventKey and Keys.event_is(event, Keys.MENU_CONFIRM):
 		var focus: Control = ui.get_viewport().gui_get_focus_owner()
 		if focus is Button and ui.is_ancestor_of(focus) and not focus.disabled:
 			if event.pressed and not event.echo:
 				focus.pressed.emit()
 			ui.get_viewport().set_input_as_handled()
 			return
-	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
+	if event is InputEventKey and event.pressed and Keys.event_is(event, Keys.MENU_BACK):
 		# a held Esc goes back once: its repeats are taken and dropped (the main menu's Esc opens the exit
 		# confirmation, whose Esc goes back: a repeat would toggle between them)
 		if not event.echo:
 			ui._close()
 		ui.get_viewport().set_input_as_handled()
-	elif event is InputEventKey and event.pressed and event.keycode in [KEY_PAGEDOWN, KEY_PAGEUP]:
-		_scroll_by(320 if event.keycode == KEY_PAGEDOWN else -320)
+	elif event is InputEventKey and event.pressed and (Keys.event_is(event, Keys.MENU_PAGE_DOWN) or
+			Keys.event_is(event, Keys.MENU_PAGE_UP)):
+		_scroll_by(320 if Keys.event_is(event, Keys.MENU_PAGE_DOWN) else -320)
 		ui.get_viewport().set_input_as_handled()
 	elif event is InputEventJoypadMotion and event.axis == JOY_AXIS_RIGHT_Y:
 		ui.scroll_axis = event.axis_value
 		ui.get_viewport().set_input_as_handled()
 	elif event is InputEventJoypadButton and event.pressed:
-		match event.button_index:
-			JOY_BUTTON_B:
-				ui._close()
-			JOY_BUTTON_DPAD_UP:
-				_navigate(-1)
-			JOY_BUTTON_DPAD_DOWN:
-				_navigate(1)
-			JOY_BUTTON_A:
-				var focus: Control = ui.get_viewport().gui_get_focus_owner()
-				if focus is Button and ui.is_ancestor_of(focus):
-					focus.pressed.emit()
-			_:
-				return
+		if Keys.pressed(event, Keys.MENU_BACK):
+			ui._close()
+		elif Keys.pressed(event, Keys.MENU_UP):
+			_navigate(-1)
+		elif Keys.pressed(event, Keys.MENU_DOWN):
+			_navigate(1)
+		elif Keys.pressed(event, Keys.MENU_CONFIRM):
+			var focus: Control = ui.get_viewport().gui_get_focus_owner()
+			if focus is Button and ui.is_ancestor_of(focus):
+				focus.pressed.emit()
+		else:
+			return
 		ui.get_viewport().set_input_as_handled()
 	elif event is InputEventJoypadMotion and event.axis in [JOY_AXIS_LEFT_X, JOY_AXIS_LEFT_Y]:
 		if event.axis == JOY_AXIS_LEFT_Y:
@@ -108,10 +108,11 @@ func _process(delta: float) -> void:
 		_navigate(1 if ui.hold.x+ui.hold.y>0 else -1)
 		ui.repeat_at += 0.12
 
+## A screen's hotkeys are the keyboard keys of their input actions (a hotkey's gamepad button is the game's own, not the
+## screen's: the end of a turn's Y stays the HUD's drive).
 func _hotkey(event: InputEventKey) -> bool:
 	for binding in ui.spec.get("hotkeys", []):
-		var key := OS.find_keycode_from_string(binding.key)
-		if event.keycode != key and event.physical_keycode != key:
+		if not Keys.pressed(event, binding.action):
 			continue
 		var buttons: Array[Button] = []
 		for control in ui.rail:

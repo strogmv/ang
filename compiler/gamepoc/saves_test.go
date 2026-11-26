@@ -16,7 +16,7 @@ func TestSaveKindsPolicy(t *testing.T) {
 		return &AutoSavePolicy{Slots: []string{"auto1", "auto2", "auto3"}, EveryPlayMinutes: 60}
 	}
 	quick := func() *QuickSavePolicy {
-		return &QuickSavePolicy{Slots: []string{"quick1", "quick2", "quick3"}, SaveKey: "F5", LoadKey: "F9", NoteSeconds: 1.5}
+		return &QuickSavePolicy{Slots: []string{"quick1", "quick2", "quick3"}, NoteSeconds: 1.5}
 	}
 	c := valid
 	c.AutoSave, c.QuickSave = auto(), quick()
@@ -35,8 +35,6 @@ func TestSaveKindsPolicy(t *testing.T) {
 		"no quick slots":                    func(c *Config) { c.QuickSave.Slots = []string{} },
 		"an autosave every 0 minutes":       func(c *Config) { c.AutoSave.EveryPlayMinutes = 0 },
 		"an autosave over a day apart":      func(c *Config) { c.AutoSave.EveryPlayMinutes = 24*60 + 1 },
-		"no save key":                       func(c *Config) { c.QuickSave.SaveKey = "" },
-		"one key for save and load":         func(c *Config) { c.QuickSave.LoadKey = "F5" },
 		"a note too short to read":          func(c *Config) { c.QuickSave.NoteSeconds = 0.1 },
 	} {
 		c := valid
@@ -58,9 +56,9 @@ func TestSaveKindsPolicy(t *testing.T) {
 	if err := json.Unmarshal(data, &got); err != nil {
 		t.Fatal(err)
 	}
+	// the keys are the input actions quick_save and quick_load (controls v1): the client gets only how long its note shows
 	var keys map[string]any
-	if err := json.Unmarshal(got.Config["quick_save"], &keys); err != nil || len(keys) != 3 || keys["save_key"] != "F5" ||
-		keys["load_key"] != "F9" || keys["note_seconds"] != 1.5 {
+	if err := json.Unmarshal(got.Config["quick_save"], &keys); err != nil || len(keys) != 1 || keys["note_seconds"] != 1.5 {
 		t.Fatalf("client quick save %s", got.Config["quick_save"])
 	}
 	if _, ok := got.Config["auto_save"]; ok {

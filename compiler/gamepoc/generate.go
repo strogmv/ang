@@ -95,12 +95,11 @@ type AutoSavePolicy struct {
 	EveryPlayMinutes int      `json:"every_play_minutes"`
 }
 
-// QuickSavePolicy: SaveKey saves at once into Slots (the oldest is overwritten), LoadKey loads the newest of them; the
-// client shows a short note for NoteSeconds. Godot key names (OS.find_keycode_from_string).
+// QuickSavePolicy: the quick-save key saves at once into Slots (the oldest is overwritten), the quick-load key loads the
+// newest of them; the client shows a short note for NoteSeconds. The keys are the input actions quick_save and
+// quick_load (world.input_actions, controls v1): the server never knows a key.
 type QuickSavePolicy struct {
 	Slots       []string `json:"slots"`
-	SaveKey     string   `json:"save_key"`
-	LoadKey     string   `json:"load_key"`
 	NoteSeconds float64  `json:"note_seconds"`
 }
 
@@ -126,9 +125,6 @@ func (c Config) validateSaveKinds() error {
 		kinds["auto_save"] = a.Slots
 	}
 	if q := c.QuickSave; q != nil {
-		if q.SaveKey == "" || q.LoadKey == "" || q.SaveKey == q.LoadKey {
-			return fmt.Errorf("quick_save: save_key and load_key must be two different keys")
-		}
 		if q.NoteSeconds < 0.5 || q.NoteSeconds > 10 {
 			return fmt.Errorf("quick_save: note_seconds must be 0.5..10")
 		}
@@ -400,6 +396,9 @@ type Compiled struct {
 	// Combat pace (combat_pace.go, owner 20.11): how the client plays one turn-based fight, turn-based or fast
 	// turn-based; presentation only, never in the server's world, so no pace can change an outcome.
 	CombatPace *CombatPace `json:"-"`
+	// The input actions (godot_input.go, controls v1): every key and button the player presses, the client's InputMap;
+	// presentation only, never in the server's world.
+	InputActions *InputActions `json:"-"`
 	// The loading screen between places (loading_screen.go, owner 23.11): what the client shows on a journey
 	// (presentation.json); the server reads only the knowledge of each place (world.json loading_screen) to choose the
 	// one line of what the hero knows of a place.
@@ -703,6 +702,9 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 		return out, nil, err
 	}
 	if out.CombatPace, err = readCombatPace(world); err != nil {
+		return out, nil, err
+	}
+	if out.InputActions, err = readInputActions(world); err != nil {
 		return out, nil, err
 	}
 	if out.LoadingScreen, err = readLoadingScreen(world); err != nil {
@@ -1225,6 +1227,9 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 		if err != nil {
 			return out, nil, err
 		}
+	}
+	if err := checkInputActions(&out); err != nil {
+		return out, nil, err
 	}
 
 	out.MarketFinish, err = readMarketFinish(world, project, out)

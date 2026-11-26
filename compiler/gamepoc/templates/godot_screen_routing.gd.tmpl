@@ -2,6 +2,8 @@
 extends RefCounted
 const C = preload("res://generated/game_contract.gd")
 const Catalog = preload("res://generated/screens/catalog.gd")
+## The input actions (world.input_actions): a screen's shortcut is an action's key and button
+const Keys = preload("res://generated/input_actions.gd")
 var app
 var auto_screens := {}
 func _init(host) -> void:
@@ -27,31 +29,30 @@ func server_screens(received_us := 0) -> void:
 			auto_screens[entry.id] = trigger
 			app.open_game_screen(entry.id, received_us)
 
+## A screen's shortcut, asked with the context of what is on screen: where a precedence rule puts that screen's own
+## action first (a fight's Y ends the turn), the shortcut steps aside.
 func shortcut(event: InputEvent) -> bool:
-	var pads := {"X":JOY_BUTTON_X, "Y":JOY_BUTTON_Y, "Start":JOY_BUTTON_START, "Back":JOY_BUTTON_BACK,
-		"L1":
-			JOY_BUTTON_LEFT_SHOULDER, "R1":JOY_BUTTON_RIGHT_SHOULDER}
+	if not (event is InputEventKey or event is InputEventJoypadButton):
+		return false
+	var context := input_context()
 	for entry in Catalog.specification().screens:
-		if not entry.has("shortcut"):
-			continue
-		var shortcut: Dictionary = entry.shortcut
-		var pressed := false
-		if event is InputEventKey and event.pressed and not event.echo and shortcut.has("key"):
-			pressed = event.physical_keycode == OS.find_keycode_from_string(shortcut.key)
-		elif event is InputEventJoypadButton and event.pressed and shortcut.has("pad"):
-			pressed = event.button_index == pads[shortcut.pad]
-		if pressed:
+		if entry.has("shortcut") and Keys.pressed(event, entry.shortcut.action, false, context):
 			app.open_game_screen(entry.id)
 			return true
 	return false
+
+## The input context of what is on screen: the open screen's (world.input_actions screens), else the world.
+func input_context() -> String:
+	if app.screen_open and is_instance_valid(app.game_ui) and app.game_ui.visible:
+		return Keys.screen_context(str(app.game_ui.screen_id))
+	return "world"
 
 
 func foreground_control(event: InputEvent) -> bool:
 	if app.screen_open:
 		return false
-	var key: bool = event is InputEventKey and (event.keycode in [KEY_ENTER, KEY_KP_ENTER] or
-		event.physical_keycode in [KEY_ENTER, KEY_KP_ENTER])
-	var pad: bool = event is InputEventJoypadButton and event.button_index == JOY_BUTTON_A
+	var key: bool = event is InputEventKey and Keys.event_is(event, Keys.MENU_CONFIRM)
+	var pad: bool = event is InputEventJoypadButton and Keys.event_is(event, Keys.MENU_CONFIRM)
 	if not key and not pad:
 		return false
 	var focus: Control = app.get_viewport().gui_get_focus_owner()

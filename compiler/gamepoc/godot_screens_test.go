@@ -308,7 +308,8 @@ func TestScreenEscGoesBackOnceAndBackKeepsTheFocus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	escape := strings.Index(string(navigation), "event.keycode == KEY_ESCAPE:")
+	// Esc is the input action menu_back (world.input_actions, controls v1)
+	escape := strings.Index(string(navigation), "event.pressed and Keys.event_is(event, Keys.MENU_BACK):")
 	closing := strings.Index(string(navigation), "ui._close()")
 	if escape < 0 || closing < escape || !strings.Contains(string(navigation)[escape:closing], "if not event.echo:") {
 		t.Fatal("Esc must close the screen on the first press only, not on its repeats")

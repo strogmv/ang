@@ -1,0 +1,531 @@
+
+## The current binding of every action: {"keys": PackedStringArray, "pad": PackedStringArray}, by id; key names are
+## canonical (canonical()).
+static var _bound: Dictionary = {}
+static var _ready := false
+## The texts with key hints as the catalog holds them ({key:<id>} unfilled), by locale, so a new binding is put in again.
+static var _raw: Dictionary = {}
+
+## Loading this script (any script that preloads it: the screens, a widget, a proof) puts the defaults in the InputMap
+## and the hints in the texts, so no text ever shows a raw {key:…}, whoever asks for it first.
+static func _static_init() -> void:
+	ensure()
+
+## The actions with their defaults in the InputMap, once (any scene, a proof, a widget alone); install() adds the
+## player's keys.
+static func ensure() -> void:
+	if _ready:
+		return
+	_ready = true
+	for entry in specification().actions:
+		_bound[entry.id] = {"keys": PackedStringArray(entry.get("keys", [])), "pad": PackedStringArray(entry.get("pad", []))}
+	_register_all()
+	_fill_hints()
+
+## At the game's start, after the settings file is read: the player's keys (the file's controls section, names read
+## as canonical(): «i» is I, «Esc» is Escape) on top of the defaults, the hints filled with them. A fixed or unknown
+## action or a name that is not a key stays at its default; each such entry, and every conflict the player's keys make,
+## is a warning (returned and logged); the file keeps its entries as they are.
+static func install(file: ConfigFile) -> Array[String]:
+	ensure()
+	var warnings: Array[String] = []
+	for entry in specification().actions:
+		_bound[entry.id] = {"keys": PackedStringArray(entry.get("keys", [])), "pad": PackedStringArray(entry.get("pad", []))}
+	if file != null and file.has_section(SECTION):
+		for stored in file.get_section_keys(SECTION):
+			var pad: bool = stored.ends_with(".pad")
+			var id: String = stored.trim_suffix(".pad")
+			var entry := action(id)
+			if entry.is_empty():
+				warnings.append("controls: unknown action " + stored)
+				continue
+			if not entry.get("remap", true):
+				warnings.append("controls: " + id + " is fixed; its default stays")
+				continue
+			var names = _names(file.get_value(SECTION, stored), pad)
+			if names == null:
+				warnings.append("controls: " + stored + " is not a key name or a list of them; the default stays")
+				continue
+			_bound[id]["pad" if pad else "keys"] = names
+	_register_all()
+	_fill_hints()
+	for found in conflicts():
+		warnings.append("controls: %s in the context %s: %s" % [found.input, found.context, ", ".join(PackedStringArray(found.actions))])
+	for w in warnings:
+		push_warning(w)
+	return warnings
+
+## The table's entry of an action ({} for an unknown id).
+static func action(id: String) -> Dictionary:
+	for entry in specification().actions:
+		if entry.id == id:
+			return entry
+	return {}
+
+## The current keys (pad false) or gamepad buttons (pad true) of an action, the first is the one a hint shows.
+static func bound(id: String, pad := false) -> PackedStringArray:
+	ensure()
+	return _bound.get(id, {}).get("pad" if pad else "keys", PackedStringArray())
+
+## Whether the player's keys (or buttons) of the action differ from its defaults.
+static func overridden(id: String, pad := false) -> bool:
+	return bound(id, pad) != PackedStringArray(action(id).get("pad" if pad else "keys", []))
+
+## The player's keys (pad false) or buttons (pad true) for one action, put into the file's controls section in their
+## canonical names (the caller saves the file: settings.save_file()) and applied at once, hints too. False, and nothing
+## changes, for a fixed or unknown action or a name that is not a key or a button. An empty list leaves it without one.
+static func set_override(file: ConfigFile, id: String, names: PackedStringArray, pad := false) -> bool:
+	ensure()
+	var entry := action(id)
+	var canonical_names = _names(names, pad)
+	if entry.is_empty() or not entry.get("remap", true) or canonical_names == null:
+		return false
+	_bound[id]["pad" if pad else "keys"] = canonical_names
+	file.set_value(SECTION, id + (".pad" if pad else ""), canonical_names[0] if canonical_names.size() == 1 else canonical_names)
+	_register_all()
+	_fill_hints()
+	_notify()
+	return true
+
+## Back to the default keys (pad false) or buttons (pad true) of one action; its entry leaves the file.
+static func clear_override(file: ConfigFile, id: String, pad := false) -> void:
+	ensure()
+	var entry := action(id)
+	if entry.is_empty():
+		return
+	var key := id + (".pad" if pad else "")
+	if file.has_section_key(SECTION, key):
+		file.erase_section_key(SECTION, key)
+	_bound[id]["pad" if pad else "keys"] = PackedStringArray(entry.get("pad" if pad else "keys", []))
+	_register_all()
+	_fill_hints()
+	_notify()
+
+## Every key or button two actions sharing a context take now (a global action meets every context; a free modifier's
+## combinations count, Shift+W is the walk's), unless a precedence rule of the context and device names exactly one of
+## them: {"input": "key:U" or "pad:Y", "context", "actions"}. Reported on a binding one of them holds as it is (the
+## combinations both take only by a free modifier repeat their own keys' conflict).
+static func conflicts() -> Array[Dictionary]:
+	ensure()
+	var holders := {}
+	var held_as_is := {}
+	var slots: Array[String] = []
+	for entry in specification().actions:
+		var contexts: Array = _contexts(entry)
+		var inputs := {}
+		for name in bound(entry.id):
+			for combination in _effective(entry, name):
+				inputs["key:" + combination] = combination == name
+		for name in bound(entry.id, true):
+			inputs["pad:" + name] = true
+		for input in inputs:
+			for context in contexts:
+				var slot: String = context + " " + input
+				if not holders.has(slot):
+					holders[slot] = []
+					slots.append(slot)
+				if not str(entry.id) in holders[slot]:
+					holders[slot].append(str(entry.id))
+				if inputs[input]:
+					held_as_is[slot] = true
+	var result: Array[Dictionary] = []
+	for slot in slots:
+		if holders[slot].size() < 2 or not held_as_is.has(slot):
+			continue
+		var parts: PackedStringArray = slot.split(" ", true, 1)
+		if _winners(parts[0], parts[1].get_slice(":", 0), holders[slot]).size() != 1:
+			result.append({"input": parts[1], "context": parts[0], "actions": holders[slot]})
+	return result
+
+## The actions that already take this key (or button) in a context of the action, counting the free modifiers'
+## combinations and precedence: what a new binding would meet.
+static func conflicts_with(id: String, name: String, pad := false) -> PackedStringArray:
+	ensure()
+	var result := PackedStringArray()
+	var entry := action(id)
+	var wanted = _names(PackedStringArray([name]), pad)
+	if entry.is_empty() or wanted == null:
+		return result
+	var mine := PackedStringArray()
+	if pad:
+		mine.append("pad:" + wanted[0])
+	else:
+		for combination in _effective(entry, wanted[0]):
+			mine.append("key:" + combination)
+	for other in specification().actions:
+		if other.id == id:
+			continue
+		var theirs := PackedStringArray()
+		if pad:
+			for button in bound(other.id, true):
+				theirs.append("pad:" + button)
+		else:
+			for key in bound(other.id):
+				for combination in _effective(other, key):
+					theirs.append("key:" + combination)
+		var met := false
+		for context in _contexts(entry):
+			if not context in _contexts(other):
+				continue
+			for input in mine:
+				if input in theirs and _winners(context, "pad" if pad else "key", [str(id), str(other.id)]).size() != 1:
+					met = true
+		if met:
+			result.append(str(other.id))
+	return result
+
+# ---------------------------------------------------------------------------------------------------------- the events
+
+## The event presses the action (echo: a held key's repeats count too). Modifiers are matched exactly, a free one
+## aside (Shift with the walk). With a context (a screen's, screen_context()), an action a precedence rule of that
+## context and device puts above this one takes the input, and this one steps aside. Nothing is pressed while a text
+## field has the focus.
+static func pressed(event: InputEvent, id: StringName, echo := false, context := "") -> bool:
+	ensure()
+	if typing() or not event.is_action_pressed(id, echo, true):
+		return false
+	return context.is_empty() or not _yields(event, id, context)
+
+## The event lets the action go. A key let go is its action's whatever modifiers are held by then (Delete held, then
+## Shift, then Delete let go: the hold ends), and even while a text field has the focus: a release never starts
+## anything, a lost one would keep the hero walking or a save's erase counting down.
+static func released(event: InputEvent, id: StringName) -> bool:
+	ensure()
+	return event.is_action_released(id, false)
+
+## The event is the action's, pressed or let go, a repeat or not: a press matches its modifiers exactly, a release
+## any (see released()).
+static func event_is(event: InputEvent, id: StringName) -> bool:
+	ensure()
+	if not event.is_pressed():
+		return event.is_action(id, false)
+	return not typing() and event.is_action(id, true)
+
+## The action is held now.
+static func held(id: StringName) -> bool:
+	ensure()
+	return not typing() and Input.is_action_pressed(id, true)
+
+## The action is held now, or the event itself carries the modifier that is one of the action's keys (Shift on a click:
+## the run, as the click always ran with Shift).
+static func held_with(event: InputEvent, id: StringName) -> bool:
+	if held(id):
+		return true
+	if typing() or not event is InputEventWithModifiers:
+		return false
+	for name in bound(id):
+		match name:
+			"Shift":
+				if event.shift_pressed: return true
+			"Ctrl":
+				if event.ctrl_pressed: return true
+			"Alt":
+				if event.alt_pressed: return true
+			"Meta":
+				if event.meta_pressed: return true
+	return false
+
+## A text field (LineEdit, TextEdit and their kin) has the focus: its keys are its own, no action is read.
+static func typing() -> bool:
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null or tree.root == null:
+		return false
+	var focus := tree.root.gui_get_focus_owner()
+	return focus is LineEdit or focus is TextEdit
+
+## A screen's input context by its id (the table's screens; a screen not listed is "menu").
+static func screen_context(screen_id: String) -> String:
+	return str(specification().get("screens", {}).get(screen_id, "menu"))
+
+## The name of a pressed key (with its modifiers) or gamepad button, as the table writes it; "" for anything else
+## (the controls screen takes the player's new key with it).
+static func event_name(event: InputEvent) -> String:
+	if event is InputEventJoypadButton:
+		for name in specification().pads:
+			if int(specification().pads[name].button) == event.button_index:
+				return name
+		return ""
+	if not event is InputEventKey:
+		return ""
+	var code: Key = event.physical_keycode if event.physical_keycode != KEY_NONE else event.keycode
+	var base := _base_name(code)
+	if base.is_empty():
+		return ""
+	var parts := PackedStringArray()
+	for m in [["Shift", event.shift_pressed, KEY_SHIFT], ["Ctrl", event.ctrl_pressed, KEY_CTRL],
+			["Alt", event.alt_pressed, KEY_ALT], ["Meta", event.meta_pressed, KEY_META]]:
+		if m[1] and code != m[2]:
+			parts.append(m[0])
+	parts.append(base)
+	return "+".join(parts)
+
+## A key name (pad false) or a button name (pad true) as the table writes it: «i» is I, «esc» Escape, «ctrl+return»
+## Ctrl+Enter, «cmd+s» Meta+S, «l1» LB; "" for a name that is not one.
+static func canonical(name: String, pad := false) -> String:
+	var text := name.strip_edges()
+	if pad:
+		var alias: String = {"l1": "LB", "r1": "RB", "select": "Back", "view": "Back", "menu": "Start", "options": "Start",
+			"l3": "LS", "r3": "RS", "up": "DpadUp", "down": "DpadDown", "left": "DpadLeft", "right": "DpadRight"}.get(text.to_lower(), "")
+		if not alias.is_empty():
+			return alias
+		for known in specification().pads:
+			if str(known).to_lower() == text.to_lower():
+				return str(known)
+		return ""
+	var parts := text.split("+")
+	if parts.size() > 1 and parts[parts.size() - 1].is_empty():
+		return ""
+	var mods := {}
+	for i in range(parts.size() - 1):
+		var m := _modifier(parts[i])
+		if m.is_empty() or mods.has(m):
+			return ""
+		mods[m] = true
+	var base := _base_name(_code(parts[parts.size() - 1]))
+	if base.is_empty() or mods.has(base):
+		return ""
+	var out := PackedStringArray()
+	for m in ["Shift", "Ctrl", "Alt", "Meta"]:
+		if mods.has(m):
+			out.append(m)
+	out.append(base)
+	return "+".join(out)
+
+## The InputEventKey of a key name (physical, every device), null for a name that is not one.
+static func key_event(name: String) -> InputEventKey:
+	var canonical_name := canonical(name)
+	if canonical_name.is_empty():
+		return null
+	var parts := canonical_name.split("+")
+	var event := InputEventKey.new()
+	event.device = -1
+	for i in range(parts.size() - 1):
+		match parts[i]:
+			"Shift": event.shift_pressed = true
+			"Ctrl": event.ctrl_pressed = true
+			"Alt": event.alt_pressed = true
+			"Meta": event.meta_pressed = true
+	event.physical_keycode = _code(parts[parts.size() - 1])
+	return event
+
+static func _modifier(text: String) -> String:
+	return str({"shift": "Shift", "ctrl": "Ctrl", "control": "Ctrl", "alt": "Alt", "option": "Alt", "opt": "Alt",
+		"meta": "Meta", "cmd": "Meta", "command": "Meta", "win": "Meta", "super": "Meta"}.get(text.strip_edges().to_lower(), ""))
+
+static func _code(base: String) -> Key:
+	var text := base.strip_edges()
+	var modifier := _modifier(text)
+	match modifier:
+		"Shift": return KEY_SHIFT
+		"Ctrl": return KEY_CTRL
+		"Alt": return KEY_ALT
+		"Meta": return KEY_META
+	text = str({"esc": "Escape", "return": "Enter", "del": "Delete", "ins": "Insert", "pgup": "PageUp", "pgdn": "PageDown",
+		"pagedn": "PageDown", "spacebar": "Space", "bksp": "Backspace", "kp_enter": "Kp Enter"}.get(text.to_lower(), text))
+	if text.is_empty() or "+" in text:
+		return KEY_NONE
+	var code: Key = OS.find_keycode_from_string(text)
+	if code & KEY_MODIFIER_MASK != 0:
+		return KEY_NONE
+	return code
+
+static func _base_name(code: Key) -> String:
+	match code:
+		KEY_SHIFT: return "Shift"
+		KEY_CTRL: return "Ctrl"
+		KEY_ALT: return "Alt"
+		KEY_META: return "Meta"
+		KEY_NONE: return ""
+	return OS.get_keycode_string(code)
+
+## A stored value as a list of canonical names (a String is one name), null when one is not a key (or button) name.
+static func _names(value, pad := false):
+	var names := PackedStringArray()
+	if value is String:
+		names.append(value)
+	elif value is Array or value is PackedStringArray:
+		for name in value:
+			if not name is String:
+				return null
+			names.append(name)
+	else:
+		return null
+	var out := PackedStringArray()
+	for name in names:
+		var canonical_name := canonical(name, pad)
+		if canonical_name.is_empty():
+			return null
+		if not canonical_name in out:
+			out.append(canonical_name)
+	return out
+
+## The contexts an action meets (a global one: all of them).
+static func _contexts(entry: Dictionary) -> Array:
+	if "global" in entry.contexts:
+		var all := []
+		for other in specification().actions:
+			for context in other.contexts:
+				if context != "global" and not context in all:
+					all.append(context)
+		return all
+	return entry.contexts
+
+## The modifiers bound alone to a held action now, by the contexts of that action (Shift: the run's world).
+static func _free_modifiers() -> Dictionary:
+	var free := {}
+	for entry in specification().actions:
+		if not entry.get("hold", false):
+			continue
+		for name in bound(entry.id):
+			if name in ["Shift", "Ctrl", "Alt", "Meta"]:
+				for context in entry.contexts:
+					if not free.has(context):
+						free[context] = []
+					if not name in free[context]:
+						free[context].append(name)
+	return free
+
+## A key binding and its combinations with the free modifiers of the action's contexts held (W: W, Shift+W, …).
+static func _effective(entry: Dictionary, name: String) -> PackedStringArray:
+	var parts := name.split("+")
+	var base := parts[parts.size() - 1]
+	var free := _free_modifiers()
+	var extra := []
+	for m in ["Shift", "Ctrl", "Alt", "Meta"]:
+		var tolerated := false
+		for context in entry.contexts:
+			tolerated = tolerated or m in free.get(context, [])
+		if tolerated and not m in parts:
+			extra.append(m)
+	var out := PackedStringArray()
+	for mask in range(1 << extra.size()):
+		var mods := {}
+		for i in range(parts.size() - 1):
+			mods[parts[i]] = true
+		for i in range(extra.size()):
+			if mask & (1 << i):
+				mods[extra[i]] = true
+		var combination := PackedStringArray()
+		for m in ["Shift", "Ctrl", "Alt", "Meta"]:
+			if mods.has(m):
+				combination.append(m)
+		combination.append(base)
+		out.append("+".join(combination))
+	return out
+
+## Of these actions, the ones a precedence rule of the context and device puts first.
+static func _winners(context: String, device: String, ids: Array) -> Array:
+	var out := []
+	for rule in specification().get("precedence", []):
+		if rule.context == context and rule.device == device:
+			for id in ids:
+				if id in rule.wins and not id in out:
+					out.append(id)
+	return out
+
+## Another action a precedence rule of the context puts above this one takes the event.
+static func _yields(event: InputEvent, id: StringName, context: String) -> bool:
+	var device := "pad" if event is InputEventJoypadButton else "key"
+	for rule in specification().get("precedence", []):
+		if rule.context != context or rule.device != device or str(id) in rule.wins:
+			continue
+		for winner in rule.wins:
+			if event.is_action_pressed(winner, true, true):
+				return true
+	return false
+
+## Every action in the InputMap with its current keys (each with the free modifiers' combinations, a lone modifier key
+## also with its own flag, as the engine reports it) and buttons, matched exactly.
+static func _register_all() -> void:
+	for entry in specification().actions:
+		var id: String = entry.id
+		if InputMap.has_action(id):
+			InputMap.action_erase_events(id)
+		else:
+			InputMap.add_action(id, 0.5)
+		for name in _bound[id]["keys"]:
+			for combination in _effective(entry, name):
+				var event := key_event(combination)
+				if event == null:
+					continue
+				InputMap.action_add_event(id, event)
+				var flagged := event.duplicate() as InputEventKey
+				match event.physical_keycode:
+					KEY_SHIFT: flagged.shift_pressed = true
+					KEY_CTRL: flagged.ctrl_pressed = true
+					KEY_ALT: flagged.alt_pressed = true
+					KEY_META: flagged.meta_pressed = true
+					_: flagged = null
+				if flagged != null:
+					InputMap.action_add_event(id, flagged)
+		for name in _bound[id]["pad"]:
+			if specification().pads.has(name):
+				var button := InputEventJoypadButton.new()
+				button.device = -1
+				button.button_index = int(specification().pads[name].button)
+				InputMap.action_add_event(id, button)
+
+# ----------------------------------------------------------------------------------------------------------- the hints
+
+## The label a hint shows for the action's first key ("—" when it has none), in the locale of `translation` (the
+## current one when null): «I», «Пробел», «Ctrl+Enter», «←».
+static func key_label(id: String, translation: Translation = null) -> String:
+	var keys := bound(id)
+	return name_label(keys[0], translation) if not keys.is_empty() else "—"
+
+## The label of the action's first gamepad button ("—" when it has none).
+static func pad_label(id: String) -> String:
+	var pads := bound(id, true)
+	return str(specification().pads[pads[0]].label) if not pads.is_empty() else "—"
+
+## A key name's label: each part by the table's key_labels where it has one (its label on this OS first: Meta is Cmd
+## on a Mac, Win on Windows), else the name itself.
+static func name_label(name: String, translation: Translation = null) -> String:
+	var parts := name.split("+")
+	for i in range(parts.size()):
+		var entry: Dictionary = specification().key_labels.get(parts[i], {})
+		if entry.is_empty():
+			continue
+		var platform = entry.get("platforms", {}).get(OS.get_name())
+		if platform != null:
+			parts[i] = str(platform)
+			continue
+		var text_key := str(entry.key)
+		var copy: String = str(translation.get_message(text_key)) if translation != null else str(TranslationServer.translate(text_key))
+		if not copy.is_empty() and copy != text_key:
+			parts[i] = copy
+	return "+".join(parts)
+
+## A text with {key:<id>} and {pad:<id>} filled with the current binding.
+static func hint(text: String, translation: Translation = null) -> String:
+	if not "{key:" in text and not "{pad:" in text:
+		return text
+	var out := text
+	var tokens := RegEx.create_from_string("\\{(key|pad):([a-z0-9_]+)\\}")
+	for found in tokens.search_all(text):
+		var id := found.get_string(2)
+		out = out.replace(found.get_string(), key_label(id, translation) if found.get_string(1) == "key" else pad_label(id))
+	return out
+
+## The catalog's hinted texts in every loaded locale carry the current binding: tr() and every label that translates
+## itself show it.
+static func _fill_hints() -> void:
+	for locale in TranslationServer.get_loaded_locales():
+		var translation := TranslationServer.get_translation_object(locale)
+		if translation == null:
+			continue
+		if not _raw.has(locale):
+			_raw[locale] = {}
+		for text_key in specification().get("hinted", []):
+			if not _raw[locale].has(text_key):
+				var raw := str(translation.get_message(text_key))
+				if raw.is_empty():
+					continue
+				_raw[locale][text_key] = raw
+			translation.add_message(text_key, hint(_raw[locale][text_key], translation))
+
+## Labels that translate themselves read their texts again.
+static func _notify() -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree != null and tree.root != null:
+		tree.root.propagate_notification(Node.NOTIFICATION_TRANSLATION_CHANGED)

@@ -3,7 +3,6 @@ package gamepoc
 import (
 	"fmt"
 	"math"
-	"strings"
 )
 
 // Target bindings use the ordinary typed catalog reader, including nil guards.
@@ -128,11 +127,8 @@ func (g *screenCompiler) targets(s *GodotScreens) error {
 			field string
 			key   ScreenShortcut
 		}{{"peaceful", s.WorldInput.Peaceful}, {"hostile", s.WorldInput.Hostile}} {
-			if len(test.key.Key) != 1 || !strings.Contains("ABCDEFGHIJKLMNOPQRSTUVWXYZ", test.key.Key) {
-				return fmt.Errorf("screen world field world_input.%s.key: expected A-Z", test.field)
-			}
-			if !strings.Contains(" X Y Start Back L1 R1 ", " "+test.key.Pad+" ") {
-				return fmt.Errorf("screen world field world_input.%s.pad: unknown button", test.field)
+			if _, ok := g.inputs.action(test.key.Action); !ok {
+				return fmt.Errorf("screen world field world_input.%s.action: unknown input action %q", test.field, test.key.Action)
 			}
 		}
 		for _, screen := range s.Screens {

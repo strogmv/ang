@@ -184,7 +184,8 @@ func screenLocalizedTextSized(c Compiled, key string, px int, linePX []int, widt
 		fonts = append(fonts, f)
 	}
 	for _, locale := range c.Localization.Locales {
-		copy := message.Texts[locale]
+		// a key hint ({key:open_inventory}) is measured with the default key in it, as the client shows it
+		copy := expandInputHints(c, message.Texts[locale], locale)
 		if strings.TrimSpace(copy) == "" {
 			return fmt.Errorf("missing text %s locale %s", key, locale)
 		}
