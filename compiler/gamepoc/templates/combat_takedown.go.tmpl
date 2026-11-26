@@ -97,9 +97,8 @@ func (r *Runtime) startTakedown(attackerID, targetID, mode string) error {
 			s.CurrentIndex = i
 		}
 	}
-	if fx, fy, ok := r.actorFace(targetID); ok {
-		s.Actor(targetID).Facing = behavior.Cell{X: int(math.Round(fx * 1000)), Y: int(math.Round(fy * 1000))}
-	}
+ // openCombat already imported the body heading for both participants.
+ // A separate, potentially stale stealth observation must not overwrite it.
 	action := behavior.CombatAction{Type: "attack", TargetID: targetID, Mode: mode, BodyPart: t.BodyPart, Unnoticed: true}
 	if err := trial.performCombatAction(attackerID, &action); err != nil {
 		return textError{Key: "error.takedown.unavailable"}
@@ -239,7 +238,9 @@ func (r *Runtime) endHold(s *behavior.CombatState, holder, target string, t beha
 	if b == nil || len(b.Body) == 0 {
 		return
 	}
+ holderStart:=behavior.Cell{}
 	if a := s.Actor(holder); a != nil {
+        holderStart=a.Position
 		a.Position = r.holdEndCell(*s, *a, *b)
 	}
 	if !completed {
@@ -262,7 +263,19 @@ func (r *Runtime) endHold(s *behavior.CombatState, holder, target string, t beha
 	}
 	style := t.FallStyle
 	if !r.fallStripClear(*s, *b, dir, r.world.CombatSpacing.FallLengthMM, r.world.CombatSpacing.FallWidthMM) {
-		style = "knees"
+        // Closing the hold must not leave the holder in the victim's lowering
+        // strip. The technique already includes the closing step and retreat:
+        // finish at its checked start when that restores the physical strip,
+        // preserving the victim's one authoritative body heading.
+        cleared:=false
+        if a:=s.Actor(holder);a!=nil&&a.Position!=holderStart{
+            space:=r.combatSpace(*s);free:=space.Space.Walkable==nil||space.Space.Walkable(holderStart)
+            free=free&&!space.Space.Blocked[holderStart]
+            if space.ExecutionOccupied!=nil{free=free&&!space.ExecutionOccupied(*a,holderStart)}
+            for _,other:=range s.Actors{if other.ID!=holder&&(other.Position==holderStart||space.Grid!=nil&&space.Grid.Same(other.Position,holderStart)){free=false}}
+            if free{end:=a.Position;a.Position=holderStart;cleared=r.fallStripClear(*s,*b,dir,r.world.CombatSpacing.FallLengthMM,r.world.CombatSpacing.FallWidthMM);if !cleared{a.Position=end}}
+        }
+        if !cleared{style="knees"}
 	}
 	b.FallShifted, b.FallStyle, b.FallDirection = true, style, dir
 	s.EventSeq++

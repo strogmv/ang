@@ -110,7 +110,7 @@ func (r *Runtime) combatant(id, team string) behavior.Combatant {
   a.FallStyle=old.FallStyle;a.FallDirection=old.FallDirection;a.FallShifted=old.FallShifted;
   a.HeadWound=old.HeadWound;a.ArmWound=old.ArmWound;a.LegWound=old.LegWound;a.StunTurns=old.StunTurns
  }
- if face,ok:=r.state.Stealth.Observers[id];ok{a.Facing=behavior.Cell{X:int(math.Round(face.FaceX*1000)),Y:int(math.Round(face.FaceY*1000))}}
+ a.Facing=r.combatEntryHeading(id)
  r.initializeWoundBody(&a)
  r.refreshCombatEquipment(r.state.Inventory,&a)
  if hero:=r.state.Life.Actor(id);hero!=nil&&id==playerActorID&&hero.Sneaking&&!hero.SneakUpright{a.Crouched=true;a.Prone=false}
@@ -119,6 +119,41 @@ func (r *Runtime) combatant(id, team string) behavior.Combatant {
  return a
 }
 func(r *Runtime) heroInCombat()bool{return r.state.Combat.Active&&r.state.Combat.Actor(playerActorID)!=nil}
+
+// All presentations and combat use the body's authoritative heading. Activity
+// spots and explicit service/watch turns update it; they are not a second
+// combat-only orientation. Old saves recover it from their continuous body,
+// saved observer or authored pose before using the world-plan forward axis.
+func(r *Runtime)publishBodyHeading(view *pb.PocAgentState){
+ actor:=r.state.Life.Actor(view.Id);if actor==nil{return}
+ face:=actor.Heading
+ if actor.Body!=nil&&(actor.Body.FX!=0||actor.Body.FY!=0){face=behavior.Cell{X:int(math.Round(actor.Body.FX*1000)),Y:int(math.Round(actor.Body.FY*1000))}}
+ if face==(behavior.Cell{})&&len(actor.Path)>0{r.world.Life.FaceStep(actor,actor.Position,actor.Path[0]);face=actor.Heading}
+ if view.ActivitySpot!=nil&&len(actor.Path)==0{yaw:=view.ActivitySpot.YawDeg*math.Pi/180;face=behavior.Cell{X:int(math.Round(math.Sin(yaw)*1000)),Y:int(math.Round(math.Cos(yaw)*1000))}}
+ if observer,known:=r.state.Stealth.Observers[actor.ID];face==(behavior.Cell{})&&known&&observer.Level==actor.Level&&observer.At==actor.Position&&(observer.FaceX!=0||observer.FaceY!=0){face=behavior.Cell{X:int(math.Round(observer.FaceX*1000)),Y:int(math.Round(observer.FaceY*1000))}}
+ if view.FaceX!=0||view.FaceY!=0{n:=math.Hypot(view.FaceX,view.FaceY);face=behavior.Cell{X:int(math.Round(view.FaceX/n*1000)),Y:int(math.Round(view.FaceY/n*1000))}}
+ if c:=r.state.Combat.Actor(actor.ID);r.state.Combat.Active&&c!=nil&&c.Facing!=(behavior.Cell{}){face=c.Facing}
+ if face==(behavior.Cell{}){face=behavior.Cell{Y:1000}}
+ actor.Heading=face;n:=math.Hypot(float64(face.X),float64(face.Y));view.FaceX,view.FaceY=float64(face.X)/n,float64(face.Y)/n
+ if actor.Body!=nil{actor.Body.FX,actor.Body.FY=view.FaceX,view.FaceY}
+}
+func(r *Runtime)combatEntryHeading(id string)behavior.Cell{
+ actor:=r.state.Life.Actor(id);if actor==nil{return behavior.Cell{Y:1000}}
+ view:=&pb.PocAgentState{Id:id,X:int32(actor.Position.X),Y:int32(actor.Position.Y)}
+ if body,ok:=r.lifeActivityBodies(actor.Level)[id];ok{r.setLifeActivity(view,body)}
+ r.vendingFaceAgent(view,len(actor.Path)==0);r.encounterAgent(view);r.accessZoneFaceAgent(view);r.publishBodyHeading(view)
+ return actor.Heading
+}
+func(r *Runtime)migrateLoadedCombatGrid(){
+ s:=&r.state.Combat;if !s.Active{return}
+ for i:=range s.Actors{a:=&s.Actors[i];if a.Facing==(behavior.Cell{}){a.Facing=r.combatEntryHeading(a.ID)}else if !s.GridReady{if v:=r.world.Decks[s.LevelID];v!=nil{previous:=behavior.Cell{X:a.Position.X-a.Facing.X,Y:a.Position.Y-a.Facing.Y};p,_,_,ok:=v.Locate(a.Position);q,_,_,prior:=v.Locate(previous);if ok&&prior{a.Facing=behavior.Cell{X:p.X-q.X,Y:p.Y-q.Y}}}}}
+ if !s.GridReady{_ = s.ResolveGridConflicts(r.combatSpace(*s),r.world.CombatRuntime.Rules)}
+ // Heading migration is durable even when physical clearance must wait.
+ // Keep the encounter, roster and Life body consistent on every load.
+ r.syncCombatLife()
+ // Physically immobile legacy bodies do not make an old save unreadable.
+ // Their pending clearance is retried on subsequent authoritative actions.
+}
 
 func (r *Runtime) combatSpace(s behavior.CombatState) behavior.CombatSpace {
 	model := r.state.Life.GateModel(r.world.Life)
@@ -129,6 +164,19 @@ func (r *Runtime) combatSpace(s behavior.CombatState) behavior.CombatSpace {
 		unit = 1000
 	}
 	result := behavior.CombatSpace{Space: space, CellMM: unit}
+ if v:=r.world.Decks[s.LevelID];v!=nil{
+  result.Grid=behavior.DeriveCombatGrid(space,unit,r.world.CombatRuntime.Rules.Grid,v.Locate)
+  sides:=map[behavior.Cell][4]int{}
+  result.CoverSides=func(at behavior.Cell)[4]int{
+   key:=at;members:=[]behavior.Cell{at}
+   if result.Grid!=nil{if tile,ok:=result.Grid.Tile[at];ok{key=tile;members=result.Grid.Members[tile]}}
+   if value,ok:=sides[key];ok{return value}
+   var value [4]int
+   for _,member:=range members{part:=v.CombatCoverSides(member,r.world.CombatRuntime.Rules.CoverRules);for i,class:=range part{value[i]=max(value[i],class)}}
+   sides[key]=value;return value
+  }
+  result.GridDirection=func(from,to behavior.Cell)(int,int){a,_,_,_:=v.Locate(from);b,_,_,_:=v.Locate(to);return a.X-b.X,a.Y-b.Y}
+ }else{result.Grid=behavior.DeriveCombatGrid(space,unit,r.world.CombatRuntime.Rules.Grid,nil)}
  result.ApplyImpact=func(s *behavior.CombatState,source,target,part,mode string)int{amount,err:=r.applyWoundImpact(s,source,target,part,mode);if err!=nil{panic(err)};return amount}
  result.AdvanceTime=r.advanceCombatBodies
  result.HoldSeconds=func(s *behavior.CombatState,target string)int{b:=s.Actor(target);if b==nil||len(b.Body)==0{return 0};return int(combatWounds.HoldSeconds(combatBody(*b)))}
@@ -207,7 +255,18 @@ func (r *Runtime) combatSpace(s behavior.CombatState) behavior.CombatSpace {
 	// Physical execution uses all occupants. The planner's ambient blockers
 	// are limited to current actor sight, avoiding a hidden-person radar.
 	result.Space.Blocked = nil
-	result.Space.Occupied = func(at behavior.Cell) bool { return blocked[at] }
+	result.Space.Occupied = func(at behavior.Cell) bool {
+  if blocked[at]{return true};if result.Grid!=nil{for _,p:=range result.Grid.Members[result.Grid.Tile[at]]{if blocked[p]{return true}}};return false
+ }
+ type occupancyKey struct{ID string;At behavior.Cell}
+ result.ExecutionOccupied=func(observer behavior.Combatant,at behavior.Cell)bool{if result.Grid!=nil&&result.Grid.Same(observer.Position,at){return blocked[at]};return result.Space.Occupied(at)}
+ knownBodies:=map[occupancyKey]map[behavior.Cell]bool{}
+ knownFine:=map[occupancyKey]map[behavior.Cell]bool{}
+ result.PlanningOccupied=func(observer behavior.Combatant,at behavior.Cell)bool{
+  key:=occupancyKey{observer.ID,observer.Position};seen,ok:=knownBodies[key]
+  if !ok{seen=map[behavior.Cell]bool{};knownFine[key]=map[behavior.Cell]bool{};for _,body:=range result.VisibleBystanders(observer){knownFine[key][body]=true;seen[body]=true;if result.Grid!=nil{for _,p:=range result.Grid.Members[result.Grid.Tile[body]]{seen[p]=true}}};knownBodies[key]=seen}
+  if result.Grid!=nil&&result.Grid.Same(observer.Position,at){return knownFine[key][at]};return seen[at]
+ }
 	result.ExecutionShotBlocked = func(from, to behavior.Cell) bool {
 		onShot := func(at behavior.Cell) bool {
 			if result.BodyOnShot != nil {
@@ -316,6 +375,7 @@ func(r *Runtime) joinCombat(id,team string)error{
  for _,c:=range r.state.Combat.Actors{if c.Position==a.Position{return nil}}
  c:=r.combatant(id,team);if !c.Able(){return nil};if !c.TacticalInitialized{c.Morale=c.Courage;c.TacticalInitialized=true};c.Position=a.Position;c.AP=0
  candidate:=r.state.Combat.Clone();candidate.Actors=append(candidate.Actors,c);if len(candidate.Events)>512{candidate.Events=append([]behavior.CombatEvent(nil),candidate.Events[len(candidate.Events)-512:]...)};candidate.Observe(r.combatSpace(candidate),r.world.CombatRuntime.Rules)
+ candidate.GridReady=false;if err:=candidate.ResolveGridConflicts(r.combatSpace(candidate),r.world.CombatRuntime.Rules,id);err!=nil{return err}
  if err:=candidate.Validate(r.world.CombatRuntime.Rules,r.combatSpace(candidate));err!=nil{return err}
  r.state.Combat=candidate;if id==playerActorID{r.state.Life.Actor(playerActorID).Sneaking=false;r.state.Epoch=newEpoch();r.resetInstantTravel()};r.holdCombatActor(id);r.syncCombatLife();return nil
 }
@@ -414,6 +474,7 @@ func (r *Runtime) commitCombat(candidate behavior.CombatState) error {
 func(r *Runtime)performCombatAction(actor string,action *behavior.CombatAction)error{
  previous:=r.state.Combat.Clone()
  trial:=&Runtime{world:r.world,state:r.snapshotState(),npcAccountIDs:r.npcAccountIDs}
+ if !trial.state.Combat.GridReady{if err:=trial.state.Combat.ResolveGridConflicts(trial.combatSpace(trial.state.Combat),trial.world.CombatRuntime.Rules);err==nil{trial.syncCombatLife();previous=trial.state.Combat.Clone()}}
  if action==nil{draft:=previous.Clone();decision:=draft.Decide(trial.combatSpace(draft),trial.world.CombatRuntime.Rules);if decision.Chosen.Action.Type=="aid"||decision.Chosen.Action.Type=="aid_continue"{q:=decision.Chosen.Action;action=&q;actor=draft.Current().ID}}
  if action!=nil&&(action.Type=="aid"||action.Type=="aid_continue"||action.Type=="bandage"||action.Type=="heal"){
   q:=*action;if q.Type!="aid"&&q.Type!="aid_continue"{q.TargetID="";q.Mode="dressing";if q.Type=="heal"{q.Mode="medkit";q.ItemID="item.medkit_guard"}}
@@ -449,6 +510,7 @@ func(r *Runtime)performCombatAction(actor string,action *behavior.CombatAction)e
 }
 
 func(r *Runtime)commitCombatDraft(candidate,previous behavior.CombatState,applied map[uint64]bool)error{
+ epochBefore:=r.state.Epoch
  for _,event:=range candidate.Events{
   if event.Sequence<=previous.EventSeq||applied[event.Sequence]{continue}
   if event.AmmoSpent>0{item,_,ok:=r.equippedCombatItem(r.state.Inventory,event.ActorID);if ok&&r.state.Crafting.Law.Hacked[item.ID].By!=""{return errors.New("hacked shot bypassed per-projectile executor")}}
@@ -472,6 +534,7 @@ func(r *Runtime)commitCombatDraft(candidate,previous behavior.CombatState,applie
   if r.state.CombatWorld.Cooldowns==nil{r.state.CombatWorld.Cooldowns=map[string]int64{}}
   for _,a:=range previous.Actors{for _,b:=range previous.Actors{if a.Team!=b.Team{r.state.CombatWorld.Cooldowns[a.ID+"\x00"+b.ID]=r.state.Life.Seconds+r.world.CombatLife.ThreatMemorySeconds}}}
  }
+ if previous.Active&&!r.state.Combat.Active&&previous.Actor(playerActorID)!=nil&&r.state.Epoch==epochBefore{r.state.Epoch=newEpoch();r.resetInstantTravel()}
  if len(r.state.Combat.Events)>512{r.state.Combat.Events=append([]behavior.CombatEvent(nil),r.state.Combat.Events[len(r.state.Combat.Events)-512:]...)}
  return nil
 }
@@ -496,6 +559,7 @@ func (r *Runtime) syncCombatLife() {
 			continue
 		}
 		a.RestFootprint=r.restFootprint(c,max(1,r.world.Life.Locations[r.state.Combat.LevelID].CellMM))
+		if c.Facing!=(behavior.Cell{}){a.Heading=c.Facing;if a.Body!=nil{n:=math.Hypot(float64(c.Facing.X),float64(c.Facing.Y));a.Body.FX,a.Body.FY=float64(c.Facing.X)/n,float64(c.Facing.Y)/n}}
 		wasHeld := a.CombatHold
 		if a.Position != c.Position {
 			a.Position = c.Position

@@ -287,10 +287,10 @@ func (r *Runtime) sendLifeState(c *connection) {
 		if b, ok := activities[agent.ID]; ok {
 			r.setLifeActivity(a, b)
 		}
-		if observer,known:=r.state.Stealth.Observers[agent.ID];known&&observer.Level==hero.Level{a.FaceX=observer.FaceX;a.FaceY=observer.FaceY}
 		r.vendingFaceAgent(a, len(agent.Path) == 0)
  r.encounterAgent(a)
  r.accessZoneFaceAgent(a)
+ r.publishBodyHeading(a)
  msg.SceneAgents = append(msg.SceneAgents, a)
 	}
 	if v := r.deckVolume(); v != nil {
@@ -1063,6 +1063,7 @@ func (r *Runtime) heroBodyPB(h *behavior.LifeActor) *pb.PocHeroBody {
 		return nil
 	}
 	b := h.Body
+	r.publishBodyHeading(&pb.PocAgentState{Id:h.ID})
 	m := r.world.Life
 	cell := m.Locations[h.Level].CellMM
 	per := int64(1)

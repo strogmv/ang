@@ -1190,6 +1190,7 @@ func (r *Runtime) diskComplete(result diskResult) {
 			if result.err == nil {
 				r.world = world
 				r.state = result.loaded
+				r.migrateLoadedCombatGrid()
 				r.story = storySchedule{}
 				r.applyGateTerrain()
 				r.state.Epoch = newEpoch()

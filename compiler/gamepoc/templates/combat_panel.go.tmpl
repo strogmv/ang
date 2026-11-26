@@ -19,9 +19,11 @@ import (
 // combatPanelCache keeps the last computed options of one decision point (encounter, event, turn, AP, locale).
 type combatPanelCache struct {
 	key     string
+ reachKey string
 	options []*pb.PocCombatOption
 	// the cells the hero can end a walk on this turn (HUD v1.1: the reach border), empty when it is not his turn
 	reachX, reachY []int32
+ tiles []*pb.PocCombatTile
 }
 
 func (r *Runtime) appendCombatPanel(msg *pb.PocGameState, locale string) {
@@ -96,14 +98,26 @@ func (r *Runtime) appendCombatPanel(msg *pb.PocGameState, locale string) {
 	key := fmt.Sprintf("%s|%d|%d|%d|%d|%t|%s", s.ID, s.EventSeq, s.Turn, hero.AP, hero.ReservedAP, r.state.Paused, r.validLocale(locale))
 	if r.combatPanel.key != key {
 		r.combatPanel = combatPanelCache{key: key, options: r.combatOptions(r.validLocale(locale))}
+	}
+ reachKey:=fmt.Sprintf("%s|%v",key,r.state.Life.Gates)
+ for _,body:=range msg.SceneAgents{reachKey+=fmt.Sprintf("|%s:%d,%d",body.Id,body.X,body.Y)}
+ if r.combatPanel.reachKey!=reachKey{
+  r.combatPanel.reachKey=reachKey
+  r.combatPanel.reachX=nil;r.combatPanel.reachY=nil;r.combatPanel.tiles=nil
 		if current := s.Current(); current != nil && current.ID == playerActorID && !r.state.Paused {
-			for _, at := range s.MoveReach(r.combatSpace(*s), r.world.CombatRuntime.Rules, playerActorID) {
+			space:=r.combatSpace(*s)
+   costs:=s.MoveReachCosts(space,r.world.CombatRuntime.Rules,playerActorID)
+   for _,at:=range s.MoveReach(space,r.world.CombatRuntime.Rules,playerActorID) {
+    r.combatPanel.tiles=append(r.combatPanel.tiles,r.combatTile(space,*hero,at,costs[at]))
 				r.combatPanel.reachX = append(r.combatPanel.reachX, int32(at.X))
 				r.combatPanel.reachY = append(r.combatPanel.reachY, int32(at.Y))
 			}
 		}
-	}
-	view.Options = r.combatPanel.options
+ }
+
+	view.Tiles=r.combatPanel.tiles
+ view.GridCellMm=int32(r.world.CombatRuntime.Rules.Grid.CellMM)
+ view.Options = r.combatPanel.options
 	view.ReachX, view.ReachY = r.combatPanel.reachX, r.combatPanel.reachY
 }
 
@@ -123,7 +137,10 @@ func (r *Runtime) combatPreview(c *connection, q *pb.PocCombatPreview) {
 		out.Code, out.Reason = "not_turn", r.localText(locale, "error.combat.not_turn", "")
 		return
 	}
-	p := s.MovePreview(r.combatSpace(*s), r.world.CombatRuntime.Rules, playerActorID, behavior.Cell{X: int(q.X), Y: int(q.Y)})
+	space:=r.combatSpace(*s)
+ at:=s.SnapCombatCell(space,r.world.CombatRuntime.Rules,*s.Actor(playerActorID),behavior.Cell{X:int(q.X),Y:int(q.Y)},true)
+ p := s.MovePreview(space, r.world.CombatRuntime.Rules, playerActorID, behavior.Cell{X:int(q.X),Y:int(q.Y)})
+ out.Tile=r.combatTile(space,*s.Actor(playerActorID),at,p.AP)
 	out.Ok, out.Ap, out.Afford, out.Code = p.Reason == "", int32(p.AP), int32(p.Afford), p.Reason
 	for _, at := range p.Path {
 		out.Path = append(out.Path, &pb.PocPoint{X: int32(at.X), Y: int32(at.Y)})
@@ -136,8 +153,11 @@ func (r *Runtime) combatPreview(c *connection, q *pb.PocCombatPreview) {
 
 // combatTry executes one action on a copy and returns the AP it took from the hero.
 func (r *Runtime) combatTry(action behavior.CombatAction) (int,error){
- trial:=&Runtime{world:r.world,state:r.snapshotState(),npcAccountIDs:r.npcAccountIDs};before:=trial.state.Combat.Actor(playerActorID);if before==nil{return 0,fmt.Errorf("missing hero")};ap:=before.AP;beforeSeq:=trial.state.Combat.EventSeq
- if err:=trial.performCombatAction(playerActorID,&action);err!=nil{return 0,err};spent:=0;found:=false;for _,e:=range trial.state.Combat.Events{if e.Sequence>beforeSeq&&e.ActorID==playerActorID&&(e.Type==action.Type||action.Type=="aid"&&e.Type=="bandage"||action.Type=="aid_continue"&&e.Type=="bandage"){spent+=e.AP;found=true}};if found{return spent,nil};after:=trial.state.Combat.Actor(playerActorID);if after!=nil{return max(0,ap-after.AP),nil};return 0,nil
+ ap,_,err:=r.combatTryDestination(action);return ap,err
+}
+func (r *Runtime) combatTryDestination(action behavior.CombatAction) (int,behavior.Cell,error){
+ trial:=&Runtime{world:r.world,state:r.snapshotState(),npcAccountIDs:r.npcAccountIDs};before:=trial.state.Combat.Actor(playerActorID);if before==nil{return 0,behavior.Cell{},fmt.Errorf("missing hero")};ap:=before.AP;beforeSeq:=trial.state.Combat.EventSeq
+ if err:=trial.performCombatAction(playerActorID,&action);err!=nil{return 0,behavior.Cell{},err};spent:=0;found:=false;for _,e:=range trial.state.Combat.Events{if e.Sequence>beforeSeq&&e.ActorID==playerActorID&&(e.Type==action.Type||action.Type=="aid"&&e.Type=="bandage"||action.Type=="aid_continue"&&e.Type=="bandage"){spent+=e.AP;found=true}};after:=trial.state.Combat.Actor(playerActorID);at:=behavior.Cell{};if after!=nil{at=after.Position};if found{return spent,at,nil};if after!=nil{return max(0,ap-after.AP),at,nil};return 0,at,nil
 }
 
 func (r *Runtime) combatOptions(locale string) []*pb.PocCombatOption {
@@ -302,7 +322,7 @@ for _,d:=range []behavior.Cell{{X:1,Y:0},{X:0,Y:1},{X:-1,Y:0},{X:0,Y:-1}}{at:=be
 	}
 	add("move","disengage",text("ui.combat.leave"),behavior.CombatAction{Type:"disengage"},0,func(error)string{return text("error.combat.break_distance")})
  add("turn", "end", text("ui.combat.end_turn"), behavior.CombatAction{Type: "end"}, 0, other)
-	r.combatOptionChances(out, hero.Position)
+	r.combatOptionChances(out, hero.Position,locale)
 	return out
 }
 
@@ -310,7 +330,7 @@ for _,d:=range []behavior.Cell{{X:1,Y:0},{X:0,Y:1},{X:-1,Y:0},{X:0,Y:-1}}{at:=be
 // with (behavior AttackChance): from the hero's cell when the blow can strike from it, else from the cell the panel's
 // own «Сблизиться» for that target walks to (only an approach the hero can make: «цель уже рядом» moves nowhere); held and unnoticed blows land for certain (1000); a blow the target
 // visibly stands ready to deflect is marked may_parry.
-func (r *Runtime) combatOptionChances(out []*pb.PocCombatOption, here behavior.Cell) {
+func (r *Runtime) combatOptionChances(out []*pb.PocCombatOption, here behavior.Cell,locale string) {
 	s := &r.state.Combat
 	rules := r.world.CombatRuntime.Rules
 	approach := map[string]behavior.Cell{}
@@ -332,6 +352,12 @@ func (r *Runtime) combatOptionChances(out []*pb.PocCombatOption, here behavior.C
 		chance, parry := s.AttackChance(space, rules, playerActorID, action, from)
 		o.ChancePermille = int32(math.Round(chance * 1000))
 		o.MayParry = parry
+  code:=s.AttackReason(space,rules,playerActorID,o.TargetId,from)
+  if code!=""{
+   bonus:=rules.CoverRules.FlankBonus;if code=="rear"{bonus=rules.CoverRules.RearBonus}
+   target:=s.Actor(o.TargetId);penalty:=rules.CoverRules.HalfPenalty;if code=="full"{penalty=rules.CoverRules.FullPenalty};if target!=nil {if target.Prone{penalty+=rules.CoverRules.ProneBonus}else if target.Crouched{penalty+=rules.CoverRules.CrouchBonus}}
+   o.TacticalReason=strings.NewReplacer("{bonus}",strconv.Itoa(int(math.Round(bonus*100))),"{penalty}",strconv.Itoa(int(math.Round(penalty*100)))).Replace(r.localText(locale,"ui.combat.cover."+code,""))
+  }
 	}
 }
 
@@ -452,8 +478,8 @@ func (r *Runtime) combatStep(hero *behavior.Combatant, target *behavior.Combatan
 		if !away && c.score < 1000000 && !r.combatObserverSees(r.state.Combat.LevelID, playerActorID, c.at, target.Position) {
 			continue
 		}
-		if ap, err := r.combatTry(behavior.CombatAction{Type: "move", To: c.at}); err == nil && (!away||ap<=budget) {
-			return c.at, true
+		if ap, at, err := r.combatTryDestination(behavior.CombatAction{Type: "move", To: c.at}); err == nil && (!away||ap<=budget) {
+			return at, true
 		}
 	}
 	return behavior.Cell{}, false
@@ -468,4 +494,15 @@ func(r *Runtime)appendGroundWeapons(msg *pb.PocGameState){
   owner:="";if item.Owner==playerActorID{owner=playerActorID}else{for _,agent:=range msg.SceneAgents{if agent.Id==item.Owner{owner=item.Owner;break}}}
   msg.GroundWeapons=append(msg.GroundWeapons,&pb.PocGroundWeapon{ItemId:id,Definition:item.Definition,X:int32(at.X),Y:int32(at.Y),OwnerId:owner})
  }
+}
+
+// The drawable footprint is clipped to real navigation members; it never paints
+// across a wall or hole. The side shields belong to the actual body anchor.
+func(r *Runtime)combatTile(space behavior.CombatSpace,a behavior.Combatant,at behavior.Cell,ap int)*pb.PocCombatTile{
+ reserve:=a.Weapon.AttackAP;if a.Weapon.QuickAP>0{reserve=min(reserve,a.Weapon.QuickAP)}
+ out:=&pb.PocCombatTile{X:int32(at.X),Y:int32(at.Y),Ap:int32(ap),AttackReady:a.AP-ap>=reserve}
+ cells:=[]behavior.Cell{at};if space.Grid!=nil{cells=space.Grid.Members[space.Grid.Tile[at]]}
+ for _,p:=range cells{out.Cells=append(out.Cells,&pb.PocPoint{X:int32(p.X),Y:int32(p.Y)})}
+ if space.CoverSides!=nil{for _,n:=range space.CoverSides(at){out.Cover=append(out.Cover,int32(n))}}
+ return out
 }

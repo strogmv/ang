@@ -23,6 +23,8 @@ type CombatTarget struct {
  StopValue float64 `json:"stop_value"`
 }
 type CombatRules struct {
+ Grid CombatGridRules `json:"grid"`
+ CoverRules CombatCoverRules `json:"cover"`
  Techniques map[string]CombatTechnique `json:"techniques,omitempty"`
  BladeAngles map[string]map[string]float64 `json:"blade_angles"`
  TargetStyles map[string]map[string]float64 `json:"target_styles"`
@@ -66,6 +68,7 @@ type CombatRules struct {
 	CoverWeight                float64 `json:"cover_weight"`
 	AttackWeight               float64 `json:"attack_weight"`
 	MoveWeight                 float64 `json:"move_weight"`
+ ApproachAttackWeight float64 `json:"approach_attack_weight"`
 	HealWeight                 float64 `json:"heal_weight"`
 	RetreatWeight              float64 `json:"retreat_weight"`
 	EquipAP                    int     `json:"equip_ap"`
@@ -160,6 +163,7 @@ func CombatArmorBlocked(a Combatant, rawDamage int, bodyPart string) int {
 }
 
 type CombatContact struct {
+ ThreatKind string `json:"threat_kind,omitempty"`
 	SubjectID, Team, Source, SourceID, ReporterID string
 	Position                                      Cell
 	ObservedTurn, ReceivedTurn                    int64
@@ -171,6 +175,7 @@ type CombatContact struct {
 	ThreatDamage, ThreatRangeMM                   int
 }
 type Combatant struct {
+ GridSetupAP int `json:"grid_setup_ap,omitempty"`
  TargetStyle string `json:"target_style,omitempty"`
 
  // Body is opaque to tactics; the host owns its strict catalog-backed interpretation.
@@ -269,6 +274,8 @@ type CombatEvent struct {
 	ItemID, BodyPart                                string
 }
 type CombatState struct {
+	GridReady bool `json:"grid_ready,omitempty"`
+	arranging bool
 	ID, LevelID  string
 	Seed, Turn   int64
 	ActionSeq    uint64
@@ -285,6 +292,11 @@ type CombatState struct {
 // directional blocked fraction [0,1]. ShotClear distinguishes a bullet barrier
 // from mere lack of visibility; a transparent bulletproof panel is possible.
 type CombatSpace struct {
+ ExecutionOccupied func(Combatant,Cell)bool
+ PlanningOccupied func(Combatant,Cell)bool
+ GridDirection func(Cell,Cell)(int,int)
+ Grid *CombatGrid
+ CoverSides func(Cell) [4]int
  BodyBlocks func(mover,body Combatant,at Cell)bool
  // Host hooks of a held technique: the seconds until the held body goes limp, who breaks the hold, the end of the hold.
  HoldSeconds func(s *CombatState,target string)int
@@ -399,6 +411,7 @@ func (s CombatSpace) canCommunicate(a, b Combatant, r CombatRules) bool {
 	return s.rangeMM(a.Position, b.Position) <= r.ShareRangeMM && s.visible(a.Position, b.Position, r)
 }
 func (r CombatRules) Validate() error {
+ if err:=r.ValidateGridCover();err!=nil{return err}
  for _,t:=range r.Techniques{if t.AP<1||t.AP>r.APPerTurn||t.ReachMM<1||t.ReachMM>3000||t.BreakReachMM<0||t.BreakReachMM>5000||t.WeaponKind==""||t.BodyPart==""||t.FallStyle==""||math.IsNaN(t.Loudness)||t.Loudness<0||t.Loudness>1||t.HoldTotalS<0||t.HoldTotalS>600||t.BreakFreePPMPerS<0||t.BreakFreePPMPerS>1000000||t.BreakFreeUntilPermille<0||t.BreakFreeUntilPermille>1000||t.BreakApproachMMS<0||t.BreakApproachMMS>10000{return errors.New("invalid combat technique")}}
  if math.IsNaN(r.MeleeSkillScale)||math.IsInf(r.MeleeSkillScale,0)||r.MeleeSkillScale<0||r.MeleeSkillScale>2{return errors.New("invalid melee skill scale")}
  if r.CloseMM<0||r.CloseMM>3000||r.RetreatAP<0||r.RetreatAP>r.APPerTurn||r.GuardBonus<0||r.GuardBonus>80||r.RollAP<0||r.RollAP>r.APPerTurn||r.GetUpAP<0||r.GetUpAP>r.APPerTurn{return errors.New("invalid v4 combat costs")}
@@ -429,7 +442,8 @@ func (r CombatRules) Validate() error {
 	if math.IsNaN(r.DamageMin) || math.IsNaN(r.DamageMax) || math.IsInf(r.DamageMin, 0) || math.IsInf(r.DamageMax, 0) || r.DamageMin <= 0 || r.DamageMax < r.DamageMin || r.DamageMax > 1000 {
 		return errors.New("invalid tactical damage spread")
 	}
-	for _, v := range []float64{r.CoverWeight, r.AttackWeight, r.MoveWeight, r.HealWeight, r.RetreatWeight} {
+ if r.ApproachAttackWeight>1{return errors.New("invalid future approach weight")}
+	for _, v := range []float64{r.CoverWeight, r.AttackWeight, r.MoveWeight, r.HealWeight, r.RetreatWeight, r.ApproachAttackWeight} {
 		if math.IsNaN(v) || math.IsInf(v, 0) || v < 0 || v > 1000 {
 			return errors.New("invalid tactical weight")
 		}
@@ -475,6 +489,8 @@ func NewCombat(id, level string, seed int64, actors []Combatant, r CombatRules, 
 		s.nextTurn(r, space)
 	}
 	s.Observe(space, r)
+	if err:=s.ResolveGridConflicts(space,r);err!=nil{return CombatState{},err}
+	if err:=s.Validate(r,space);err!=nil{return CombatState{},err}
 	return s, nil
 }
 func (s *CombatState) Actor(id string) *Combatant {
@@ -507,6 +523,7 @@ func (s CombatState) Clone() CombatState {
 // Validate checks an actor's durable resources/physiology independently of
 // any current location, turn cursor or historical contact positions.
 func (a Combatant) Validate(r CombatRules) error {
+	if a.GridSetupAP<0||a.GridSetupAP>r.APPerTurn{return errors.New("invalid combat grid setup cost")}
 	if err := r.Validate(); err != nil {
 		return err
 	}
@@ -565,6 +582,7 @@ func (s CombatState) Validate(r CombatRules, space CombatSpace) error {
 	if s.Active && !s.Actors[s.CurrentIndex].Able() {
 		return errors.New("incapable current combat actor")
 	}
+	if s.GridReady {if err:=s.ValidateGridOccupancy(space);err!=nil{return err}}
 	if len(s.Events) > 512 {
 		return errors.New("combat event capacity exceeded")
 	}
@@ -673,7 +691,7 @@ func (s *CombatState) Observe(space CombatSpace, r CombatRules) {
 			if a.ID == other.ID || a.Team == other.Team || !space.ActorVisible(*a, other, r) {
 				continue
 			}
-			c := CombatContact{SubjectID: other.ID, Team: other.Team, Position: other.Position, ObservedTurn: s.Turn, ObservedAction: s.ActionSeq, ReceivedTurn: s.Turn, Source: "sight", SourceID: a.ID, Visible: true, ThreatDamage: other.WeaponRisk(), ThreatRangeMM: other.Weapon.RangeMM}
+			c := CombatContact{SubjectID: other.ID, Team: other.Team, Position: other.Position, ObservedTurn: s.Turn, ObservedAction: s.ActionSeq, ReceivedTurn: s.Turn, Source: "sight", SourceID: a.ID, Visible: true, ThreatDamage: other.WeaponRisk(), ThreatRangeMM: other.Weapon.RangeMM,ThreatKind:combatWeaponKind(other.Weapon)}
 			if !other.Able() {
 				c.Checked = true
 				c.CheckedTurn, c.CheckedAction = s.Turn, s.ActionSeq
@@ -745,9 +763,10 @@ func (s *CombatState) beginTurn(r CombatRules, space CombatSpace) bool {
 	}
 	penalty+=a.WoundAPPenalty()
 	a.AP = max(1, r.APPerTurn-penalty)
+	a.AP=max(0,a.AP-a.GridSetupAP);a.GridSetupAP=0
 	a.Suppression = max(0, a.Suppression-r.SuppressionRecovery)
 	a.Morale = min(100, a.Morale+r.MoraleRecovery)
-	return true
+	return a.AP>0
 }
 func (s *CombatState) nextTurn(r CombatRules, space CombatSpace) {
  if space.AdvanceTime!=nil {
@@ -783,7 +802,7 @@ func (s CombatState) occupied(at Cell, except string, space CombatSpace, r Comba
 		view.Position = observer
 	}
 	for _, a := range s.Actors {
-		if a.ID != except && (a.Position == at || space.BodyBlocks!=nil&&space.BodyBlocks(view,a,at)) && (!knownOnly || space.ActorVisible(view, a, r)) {
+		if a.ID != except && (a.Position == at || space.Grid!=nil&&!space.Grid.Same(view.Position,at)&&space.Grid.Same(a.Position,at) || space.BodyBlocks!=nil&&space.BodyBlocks(view,a,at)) && (!knownOnly || space.ActorVisible(view, a, r)) {
 			return true
 		}
 	}
@@ -836,12 +855,13 @@ func (s CombatState) reachable(space CombatSpace, r CombatRules, a Combatant, ma
 		at Cell
 		mm int
 	}
-	open := []node{{a.Position, 0}}
+	isEndpoint:=s.gridEndpoints(space,r,a,planning)
+ open := []node{{a.Position, 0}}
 	best := map[Cell]int{a.Position: 0}
 	prev := map[Cell]Cell{}
 	closed := map[Cell]bool{}
 	var results []combatReach
-	for len(open) > 0 && len(results) < r.MaxSearchCells {
+	for len(open) > 0 && len(closed) < r.MaxSearchCells {
 		pick := 0
 		for i := 1; i < len(open); i++ {
 			if open[i].mm < open[pick].mm || (open[i].mm == open[pick].mm && (open[i].at.Y < open[pick].at.Y || open[i].at.Y == open[pick].at.Y && open[i].at.X < open[pick].at.X)) {
@@ -861,20 +881,20 @@ func (s CombatState) reachable(space CombatSpace, r CombatRules, a Combatant, ma
 		for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
 			path[i], path[j] = path[j], path[i]
 		}
-		if n.at == a.Position || !s.crowded(space, r, a, n.at, planning) && (space.EndPositionClear==nil||space.EndPositionClear(a,n.at)) {
+		if isEndpoint(n.at) && (n.at == a.Position || !s.crowded(space, r, a, n.at, planning) && (space.EndPositionClear==nil||space.EndPositionClear(a,n.at))) {
 			results = append(results, combatReach{n.at, n.mm, combatActorMoveAP(n.mm, r, a)+s.retreatCost(space,r,a,n.at), path})
 		}
 		neighbors := []Cell{{n.at.X + 1, n.at.Y}, {n.at.X, n.at.Y + 1}, {n.at.X - 1, n.at.Y}, {n.at.X, n.at.Y - 1}}
 		neighbors = append(neighbors, space.Space.Links[n.at]...)
 		for _, to := range neighbors {
-			if !space.standable(to) || s.occupied(to, a.ID, space, r, a.Position, planning) || (space.Space.Occupied != nil && (!planning || space.visible(a.Position, to, r)) && space.Space.Occupied(to)) || to == a.Position {
+			if !space.standable(to) || s.occupied(to, a.ID, space, r, a.Position, planning) || space.occupiedAt(a,to,r,planning) || to == a.Position {
 				continue
 			}
 			if n.at == a.Position && space.Space.FirstStepAllowed != nil && !space.Space.FirstStepAllowed(to) {
 				continue
 			}
-			cost := space.rangeMM(n.at, to)
-			if cost < 1 {
+			cost := space.moveMM(n.at, to)
+			if cost < 0 {
 				continue
 			}
 			mm := n.mm + cost
@@ -892,6 +912,7 @@ func (s CombatState) reachable(space CombatSpace, r CombatRules, a Combatant, ma
 	return results, len(open) > 0
 }
 func (s CombatState) movement(space CombatSpace, r CombatRules, a Combatant, to Cell) (combatReach, error) {
+ to=s.SnapCombatCell(space,r,a,to,false)
  if len(a.Body)>0&&!a.BodyCanWalk{return combatReach{},errors.New("wounds: cannot walk")}
 	if to == a.Position {
 		return combatReach{}, errors.New("already at combat destination")
@@ -935,10 +956,12 @@ func (s CombatState) MovePreview(space CombatSpace, r CombatRules, actorID strin
 	if len(a.Body) > 0 && !a.BodyCanWalk {
 		return CombatMovePreview{Reason: "cannot_walk"}
 	}
-	if to == a.Position {
+	if to!=a.Position&&observed.occupied(to,a.ID,space,r,a.Position,true){return CombatMovePreview{Reason:"occupied"}}
+ to=observed.SnapCombatCell(space,r,*a,to,true)
+ if to == a.Position {
 		return CombatMovePreview{Reason: "here"}
 	}
-	if !space.standable(to) || space.Space.Occupied != nil && space.visible(a.Position, to, r) && space.Space.Occupied(to) {
+	if !space.standable(to) || space.occupiedAt(*a,to,r,true) {
 		return CombatMovePreview{Reason: "blocked"}
 	}
 	if observed.occupied(to, a.ID, space, r, a.Position, true) {
@@ -951,9 +974,10 @@ func (s CombatState) MovePreview(space CombatSpace, r CombatRules, actorID strin
 	charge := func(path []Cell) (total int) {
 		units, extra, at := int64(0), 0, a.Position
 		for i, next := range path {
-			units += int64(space.rangeMM(at, next)) * int64(combatMovementScale(*a))
+			units += int64(space.moveMM(at, next)) * int64(combatMovementScale(*a))
 			if i == 0 {
 				extra = observed.retreatCost(space, r, *a, next)
+    if space.Grid!=nil{extra=observed.retreatCost(space,r,*a,path[len(path)-1])}
 			}
 			total = combatMoveUnitsAP(units, r) + extra
 			at = next
@@ -1179,7 +1203,10 @@ func (r CombatRules) HitOdds(a, b Combatant, distanceMM int, rolling bool) float
 }
 func (s CombatState) shotChance(space CombatSpace, r CombatRules, a, b Combatant, from Cell, q combatShotSpec, round int) float64 {
 	distance := space.rangeMM(from, b.Position)
-	chance := r.HitOdds(a, b, distance, b.RollingUntilTurn >= s.Turn && b.RollingUntilTurn > 0) * (1 - space.protection(from, b.Position, a, b, r.PhysicalPart(q.BodyPart)))
+	chance := r.HitOdds(a, b, distance, b.RollingUntilTurn >= s.Turn && b.RollingUntilTurn > 0)
+ if r.CoverRules.FullPenalty>0 {
+  if combatWeaponKind(a.Weapon)=="firearm" {chance*=1-space.coverPenalty(r,from,b)} else {at:=a;at.Position=from;switch space.attackSide(at,b){case "flank":chance+=r.CoverRules.FlankBonus;case "rear":chance+=r.CoverRules.RearBonus}}
+ } else {chance*=1-space.protection(from,b.Position,a,b,r.PhysicalPart(q.BodyPart))}
 	if a.Crouched {
 		chance *= 1.08
 	}
@@ -1319,7 +1346,7 @@ func (s *CombatState) gunshot(space CombatSpace, r CombatRules, a Combatant) {
 // remains the command/RNG clock while EventSeq orders all consequences.
 func (s *CombatState) fireImpact(space CombatSpace, r CombatRules, actorID, targetID string, q combatShotSpec, round int, eventType string, cost int) {
 	a, b := s.Actor(actorID), s.Actor(targetID)
- a.Facing=Cell{X:b.Position.X-a.Position.X,Y:b.Position.Y-a.Position.Y}
+ a.Facing=space.movementHeading(a.Position,b.Position)
 	chance := s.shotChance(space, r, *a, *b, a.Position, q, round)
  parried:=false
  blockFailed:=false
@@ -1451,7 +1478,11 @@ func(s *CombatState)holdTechnique(space CombatSpace,r CombatRules,actorID,target
 // by physical reserves and never recursively triggers more reactions.
 func (s *CombatState) AfterAction(space CombatSpace, r CombatRules, actorID string, action CombatAction, elapsed ...int) {
  if space.AdvanceTime!=nil&&len(elapsed)>0&&elapsed[0]>0{space.AdvanceTime(s,int64(elapsed[0]));s.TurnSpentS+=elapsed[0]}
+	if s.arranging {s.Observe(space,r);return}
 	a := s.Actor(actorID)
+	// Evaluate the existing travel budget before AP exhaustion hands the turn
+	// to the pursuer, who could otherwise close the distance forever.
+	if action.Type=="move"&&!a.Controlled&&s.pursuitSpent(space,r,*a){a.Withdrawn=true;a.AP=0;s.event(CombatEvent{Type:"pursuit_end",ActorID:a.ID,From:a.Position,To:a.Position,Reason:"stopped pursuit after real travel without an exchange"})}
 	s.finishIfResolved()
 	if s.Active && (action.Type=="attack"||action.Type=="throw") {
 		s.reactionWindow(space, r, actorID)
@@ -1505,8 +1536,11 @@ func (s *CombatState) Execute(space CombatSpace, r CombatRules, actorID string, 
   dx,dy:=action.To.X-actor.Position.X,action.To.Y-actor.Position.Y;steps:=max(combatAbs(dx),combatAbs(dy))
   if steps<1||dx!=0&&dy!=0||space.rangeMM(actor.Position,action.To)!=r.RollDistanceMM{return errors.New("roll needs the authored straight distance")}
   sx,sy:=dx/steps,dy/steps
-  for n:=0;n<=steps;n++{at:=Cell{actor.Position.X+n*sx,actor.Position.Y+n*sy};for _,off:=range []Cell{{0,0},{sy,-sx},{-sy,sx}}{p:=Cell{at.X+off.X,at.Y+off.Y};if !space.standable(p)||s.occupied(p,actorID,space,r,actor.Position,false){return errors.New("roll strip blocked")}}}
-  var err error;destination,err=observed.movement(space,r,*actor,action.To);if err!=nil{return err}
+  for n:=0;n<=steps;n++{at:=Cell{actor.Position.X+n*sx,actor.Position.Y+n*sy};for _,off:=range []Cell{{0,0},{sy,-sx},{-sy,sx}}{p:=Cell{at.X+off.X,at.Y+off.Y};if !space.standable(p)||s.occupied(p,actorID,space,r,actor.Position,false)||space.occupiedAt(*actor,p,r,false){return errors.New("roll strip blocked")}}}
+  // A roll has its own authored physical distance, not a snapped walking
+  // destination. Validate and execute this exact endpoint throughout.
+  if observed.crowded(space,r,*actor,action.To,false)||space.EndPositionClear!=nil&&!space.EndPositionClear(*actor,action.To){return errors.New("roll endpoint crowded")}
+  destination=combatReach{At:action.To}
   for _,at:=range []Cell{actor.Position,action.To}{for _,d:=range []Cell{{1,0},{-1,0},{0,1},{0,-1}}{if space.rangeMM(at,Cell{at.X+d.X,at.Y+d.Y})<=r.RollClearanceMM&&!space.standable(Cell{at.X+d.X,at.Y+d.Y}){return errors.New("not enough room to roll")}}}
   cost=r.RollAP
  case "move":
@@ -1628,19 +1662,19 @@ func (s *CombatState) Execute(space CombatSpace, r CombatRules, actorID string, 
 		spent := 0
 		distanceUnits := int64(0)
 		old := a.Position
-		for _, to := range destination.Path {
+		for stepIndex, to := range destination.Path {
 			segment := space.rangeMM(a.Position, to)
-			nextUnits := distanceUnits + int64(segment)*int64(combatMovementScale(*a))
+			nextUnits := distanceUnits + int64(space.moveMM(a.Position,to))*int64(combatMovementScale(*a))
 			nextSpent := combatMoveUnitsAP(nextUnits, r)
 			delta := nextSpent - spent
-   if spent==0{delta+=s.retreatCost(space,r,*a,to)}
+   if stepIndex==0{feeAt:=to;if space.Grid!=nil{feeAt=destination.At};delta+=s.retreatCost(space,r,*a,feeAt)}
 			if !a.Able() || a.StunTurns > 0 || a.AP < delta {
 				break
 			}
 			from := a.Position
    s.movementReactions(space,r,actorID,to,true)
    if !s.Active||!a.Able()||a.StunTurns>0||a.AP<delta||(len(a.Body)>0&&!a.BodyCanWalk){break}
-			a.Facing=Cell{X:to.X-a.Position.X,Y:to.Y-a.Position.Y}
+			a.Facing=space.movementHeading(a.Position,to)
 			a.Position = to
 			a.AP -= delta
 			distanceUnits = nextUnits
@@ -1673,8 +1707,8 @@ func (s *CombatState) Execute(space CombatSpace, r CombatRules, actorID string, 
 				if shot.Held{s.holdTechnique(space,r,actorID,action.TargetID,shot.Mode,heldFromCrouch);a=s.Actor(actorID)}
 			}
 		case "roll":
-   from:=a.Position;s.movementReactions(space,r,actorID,action.To,true)
-   if a.Able()&&a.StunTurns==0&&a.BodyCanWalk{a.Position=action.To;a.Facing=Cell{X:action.To.X-from.X,Y:action.To.Y-from.Y};a.RollingUntilTurn=s.Turn+1;e.From=from;e.To=action.To;s.event(e);s.Observe(space,r);s.movementReactions(space,r,actorID,from,false)}
+   from:=a.Position;to:=destination.At;s.movementReactions(space,r,actorID,to,true)
+   if a.Able()&&a.StunTurns==0&&a.BodyCanWalk{a.Position=to;a.Facing=space.movementHeading(from,to);a.RollingUntilTurn=s.Turn+1;e.From=from;e.To=to;s.event(e);s.Observe(space,r);s.movementReactions(space,r,actorID,from,false)}
   case "equip":
 			a.Weapon = equipment.Weapon;a.BodyRisk=equipment.Risk
 			a.Ammo = equipment.Ammo
@@ -1777,7 +1811,8 @@ func (s CombatState) threatAt(space CombatSpace, r CombatRules, a Combatant, at 
 		}
 		damage := float64(c.ThreatDamage)
 		protection := space.cover(c.Position, at, a.Crouched)
-		if a.Prone && protection > 0 {
+  if r.CoverRules.FullPenalty>0 {if c.ThreatKind=="firearm" {target:=a;target.Position=at;protection=space.coverPenalty(r,c.Position,target)} else {protection=0}}
+		if r.CoverRules.FullPenalty==0 && a.Prone && protection > 0 {
 			protection = math.Min(1, protection+(1-protection)*.4)
 		}
 		if r.MaxSuppression > 0 {
@@ -1920,7 +1955,7 @@ func (s CombatState) bestAttack(space CombatSpace, r CombatRules, a Combatant, f
    if combatWeaponKind(a.Weapon)=="blade"&&len(r.Targets)>0 {
     weight:=r.Targets[q.BodyPart].BladeValue
     if style:=r.TargetStyles[a.TargetStyle];style!=nil{if w,ok:=style[q.BodyPart];ok{weight*=w}}
-    delta:=Cell{X:from.X-known.Position.X,Y:from.Y-known.Position.Y};dot:=float64(delta.X*known.Facing.X+delta.Y*known.Facing.Y);norm:=math.Hypot(float64(delta.X),float64(delta.Y))*math.Hypot(float64(known.Facing.X),float64(known.Facing.Y));angle:="front";if norm>0 {if dot/norm < -0.5{angle="rear"}else if dot/norm<.5{angle="flank"}}
+    mover:=a;mover.Position=from;angle:=space.attackSide(mover,estimate)
     if access:=r.BladeAngles[angle];access!=nil{if w,ok:=access[q.BodyPart];ok{weight*=w}}
     if weight>0{old,exists:=bladeChoices[q.BodyPart];if !exists||c.Score>old.Score+1e-9||math.Abs(c.Score-old.Score)<1e-9&&c.AP<old.AP{bladeChoices[q.BodyPart]=c;bladeWeights[q.BodyPart]=weight}}
     continue
@@ -2100,6 +2135,9 @@ func (s CombatState) Decide(space CombatSpace, r CombatRules) CombatDecision {
 	}
 	reachable, truncated := s.reachable(space, r, *a, a.AP, true)
 	d.Truncated = truncated
+ nextAP:=max(1,r.APPerTurn-a.WoundAPPenalty())
+ approachNext:=false
+ if !a.Noncombatant&&!outmatched&&r.ApproachAttackWeight>0{_,ready:=s.bestAttack(space,r,*a,a.Position,nextAP);approachNext=!ready}
 	for _, at := range reachable {
 		if at.At == a.Position {
 			continue
@@ -2146,6 +2184,15 @@ func (s CombatState) Decide(space CombatSpace, r CombatRules) CombatDecision {
 				reason = "move with AP reserved for a legal attack"
 			}
 		}
+        // A large cell can spend the last AP before contact. Evaluate the
+        // next own turn from that real endpoint as well; ending in cover must
+        // not make every necessary first approach step score below idle.
+        if approachNext {
+            if attack,ok:=s.bestAttack(space,r,*a,at.At,nextAP);ok {
+                value:=attack.Score*r.ApproachAttackWeight+gain
+                if value>score {score=value;reason="approach a known target for a legal next-turn attack"}
+            }
+        }
 		if outmatched {
 			nearestFrom, nearestTo := math.MaxInt, math.MaxInt
 			for _, c := range a.Contacts {
@@ -2251,9 +2298,16 @@ func (s CombatState) Decide(space CombatSpace, r CombatRules) CombatDecision {
 // Sight/range are public observations; an adjacent reachable opponent is never excused by a command counter.
 func(s CombatState) pursuitSpent(space CombatSpace,r CombatRules,a Combatant)bool{
  if r.PursuitTravelMM<=0{return false}
- for _,b:=range s.Actors{if b.Team!=a.Team&&b.Able()&&space.ActorVisible(a,b,r)&&space.rangeMM(a.Position,b.Position)<=max(a.Weapon.RangeMM,b.Weapon.RangeMM){return false}}
+ // The decision may be queried immediately after a physical placement. Refresh
+ // personal sight here instead of treating an old contact as current truth.
+ observed:=s.Clone();observed.Observe(space,r);s=observed
+ if actor:=s.Actor(a.ID);actor!=nil{a=*actor}
+ // Contact and a usable own attack matter. A distant opponent's longer
+ // weapon range must not indefinitely reset an empty-handed chase.
+ for _,c:=range a.Contacts{if c.Visible&&!c.Checked&&c.Team!=a.Team&&space.rangeMM(a.Position,c.Position)<=r.CloseMM{return false}}
+ if a.FightResponse!="flee"{budget:=max(1,r.APPerTurn-a.WoundAPPenalty());if _,ok:=s.bestAttack(space,r,a,a.Position,budget);ok{return false}}
  travel:=0
- for i:=len(s.Events)-1;i>=0;i--{e:=s.Events[i];if e.Type=="attack"||e.Type=="reaction"{break};if e.ActorID==a.ID&&e.Type=="move"{travel+=space.rangeMM(e.From,e.To)}}
+ for i:=len(s.Events)-1;i>=0;i--{e:=s.Events[i];if (e.Type=="attack"||e.Type=="reaction")&&(e.ActorID==a.ID||e.TargetID==a.ID){break};if e.ActorID==a.ID&&e.Type=="move"{travel+=space.rangeMM(e.From,e.To)}}
  return travel>=r.PursuitTravelMM
 }
 func (s *CombatState) StepAI(space CombatSpace, r CombatRules) error {
@@ -2276,6 +2330,14 @@ func (s *CombatState) StepAI(space CombatSpace, r CombatRules) error {
   return s.Execute(space,r,a.ID,CombatAction{Type:"surrender"})
  }
  d := s.Decide(space, r)
+ // An observer with only checked search information and no useful route
+ // may leave normally. Another observer's private contact must not hold him
+ // in an idle loop. Physical disengagement uses the existing sight/range test.
+ if d.Chosen.Action.Type=="end"&&s.canLeaveCombat(space,r,*a){
+  exhausted:=true
+  for _,c:=range a.Contacts{if c.Team!=a.Team&&!c.Checked{exhausted=false;break}}
+  if exhausted{return s.Execute(space,r,a.ID,CombatAction{Type:"disengage"})}
+ }
 	if err := s.Execute(space, r, a.ID, d.Chosen.Action); err != nil {
         if d.Chosen.Action.Type=="move"{if e:=s.Execute(space,r,a.ID,CombatAction{Type:"end"});e!=nil{return e};if len(s.Events)>0{s.Events[len(s.Events)-1].Reason="movement stopped by an execution-time physical blocker"};return nil}
 		if errors.Is(err, ErrCombatExecutionBlocked) {
@@ -2327,6 +2389,7 @@ func(s CombatState)retreatCost(space CombatSpace,r CombatRules,a Combatant,to Ce
  if r.RetreatAP==0{return 0};for _,c:=range a.Contacts{if c.Visible&&c.Team!=a.Team&&space.rangeMM(a.Position,c.Position)<=c.ThreatRangeMM&&space.rangeMM(to,c.Position)>space.rangeMM(a.Position,c.Position){return r.RetreatAP}};return 0
 }
 func(s *CombatState)movementReactions(space CombatSpace,r CombatRules,actorID string,other Cell,before bool){
+ if s.arranging{return}
  target:=s.Actor(actorID);if target==nil{return}
  // Temporarily limit eligible reserves to actors whose reach boundary is crossed.
  reserves:=map[string]int{}

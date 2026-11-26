@@ -533,6 +533,9 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	}
 	if combat := world.LookupPath(cue.ParsePath("combat_runtime")); combat.Exists() {
 		out.CombatRuntime, err = combat.MarshalJSON()
+		if err == nil {
+			err = validateCombatGridCover(out.CombatRuntime)
+		}
 		if err != nil {
 			return out, nil, err
 		}
@@ -1626,6 +1629,7 @@ func generatePOC(project string, legacyUnity bool) error {
 		"biomonitor.go.tmpl":                    filepath.Join(project, "internal/poc/biomonitor.gen.go"),
 		"chip_hud.go.tmpl":                      filepath.Join(project, "internal/poc/chip_hud.gen.go"),
 		"chip_hud_test.go.tmpl":                 filepath.Join(project, "internal/poc/chip_hud_generated_test.go"),
+		"combat_grid_test.go.tmpl":              filepath.Join(project, "internal/poc/combat_grid_generated_test.go"),
 		"combat_path_test.go.tmpl":              filepath.Join(project, "internal/poc/combat_path_generated_test.go"),
 		"biomonitor_test.go.tmpl":               filepath.Join(project, "internal/poc/biomonitor_generated_test.go"),
 		"train_motion.go.tmpl":                  filepath.Join(project, "internal/poc/train_motion.gen.go"),

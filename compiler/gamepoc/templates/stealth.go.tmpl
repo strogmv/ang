@@ -309,6 +309,8 @@ func (r *Runtime) advanceStealth() error {
 				}
 			}
 		}
+		a.Heading=behavior.Cell{X:int(math.Round(o.FaceX*1000)),Y:int(math.Round(o.FaceY*1000))}
+        if a.Body!=nil{a.Body.FX,a.Body.FY=o.FaceX,o.FaceY}
 		s.Observers[id] = o
 		if !profile.InvestigateSteps {
 			continue

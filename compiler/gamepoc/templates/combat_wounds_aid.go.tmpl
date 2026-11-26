@@ -228,6 +228,11 @@ func (r *Runtime) woundAidCandidatesSafe(c behavior.Combatant) []behavior.Combat
 			if combatWounds.Status(body).ExternalULS > 0 {
 				score = 100
 			}
+            // The benefit belongs to completion, not every six-second slice.
+            // Compare the paid work of a long field treatment with the current
+            // attack/approach horizon; a minor bruise must not buy hundreds of
+            // turns of apparently immediate healing value.
+            score *= float64(min(c.AP, plan.RemainingS))/float64(max(1,plan.RemainingS))
 			out = append(out, behavior.CombatCandidate{Action: action, Score: score, Reason: fmt.Sprintf("treat own wound with carried %s", spec.kind), AP: min(c.AP, plan.RemainingS)})
 		}
 	}

@@ -45,6 +45,8 @@ type LifePerson struct{Relations []LifeRelation `json:"relations,omitempty"`;ID 
 type LifeModel struct{SafetyStep func(*LifeSafetyOverride,Cell,Cell)bool `json:"-"`;TravelOverride func(actorID string,edge LifeEdge)(handled,depart bool) `json:"-"`;ArrivalHold func(actorID string,edge LifeEdge)bool `json:"-"`;Gait LifeGaitPolicy `json:"gait"`;HeroBody LifeHeroBodyModel `json:"hero_body"`;Decks map[string]*DeckVolume `json:"-"`;Brain LifeBrainModel `json:"brain"`;Residences []LifeResidence `json:"residences,omitempty"`;Courtesy LifeCourtesyPolicy `json:"courtesy"`;Population PopulationModel `json:"population"`;Development PracticeModel `json:"development"`;PracticeStations []LifePracticeStation `json:"practice_stations"`;Inspection InspectionModel `json:"inspection"`;Maintenance MaintenanceModel `json:"maintenance"`;StartSeconds int64 `json:"start_seconds"`;SecondsPerTick int64 `json:"seconds_per_tick"`;MoveTicks int64 `json:"move_ticks"`;Locations map[string]LifeLocation `json:"locations"`;Edges []LifeEdge `json:"edges"`;Actors []LifePerson `json:"actors"`;Walkable map[string]bool `json:"-"`;work map[string]map[Cell]*LifeWorkArea}
 type LifeTrip struct{Edge string;Departure,Arrival int64}
 type LifeActor struct{
+ // One durable physical-plan body heading, including the last completed move.
+ Heading Cell `json:"heading,omitempty"`
  BoardedEdge string `json:"boarded_edge,omitempty"`
  // Mount: the person rides a vehicle (life_riders.go): seated, the vehicle places him; afoot, he works beside it.
  Mount *LifeMount `json:"mount,omitempty"`
@@ -95,6 +97,10 @@ type LifeActor struct{
  Visits map[string]int
  WorkedSeconds,SleptSeconds int64
  Meals int
+}
+func(m LifeModel)FaceStep(a *LifeActor,from,to Cell){
+ if v:=m.Decks[a.Level];v!=nil{p,_,_,ok:=v.Locate(from);q,_,_,other:=v.Locate(to);if ok&&other{from,to=p,q}}
+ dx,dy:=float64(to.X-from.X),float64(to.Y-from.Y);if n:=math.Hypot(dx,dy);n>0{a.Heading=Cell{X:int(math.Round(dx/n*1000)),Y:int(math.Round(dy/n*1000))}}
 }
 type LifeState struct{ScheduleMotion bool `json:"schedule_motion,omitempty"`;Dynamic map[string]map[Cell]bool `json:"-"`;Vehicles map[string]map[Cell]bool `json:"-"`;LocationLockdown map[string]bool `json:"location_lockdown,omitempty"`;LocationPowerLost map[string]bool `json:"location_power_lost,omitempty"`;Gates map[string]LifeGateState `json:"gates,omitempty"`;BrainServices LifeBrainServices `json:"-"`;populationEnv *PopulationEnvironment;Seed int64 `json:"seed,omitempty"`;Decisions DecisionJournal `json:"decisions"`;traffic *lifeTraffic;trafficActive bool;RelationOverrides map[string]map[string]float64 `json:"relation_overrides,omitempty"`;ControlledActorID string `json:"controlled_actor_id,omitempty"`;Population PopulationState `json:"population"`;PopulationFailure string `json:"population_failure,omitempty"`;Development PracticeState `json:"development"`;PracticePending *LifePracticeAttempt `json:"practice_pending,omitempty"`;PracticeLog []string `json:"practice_log,omitempty"`;PracticeExcluded map[string]bool `json:"practice_excluded,omitempty"`;routes *lifeRouteConnectivity `json:"-"`;Observer InspectionObserver `json:"observer"`;Maintenance MaintenanceState;Enabled bool;Seconds,SecondsPerTick,Tick int64;Actors []LifeActor;Events []string}
 func(m LifeModel)lifeStepMM(level string,from,to Cell)float64{if v:=m.Decks[level];v!=nil{return float64(v.CombatRangeMM(from,to))};unit:=m.Locations[level].CellMM;if unit<1{unit=1000};return math.Hypot(float64(from.X-to.X),float64(from.Y-to.Y))*float64(unit)}
@@ -420,7 +426,7 @@ func(s *LifeState)AdvanceWithTravelBy(m LifeModel,tick,delta int64,install Maint
   for !body&&len(a.Path)>0&&motion>=a.MoveStartTick+pace{
    next:=a.Path[0];if s.lifeOncoming(m,a,a.Path){a.MoveStartTick=motion;if a.BlockedSince==0{a.BlockedSince=s.Seconds};a.Label="Ждёт проход";a.Path=nil;break}
    safeStep:=m.allowsSafetyStep(a.Safety,a.Position,next)
-   if safeStep&&m.WalksFor(a.Level,next,a.ID)&&m.Adjacent(a.Level,a.Position,next)&&!s.occupied(a.Level,next,a.ID){a.WalkedMM+=m.lifeStepMM(a.Level,a.Position,next);a.Position=next;a.Path=a.Path[1:];a.MoveStartTick+=pace;if a.GiveWayTo==""{a.BlockedSince=0};if len(a.Path)>0&&(s.occupied(a.Level,a.Path[0],a.ID)||s.courtesyNamedPassage(m,*a)[a.Path[0]]){if !s.courtesyNamedPassage(m,*a)[a.Path[0]]&&s.lifeFollows(m,a,a.Path[0]){s.lifeFollowLater(i);break};if a.ID==s.ControlledActorID{a.PendingPath=a.Path};a.Path=nil;a.MoveStartTick=motion}}else{if safeStep&&m.WalksFor(a.Level,next,a.ID)&&m.Adjacent(a.Level,a.Position,next)&&s.lifeFollows(m,a,next){s.lifeFollowLater(i);break};a.MoveStartTick=motion;if a.BlockedSince==0&&s.lifeWalker(a){a.BlockedSince=s.Seconds};if a.ID==s.ControlledActorID{a.PendingPath=a.Path};a.Path=nil}
+   if safeStep&&m.WalksFor(a.Level,next,a.ID)&&m.Adjacent(a.Level,a.Position,next)&&!s.occupied(a.Level,next,a.ID){a.WalkedMM+=m.lifeStepMM(a.Level,a.Position,next);m.FaceStep(a,a.Position,next);a.Position=next;a.Path=a.Path[1:];a.MoveStartTick+=pace;if a.GiveWayTo==""{a.BlockedSince=0};if len(a.Path)>0&&(s.occupied(a.Level,a.Path[0],a.ID)||s.courtesyNamedPassage(m,*a)[a.Path[0]]){if !s.courtesyNamedPassage(m,*a)[a.Path[0]]&&s.lifeFollows(m,a,a.Path[0]){s.lifeFollowLater(i);break};if a.ID==s.ControlledActorID{a.PendingPath=a.Path};a.Path=nil;a.MoveStartTick=motion}}else{if safeStep&&m.WalksFor(a.Level,next,a.ID)&&m.Adjacent(a.Level,a.Position,next)&&s.lifeFollows(m,a,next){s.lifeFollowLater(i);break};a.MoveStartTick=motion;if a.BlockedSince==0&&s.lifeWalker(a){a.BlockedSince=s.Seconds};if a.ID==s.ControlledActorID{a.PendingPath=a.Path};a.Path=nil}
    if !calendarWalk{break}
   }
   if a.ID==s.ControlledActorID{s.anticipateControlledTraffic(m,a,tick,&yieldBudget)}

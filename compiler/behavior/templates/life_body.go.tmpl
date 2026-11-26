@@ -548,6 +548,7 @@ func (s *LifeState) integrateBody(m LifeModel, a *LifeActor, until int64) {
 		d := math.Hypot(b.X-x0, b.Y-y0)
 		if d > .5 {
 			b.FX, b.FY = (b.X-x0)/d, (b.Y-y0)/d
+			a.Heading=Cell{X:int(math.Round(b.FX*1000)),Y:int(math.Round(b.FY*1000))}
 		}
 	}
 	a.WalkedMM += moved
@@ -677,7 +678,7 @@ func (s *LifeState) EnsureHeroBody(m LifeModel) {
 		return
 	}
 	x, y := g.center(plan)
-	a.Body = &LifeBody{X: x, Y: y, Layer: layer, Clock: m.MotionTick(s.Tick, s.Seconds) * 1000, Cells: []Cell{a.Position}}
+	a.Body = &LifeBody{FX:float64(a.Heading.X)/1000,FY:float64(a.Heading.Y)/1000,X: x, Y: y, Layer: layer, Clock: m.MotionTick(s.Tick, s.Seconds) * 1000, Cells: []Cell{a.Position}}
 	if len(a.Path) > 0 || len(a.PendingPath) > 0 {
 		goal := a.Goal
 		a.Path, a.PendingPath = nil, nil

@@ -111,6 +111,6 @@ func(r *Runtime)combatPoseProtection(level string,from,to behavior.Cell,a,b beha
  eye:=v.BodyLightPoints(from,a)[2];if !a.Prone{eye.Z-=50}
  points:=v.BodyLightPoints(to,b);parts:=[]int{0,1,2};if part!=""{index:=1;if part=="head"{index=2}else if part=="legs"{index=0};parts=[]int{index}}
  boxes:=r.illuminationBoxes(c);blocked:=0
- for _,i:=range parts{if !v.RayClearMM(eye,points[i],boxes){blocked++}}
+ for _,i:=range parts{if !v.CombatRayClearMM(eye,points[i],boxes){blocked++}}
  return float64(blocked)/float64(len(parts))
 }

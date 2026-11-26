@@ -265,7 +265,7 @@ func(s *LifeState)lifeFollowOn(m LifeModel){
     next:=a.Path[0];if s.lifeOncoming(m,a,a.Path){a.Path=nil;a.MoveStartTick=tick;break}
     if !m.allowsSafetyStep(a.Safety,a.Position,next)||!m.WalksFor(a.Level,next,a.ID)||!m.Adjacent(a.Level,a.Position,next){a.Path=nil;a.MoveStartTick=tick;break}
     if s.occupied(a.Level,next,a.ID){if !s.lifeFollows(m,a,next){a.Path=nil;a.MoveStartTick=tick};break}
-    a.WalkedMM+=m.lifeStepMM(a.Level,a.Position,next);a.Position=next;a.Path=a.Path[1:];a.MoveStartTick+=pace;if a.GiveWayTo==""{a.BlockedSince=0};moved=true
+    a.WalkedMM+=m.lifeStepMM(a.Level,a.Position,next);m.FaceStep(a,a.Position,next);a.Position=next;a.Path=a.Path[1:];a.MoveStartTick+=pace;if a.GiveWayTo==""{a.BlockedSince=0};moved=true
    }
   }
   if !moved{break}

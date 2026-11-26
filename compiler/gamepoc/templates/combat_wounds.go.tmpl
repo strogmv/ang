@@ -658,6 +658,13 @@ func (r *Runtime) applyWoundLifeLimits() {
 func (r *Runtime) woundAttackAngle(a, b behavior.Combatant) string {
 	dx, dy := float64(a.Position.X-b.Position.X), float64(a.Position.Y-b.Position.Y)
 	fx, fy := float64(b.Facing.X), float64(b.Facing.Y)
+ // Navigation rows are deck bands, not physical north/south. Reuse physical
+ // positions and the previous step for both the wound angle and flank bonus.
+ level:=r.currentLevel();if r.state.Combat.Active{level=r.state.Combat.LevelID}
+ if v:=r.world.Decks[level];v!=nil{
+  pa,_,_,oka:=v.Locate(a.Position);pb,_,_,okb:=v.Locate(b.Position)
+  if oka&&okb{dx,dy=float64(pa.X-pb.X),float64(pa.Y-pb.Y)}
+ }
 	norm := math.Hypot(dx, dy) * math.Hypot(fx, fy)
 	if norm == 0 {
 		return "front"
@@ -691,7 +698,13 @@ func(r *Runtime)shiftWoundedFall(s *behavior.CombatState,a *behavior.Combatant,f
  for _,d:=range []behavior.Cell{{X:1,Y:0},{X:1,Y:1},{X:0,Y:1},{X:-1,Y:1},{X:-1,Y:0},{X:-1,Y:-1},{X:0,Y:-1},{X:1,Y:-1}}{opts=append(opts,option{d,(dx*float64(d.X)+dy*float64(d.Y))/math.Hypot(float64(d.X),float64(d.Y))})}
  sort.SliceStable(opts,func(i,j int)bool{return opts[i].score>opts[j].score})
  style:="back";zone:="";body:=combatBody(*a);if len(body.Wounds)>0{zone=body.Wounds[len(body.Wounds)-1].Zone};if pick:=r.world.CombatSpacing.FallZones[zone];pick!=""{style=pick};cross:=dx*float64(a.Facing.Y)-dy*float64(a.Facing.X);dot:=dx*float64(a.Facing.X)+dy*float64(a.Facing.Y);if math.Abs(cross)>math.Abs(dot){style="side"};ahead:=len(forced)>0&&forced[0]!="";if ahead{style=forced[0]}
- for _,o:=range opts{if !r.fallStripClear(*s,*a,o.dir,r.world.CombatSpacing.FallLengthMM,r.world.CombatSpacing.FallWidthMM){continue}
+ space:=r.combatSpace(*s)
+ for _,o:=range opts{
+  // Only an actual shift reserves a new tactical area. A held body lowered
+  // in place uses the same physical strip test without a fictitious endpoint.
+  end:=behavior.Cell{X:a.Position.X+o.dir.X,Y:a.Position.Y+o.dir.Y};occupied:=false
+  if space.Grid!=nil{for _,other:=range s.Actors{if other.ID!=a.ID&&space.Grid.Same(end,other.Position){occupied=true;break}}};if occupied{continue}
+  if !r.fallStripClear(*s,*a,o.dir,r.world.CombatSpacing.FallLengthMM,r.world.CombatSpacing.FallWidthMM){continue}
   from:=a.Position;to:=behavior.Cell{X:from.X+o.dir.X,Y:from.Y+o.dir.Y};a.Position=to;a.Facing=behavior.Cell{X:-o.dir.X,Y:-o.dir.Y};if ahead{a.Facing=o.dir};a.FallStyle=style;a.FallDirection=o.dir
   s.EventSeq++;s.Events=append(s.Events,behavior.CombatEvent{Type:"fall_shift",Mode:style,ActorID:a.ID,TargetID:a.ID,From:from,To:to,Turn:s.Turn,Sequence:s.EventSeq,Reason:"body-length strip clear"});return
  }

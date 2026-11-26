@@ -24,7 +24,8 @@ type DeckVolume struct {
 	Surfaces        []DeckSurface   `json:"surfaces"`
 	Connectors      []DeckConnector `json:"connectors"`
 	Links           []LifeLink      `json:"links"`
-	Solids          []DeckSpan      `json:"solids"`
+	Obstacles       []CombatCoverObstacle `json:"obstacles"`
+ Solids          []DeckSpan      `json:"solids"`
 	Edges           []DeckEdge      `json:"edges"`
 
 	navPlan   []int32 // navigation index -> plan index, -1 when not standable

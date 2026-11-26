@@ -9,7 +9,12 @@ func (v *DeckVolume) combatPhysicalClear(a Cell, za float64, b Cell, zb float64)
 	if v.blocked(a.Y*v.PlanWidth+a.X, za-1, za+1) || v.blocked(b.Y*v.PlanWidth+b.X, zb-1, zb+1) {
 		return false
 	}
-	return v.clear(a, za, b, zb)
+	// Low counters can be authored blocks_sight=false for the old standing
+ // sight model. Physical stance/body-part rays still intersect their bounds.
+ from:=DeckPointMM{X:float64(a.X)*deckCellMM+deckCellMM/2,Y:float64(a.Y)*deckCellMM+deckCellMM/2,Z:za}
+ to:=DeckPointMM{X:float64(b.X)*deckCellMM+deckCellMM/2,Y:float64(b.Y)*deckCellMM+deckCellMM/2,Z:zb}
+
+	return v.coverSegmentClear(from,to)&&v.clear(a, za, b, zb)
 }
 
 func combatBodyHeight(a Combatant, part string) int {
