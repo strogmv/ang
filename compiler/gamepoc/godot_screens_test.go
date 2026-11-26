@@ -329,4 +329,11 @@ func TestScreenEscGoesBackOnceAndBackKeepsTheFocus(t *testing.T) {
 			t.Fatalf("a way back must give the focus back: missing %q", piece)
 		}
 	}
+	// a changed key (the input actions notify every node, as a language change does) builds the screen again, so its
+	// hints show the new binding at once (controls step 2)
+	for _, piece := range []string{"if what == NOTIFICATION_TRANSLATION_CHANGED and is_node_ready():", "\t\tlast_signature = \"\"\n\t\trefresh_pending = true"} {
+		if !strings.Contains(string(runtime), piece) {
+			t.Fatalf("a changed key must rebuild the screen: missing %q", piece)
+		}
+	}
 }

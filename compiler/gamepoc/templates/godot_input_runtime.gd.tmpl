@@ -101,6 +101,36 @@ static func clear_override(file: ConfigFile, id: String, pad := false) -> void:
 	_fill_hints()
 	_notify()
 
+## Every action back to its default keys and buttons: the file's controls section emptied (the caller saves the file),
+## applied at once, hints too.
+static func reset_all(file: ConfigFile) -> void:
+	ensure()
+	if file.has_section(SECTION):
+		file.erase_section(SECTION)
+	for entry in specification().actions:
+		_bound[entry.id] = {"keys": PackedStringArray(entry.get("keys", [])), "pad": PackedStringArray(entry.get("pad", []))}
+	_register_all()
+	_fill_hints()
+	_notify()
+
+## How many actions the player's keys or buttons change from their defaults.
+static func changed_count() -> int:
+	var n := 0
+	for entry in specification().actions:
+		if overridden(entry.id) or overridden(entry.id, true):
+			n += 1
+	return n
+
+## The settings card's line about the player's keys (the table's summary): none changed, or how many.
+static func summary() -> String:
+	var texts: Dictionary = specification().get("summary", {})
+	if texts.is_empty():
+		return ""
+	var n := changed_count()
+	if n == 0:
+		return TranslationServer.translate(str(texts.unchanged.key))
+	return TranslationServer.translate(str(texts.changed.key)).format({"n": n})
+
 ## Every key or button two actions sharing a context take now (a global action meets every context; a free modifier's
 ## combinations count, Shift+W is the walk's), unless a precedence rule of the context and device names exactly one of
 ## them: {"input": "key:U" or "pad:Y", "context", "actions"}. Reported on a binding one of them holds as it is (the
@@ -225,13 +255,16 @@ static func held_with(event: InputEvent, id: StringName) -> bool:
 				if event.meta_pressed: return true
 	return false
 
-## A text field (LineEdit, TextEdit and their kin) has the focus: its keys are its own, no action is read.
+## A text field takes the keys, no action is read: a LineEdit while it is being edited (after Enter it lets them go
+## even where it keeps the focus), a TextEdit while it has the focus.
 static func typing() -> bool:
 	var tree := Engine.get_main_loop() as SceneTree
 	if tree == null or tree.root == null:
 		return false
 	var focus := tree.root.gui_get_focus_owner()
-	return focus is LineEdit or focus is TextEdit
+	if focus is LineEdit:
+		return (focus as LineEdit).is_editing()
+	return focus is TextEdit
 
 ## A screen's input context by its id (the table's screens; a screen not listed is "menu").
 static func screen_context(screen_id: String) -> String:

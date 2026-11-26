@@ -25,9 +25,28 @@ type InputActions struct {
 	// Precedence: in a context, on one device, these actions win an input they share with another action of it.
 	Precedence []InputPrecedence `json:"precedence"`
 	Actions    []InputAction     `json:"actions"`
+	// Groups: the groups in the order the controls screen of the settings lists them (step 2), each with its heading
+	// (a ui.controls.* text); Listed false: not on that screen (a developer's keys). Every action's group is here once.
+	Groups []InputGroup `json:"groups,omitempty"`
+	// Summary: the settings card's line about the player's keys: Unchanged when none differs from the defaults,
+	// Changed («{n}»: how many actions differ) otherwise.
+	Summary *InputSummary `json:"summary,omitempty"`
 	// Hinted: the public texts that name a key as {key:<id>} or a button as {pad:<id>} (filled by the check); the client
 	// puts the current binding into exactly these.
 	Hinted []string `json:"hinted,omitempty"`
+}
+
+// InputGroup is one group of actions on the controls screen: its heading, and whether the screen lists it.
+type InputGroup struct {
+	ID     string        `json:"id"`
+	Label  InputKeyLabel `json:"label"`
+	Listed bool          `json:"listed"`
+}
+
+// InputSummary: the settings card's line about the player's keys (public texts of the catalog).
+type InputSummary struct {
+	Unchanged InputKeyLabel `json:"unchanged"`
+	Changed   InputKeyLabel `json:"changed"`
 }
 
 // InputPad is one gamepad button: its Godot JoyButton index and the label a hint shows.
@@ -232,6 +251,34 @@ func (a *InputActions) validate() error {
 				return fmt.Errorf("%s: pad:%s twice", field, pad)
 			}
 			own["pad:"+pad] = true
+		}
+	}
+	if len(a.Groups) > 0 {
+		listed := map[string]bool{}
+		for i, g := range a.Groups {
+			field := fmt.Sprintf("groups.%d", i)
+			if !inputGroups[g.ID] || listed[g.ID] {
+				return fmt.Errorf("%s.id: unknown or repeated group %q", field, g.ID)
+			}
+			listed[g.ID] = true
+			if !strings.HasPrefix(g.Label.Key, "ui.controls.") || g.Label.RU == "" || g.Label.EN == "" || g.Label.Context == "" {
+				return fmt.Errorf("%s.label: a ui.controls.* text with ru, en and context", field)
+			}
+		}
+		for _, one := range a.Actions {
+			if !listed[one.Group] {
+				return fmt.Errorf("actions.%s.group: %q is not in groups", one.ID, one.Group)
+			}
+		}
+	}
+	if m := a.Summary; m != nil {
+		for field, l := range map[string]InputKeyLabel{"unchanged": m.Unchanged, "changed": m.Changed} {
+			if !strings.HasPrefix(l.Key, "ui.controls.") || l.RU == "" || l.EN == "" || l.Context == "" {
+				return fmt.Errorf("summary.%s: a ui.controls.* text with ru, en and context", field)
+			}
+		}
+		if !strings.Contains(m.Changed.RU, "{n}") || !strings.Contains(m.Changed.EN, "{n}") {
+			return fmt.Errorf("summary.changed: the count {n} in ru and en")
 		}
 	}
 	for i, rule := range a.Precedence {
@@ -466,6 +513,20 @@ func checkInputActions(c *Compiled) error {
 		for _, locale := range c.Localization.Locales {
 			if texts[a.KeyLabels[name].Key][locale] == "" {
 				return fmt.Errorf("world.input_actions key_labels.%s: no %s text %s", name, locale, a.KeyLabels[name].Key)
+			}
+		}
+	}
+	more := map[string]string{}
+	for _, g := range a.Groups {
+		more["groups."+g.ID] = g.Label.Key
+	}
+	if a.Summary != nil {
+		more["summary.unchanged"], more["summary.changed"] = a.Summary.Unchanged.Key, a.Summary.Changed.Key
+	}
+	for _, field := range sortedScreenKeys(more) {
+		for _, locale := range c.Localization.Locales {
+			if texts[more[field]][locale] == "" {
+				return fmt.Errorf("world.input_actions %s: no %s text %s", field, locale, more[field])
 			}
 		}
 	}

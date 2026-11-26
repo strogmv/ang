@@ -9,7 +9,7 @@ import (
 )
 
 func TestGodotScreenHostCommandValidation(t *testing.T) {
-	for _, command := range []string{"host.open", "host.setting", "host.toggle", "host.close", "host.back", "host.main", "host.quit", "host.delete_save"} {
+	for _, command := range []string{"host.open", "host.setting", "host.toggle", "host.close", "host.back", "host.main", "host.quit", "host.delete_save", "host.controls_reset"} {
 		t.Run(command, func(t *testing.T) {
 			root, c, d := screenFixture(t)
 			a := c.GodotScreens.Screens[0].Controls[0].Children[0].Action
@@ -120,5 +120,32 @@ func TestGodotScreenSettingDirection(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "controls.take.action.params.direction: expected 1 or -1") {
 			t.Fatalf("direction %+v passed: %v", bad, err)
 		}
+	}
+}
+
+// Controls step 2: a screen reads the settings card's line about the player's keys as controls.summary (the input
+// table's summary through the runtime); the catalog then knows the input actions. Without the table's summary the
+// path is unknown.
+func TestGodotScreenControlsSummaryPath(t *testing.T) {
+	g := &screenCompiler{inputs: testInputActions()}
+	if _, err := g.path("controls.summary", ""); err == nil || !strings.Contains(err.Error(), "controls.summary needs world.input_actions.summary") {
+		t.Fatalf("no summary in the table: %v", err)
+	}
+	g.inputs.Summary = &InputSummary{Unchanged: testInputLabel("none"), Changed: InputKeyLabel{Key: "ui.controls.some", Context: "t", RU: "{n}", EN: "{n}"}}
+	p, err := g.path("controls.summary", "")
+	if err != nil || p.typ != "string" || p.expression != "Keys.summary()" {
+		t.Fatalf("controls.summary: %+v %v", p, err)
+	}
+	if _, err := g.path("controls.count", ""); err == nil {
+		t.Fatalf("an unknown controls path passed")
+	}
+	root, c, d := screenFixture(t)
+	c.InputActions = testInputActions()
+	out, err := compileGodotScreens(root, c, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), "const Keys=preload(\"res://generated/input_actions.gd\")") {
+		t.Fatalf("the catalog does not know the input actions")
 	}
 }

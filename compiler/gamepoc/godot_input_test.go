@@ -212,3 +212,74 @@ func TestInputActionsGodotOutput(t *testing.T) {
 		t.Fatalf("a setting in the input actions' section: %v", err)
 	}
 }
+
+// Controls step 2 (the game's design/controls/v2/BRIEF-SCREEN.md): the groups the controls screen lists, with their
+// headings, cover every action's group once; the settings card's summary counts in both languages; their texts are in
+// the catalog; the runtime resets every action at once, counts the changed ones, and lets a LineEdit's keys go when it
+// is no longer being edited.
+func TestInputGroupsAndSummary(t *testing.T) {
+	groups := func() []InputGroup {
+		out := []InputGroup{}
+		for _, id := range []string{"world", "choices", "combat", "hero_file", "inventory", "move", "developer"} {
+			out = append(out, InputGroup{ID: id, Label: testInputLabel("group_" + id), Listed: id != "developer"})
+		}
+		return out
+	}
+	summary := func() *InputSummary {
+		return &InputSummary{Unchanged: testInputLabel("summary_none"), Changed: InputKeyLabel{Key: "ui.controls.summary_some", Context: "test", RU: "Изменено: {n}", EN: "Changed: {n}"}}
+	}
+	a := testInputActions()
+	a.Groups, a.Summary = groups(), summary()
+	if err := a.validate(); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name, want string
+		mutate     func(*InputActions)
+	}{
+		{"a group missing", "actions.interact.group: \"world\" is not in groups", func(a *InputActions) { a.Groups = a.Groups[1:] }},
+		{"a group twice", "groups.1.id", func(a *InputActions) { a.Groups[1].ID = "world" }},
+		{"an unknown group", "groups.0.id", func(a *InputActions) { a.Groups[0].ID = "camera" }},
+		{"a heading", "groups.0.label", func(a *InputActions) { a.Groups[0].Label.Key = "ui.world" }},
+		{"the count", "summary.changed: the count", func(a *InputActions) { a.Summary.Changed.EN = "Changed" }},
+		{"a summary text", "summary.unchanged", func(a *InputActions) { a.Summary.Unchanged.RU = "" }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			a := testInputActions()
+			a.Groups, a.Summary = groups(), summary()
+			test.mutate(a)
+			if err := a.validate(); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("wanted %q: %v", test.want, err)
+			}
+		})
+	}
+	c := inputCatalogFixture()
+	c.InputActions.Groups, c.InputActions.Summary = groups(), summary()
+	if err := checkInputActions(&c); err == nil || !strings.Contains(err.Error(), "groups.choices: no ru text ui.controls.group_choices") {
+		t.Fatalf("a heading not in the catalog: %v", err)
+	}
+	for _, g := range c.InputActions.Groups {
+		c.Localization.Messages = append(c.Localization.Messages, LocalizationMessage{Key: g.Label.Key, Texts: map[string]string{"ru": g.Label.RU, "en": g.Label.EN}})
+	}
+	if err := checkInputActions(&c); err == nil || !strings.Contains(err.Error(), "summary.changed: no ru text") {
+		t.Fatalf("the summary not in the catalog: %v", err)
+	}
+	for _, l := range []InputKeyLabel{c.InputActions.Summary.Unchanged, c.InputActions.Summary.Changed} {
+		c.Localization.Messages = append(c.Localization.Messages, LocalizationMessage{Key: l.Key, Texts: map[string]string{"ru": l.RU, "en": l.EN}})
+	}
+	if err := checkInputActions(&c); err != nil {
+		t.Fatal(err)
+	}
+	out, err := compileGodotInput(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(out)
+	for _, want := range []string{"static func reset_all(file: ConfigFile) -> void:", "file.erase_section(SECTION)", "static func changed_count() -> int:",
+		"static func summary() -> String:", ".format({\"n\": n})", "return (focus as LineEdit).is_editing()", "\\\"groups\\\":[{\\\"id\\\":\\\"world\\\"",
+		"\\\"listed\\\":false"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing %s", want)
+		}
+	}
+}

@@ -454,6 +454,13 @@ func _process(delta: float) -> void:
 		_refresh()
 	navigation._process(delta)
 
+## A key or button changed (the input actions tell every node with this notification, as a language change does): the
+## screen is built again with the new binding in its hints, now if it is shown, else when it shows next.
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_TRANSLATION_CHANGED and is_node_ready():
+		last_signature = ""
+		refresh_pending = true
+
 func select_key(id: String, key: String, wanted: Variant) -> void:
 	var definition: Dictionary = elements.definition(id, spec.controls)
 	if definition.is_empty():
