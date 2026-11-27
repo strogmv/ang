@@ -762,6 +762,19 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 			return out, nil, fmt.Errorf("godot_settings: %w", err)
 		}
 	}
+	// Client-only profile data is not part of world.MarshalJSON or the server hash.
+	if render := w.LookupPath(cue.ParsePath("godot_render_profiles")); render.Exists() {
+		if err := render.Validate(cue.Concrete(true)); err != nil {
+			return out, nil, fmt.Errorf("godot_render_profiles: %w", err)
+		}
+		var overrides map[string]any
+		if err := render.Decode(&overrides); err != nil {
+			return out, nil, err
+		}
+		if err := applyGodotRenderProfiles(out.GodotSettings, overrides); err != nil {
+			return out, nil, err
+		}
+	}
 	if screens := world.LookupPath(cue.ParsePath("godot_screens")); screens.Exists() {
 		if err := screens.Decode(&out.GodotScreens); err != nil {
 			return out, nil, fmt.Errorf("godot_screens: %w", err)
