@@ -366,6 +366,9 @@ type Runtime struct {
  playableWorlds map[string]worldData
 	// Doc 96: combat panel options of the last decision point, and the barks cursor over combat events (memory only).
 	combatPanel combatPanelCache
+ combatProjectionPending bool
+ combatRays *combatRayMemo
+ combatProbes map[behavior.CombatAction]combatProbeResult
 	barkCombat  barkCombatCursor
 	// the hero's own view of his body this publish (appendWoundViews), read again by the chip HUD (memory only)
 	chipHudSelf *wounds.SelfView
@@ -977,6 +980,15 @@ func (r *Runtime) command(in input) {
 	case "combat":
 		err := r.combatCommand(m.GetCombatCommand())
 		r.action(c, id, action, slot, err)
+<<ANG if .CombatPace ANG>><<ANG if .CombatPace.V2 ANG>><<ANG if .ViewDelivery ANG>>
+  // The decision is already committed. Let the dedicated Player show it while
+  // complete current affordances are prepared; inputs remain server validated.
+  if err==nil&&c.playerPackage&&c.delivery!=nil&&r.state.Combat.Active{
+   r.combatProjectionPending=true
+   r.sendState(c)
+   r.combatProjectionPending=false
+  }
+<<ANG end ANG>><<ANG end ANG>><<ANG end ANG>>
 		r.sendState(c)
 	case "life":
 		err := r.lifeCommand(m.GetLifeCommand())

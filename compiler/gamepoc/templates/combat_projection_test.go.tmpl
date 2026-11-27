@@ -3,8 +3,16 @@
 package poc
 import (
  "testing"
+ "flag"
+ "os"
+ "path/filepath"
+ "encoding/json"
+ "sort"
+ pb "angelsdemons/server/internal/transport/grpc/pb/game/v1"
  "reflect"
+ "time"
  "angelsdemons/server/internal/behavior"
+ inv "angelsdemons/server/internal/inventory"
 )
 func TestCombatProjectionObservesEventsAtTheirOwnTime(t *testing.T){
  r,_,target:=combatLifeFixture(t,true)
@@ -21,4 +29,284 @@ func TestCombatProjectionObservesEventsAtTheirOwnTime(t *testing.T){
  seen:=0;for i,e:=range r.state.CombatPublicEvents{if e.Reason!=""||e.Sequence!=uint64(i+1){t.Fatal("private reason or sequence gap disclosed")};if e.ActorID==target{seen++}}
  if seen!=1||len(r.state.CombatPublicEvents)!=len(events)-1{t.Fatal("coming around the corner retroactively exposed an earlier hidden action",r.state.CombatPublicEvents)}
  saved:=append([]behavior.CombatEvent(nil),r.state.CombatPublicEvents...);r.capturePublicCombatEvents();if !reflect.DeepEqual(saved,r.state.CombatPublicEvents){t.Fatal("republication duplicated observed events")}
+}
+
+func paceProjectionGeometry()combatPlaybackGeometry{
+ return combatPlaybackGeometry{hero:behavior.DeckPointMM{X:-10000,Y:3000},surface:0,
+  locate:func(c behavior.Cell)(behavior.DeckPointMM,int,bool){return behavior.DeckPointMM{X:float64(c.X)*500,Y:float64(c.Y)*500},0,true},
+  visible:func(string,behavior.Cell)bool{return true},radius:func(string)(float64,bool){return 550,true}}
+}
+func TestCombatPaceIndependentTurns(t *testing.T) {
+ cfg:=paceProjectionGeometry()
+ groupsFor:=func(events []behavior.CombatEvent,turn int64)map[int64]int64{return combatPlaybackGroups(events,turn,cfg)}
+ move:=func(turn int64,id string,x,y int)[]behavior.CombatEvent{return []behavior.CombatEvent{{Type:"move",ActorID:id,Turn:turn,From:behavior.Cell{X:x,Y:y},To:behavior.Cell{X:x+1,Y:y}},{Type:"end",ActorID:id,Turn:turn}}}
+ base:=[]behavior.CombatEvent{};for i,id:=range []string{"npc.a","npc.b","npc.c","npc.d"}{base=append(base,move(int64(i+2),id,0,i*4)...)}
+ 
+ auto:=[]behavior.CombatEvent{};for _,e:=range base{if e.Type=="move"{auto=append(auto,e)}}
+ if len(groupsFor(auto,6))!=4{t.Fatal("AP-exhausted turns have no end event but must still overlap")}
+ if len(groupsFor(auto[:1],2))!=0{t.Fatal("current undecided turn must not overlap")}
+ before:=append([]behavior.CombatEvent(nil),base...)
+ got:=groupsFor(base,0)
+ if len(got)!=4 {t.Fatal("four independent turns must batch",got)}
+ for turn:=int64(2);turn<=5;turn++ {if got[turn]!=2 {t.Fatal("unstable batch",got)}}
+ if !reflect.DeepEqual(before,base)||!reflect.DeepEqual(got,groupsFor(base,0)){t.Fatal("projection mutated combat or is nondeterministic")}
+ for _,kind:=range []string{"attack","reaction","overwatch","fall_shift","stunned","equip","report","invalid"}{
+  events:=append([]behavior.CombatEvent(nil),base...);events[2].Type=kind
+  groups:=groupsFor(events,0);if groups[2]!=0||groups[3]!=0{t.Fatal("interaction must be a barrier",kind,groups)}
+ }
+ for _,test:=range []struct{name string;change func([]behavior.CombatEvent)}{
+  {"crossing paths",func(e []behavior.CombatEvent){e[2].From=e[0].To;e[2].To=e[0].From}},
+  {"nearby bodies",func(e []behavior.CombatEvent){e[2].From=behavior.Cell{X:0,Y:1};e[2].To=behavior.Cell{X:1,Y:1}}},
+  {"hero",func(e []behavior.CombatEvent){e[2].ActorID=playerActorID;e[3].ActorID=playerActorID}},
+  {"repeat actor",func(e []behavior.CombatEvent){e[2].ActorID=e[0].ActorID;e[3].ActorID=e[0].ActorID}},
+  {"target interaction",func(e []behavior.CombatEvent){e[2].TargetID="npc.a"}},
+  {"incomplete turn",func(e []behavior.CombatEvent){e[3].Type="move"}},
+ }{events:=append([]behavior.CombatEvent(nil),base...);test.change(events);if g:=groupsFor(events,0);g[2]!=0{t.Fatal(test.name,g)}}
+ if len(groupsFor([]behavior.CombatEvent{{Type:"end",ActorID:"npc.idle",Turn:2}},0))!=0{t.Fatal("idle turn must not create playback")}
+}
+
+
+var combatPaceReport=flag.String("combat-pace-report","","write the four-resident market fixture for native pace measurements")
+var combatPaceMacro=flag.String("combat-pace-macro","","profile ordinary successive market commands from slot3")
+func TestCombatPaceMarketMacro(t *testing.T){
+ if *combatPaceMacro==""{t.Skip("opt-in ordinary market command profile")}
+ r,c,foe:=knifeMarketFixture(t);r.data=*combatPaceMacro
+ saved,_,err:=r.readSave("slot3");if err!=nil{t.Fatal(err)};r.state=saved
+ c.out=make(chan *pb.ServerMessage,1024)
+<<ANG if .ViewDelivery ANG>> c.delivery=pb.NewViewProjector(&pb.ViewSubscription{StaticOnChange:true}) <<ANG end ANG>>
+ measure:=func(label string,run func()){start:=time.Now();run();t.Logf("PACE_MACRO %s %.6f",label,time.Since(start).Seconds())}
+ for round:=0;round<4&&r.state.Combat.Active;round++{
+  measure("options",func(){r.sendState(c)})
+  if round==0{measure("attack",func(){if err:=r.combatCommand(&pb.PocCombatCommand{Action:"attack",Mode:"quick",BodyPart:"chest",TargetId:foe,ExpectedTurn:r.state.Combat.Turn});err!=nil{t.Fatal(err)}})}
+  measure("end",func(){if err:=r.combatCommand(&pb.PocCombatCommand{Action:"end",ExpectedTurn:r.state.Combat.Turn});err!=nil{t.Fatal(err)}})
+  r.combatProjectionPending=true;measure("early",func(){r.sendState(c)});r.combatProjectionPending=false
+  measure("full",func(){r.sendState(c)})
+  measure("world_frame",func(){r.state.Tick++;if err:=r.advanceLifeFrameBy(r.state.Life.SecondsPerTick);err!=nil{t.Fatal(err)}})
+  measure("world_projection",func(){r.sendState(c)})
+  for len(c.out)>0{<-c.out}
+ }
+}
+func TestCombatPaceMarketFixture(t *testing.T){
+ if *combatPaceReport==""{t.Skip("opt-in market pacing fixture")}
+ r,c,foe:=knifeMarketFixture(t)
+ knife:=knifeOption(t,r);knifeHand(t,r,knife,playerActorID)
+ combatStart(t,r,c,foe)
+ if r.state.Combat.Current().ID!=playerActorID{t.Fatal("fixture must begin at a hero decision")}
+ hero:=r.state.Combat.Actor(playerActorID).Position
+ ids:=[]string{};for _,actor:=range r.state.Life.Actors{if actor.ID!=foe&&actor.ID!=playerActorID&&actor.Level==r.currentLevel()&&actor.OnFloor(){ids=append(ids,actor.ID)}};sort.Strings(ids)
+ chosen:=[]string{foe}
+ for _,id:=range ids{
+  if len(chosen)==4{break}
+  actor:=r.state.Life.Actor(id)
+  space:=r.combatSpace(r.state.Combat);found:=false
+  for radius:=4;radius<=10&&!found;radius++{for dy:=-radius;dy<=radius&&!found;dy++{for dx:=-radius;dx<=radius&&!found;dx++{
+   at:=behavior.Cell{X:hero.X+dx,Y:hero.Y+dy}
+   if at.X<0||at.Y<0||at.X>=space.Space.Width||at.Y>=space.Space.Height||!space.Space.Walkable(at)||space.Space.Blocked[at]{continue}
+   tile,ok:=space.Grid.Tile[at];if !ok{continue};occupied:=false
+   for _,other:=range r.state.Combat.Actors{if space.Grid.Tile[other.Position]==tile||behavior.Distance(other.Position,at)<3{occupied=true}}
+   if occupied{continue}
+   actor.Position,actor.Goal=at,at;actor.Path=nil;actor.PendingPath=nil;actor.Body=nil;actor.Trip=nil;actor.CombatHold=false
+   actor.Level=r.currentLevel()
+   if err:=r.joinCombat(id,"opposition");err!=nil{t.Fatal(id,err)}
+   chosen=append(chosen,id);found=true
+  }}}
+ }
+ if len(chosen)!=4{t.Fatal("four real market participants unavailable",chosen)}
+ r.syncCombatLife();r.updateLifeExploration()
+ if err:=os.MkdirAll(*combatPaceReport,0755);err!=nil{t.Fatal(err)}
+ r.data=*combatPaceReport
+ if err:=r.writeSave("slot3",r.snapshotState());err!=nil{t.Fatal(err)}
+ if _,_,err:=r.readSave("slot3");err!=nil{t.Fatal("strict fixture load",err)}
+ setup:=map[string]any{"level":r.currentLevel(),"foe":foe,"opponents":chosen,"seed":r.state.Seed,"content_hash":r.world.ContentHash,"initial_positions_only":true}
+ raw,_:=json.MarshalIndent(setup,"","  ");if err:=os.WriteFile(filepath.Join(*combatPaceReport,"setup.json"),raw,0644);err!=nil{t.Fatal(err)}
+ // Resolve the same ordinary end-turn command twice from a strict saved state.
+ initial:=r.snapshotState();var first []byte
+ for i:=0;i<2;i++{r.state=initial;r.state=r.snapshotState();result,state:=combatWire(t,r,c,&pb.PocCombatCommand{Action:"end",ExpectedTurn:r.state.Combat.Turn,RequestId:"pace-replay-"+string(rune(97+i))});if !result.Ok{t.Fatal(result.Message)};trace,_:=json.Marshal(state.Combat);if i==0{first=trace}else if string(trace)!=string(first){t.Fatal("pace projection is nondeterministic")}}
+ if err:=os.WriteFile(filepath.Join(*combatPaceReport,"phase.json"),first,0644);err!=nil{t.Fatal(err)}
+ // Obtain the last-AP boundary through ordinary posture commands, then save it.
+ r.state=initial;r.state=r.snapshotState()
+ cost,err:=r.combatTry(behavior.CombatAction{Type:"attack",Mode:"quick",BodyPart:"chest",TargetID:foe});if err!=nil||cost<1{t.Fatal("last-AP attack unavailable",cost,err)}
+ for n:=0;r.state.Combat.Actor(playerActorID).AP>cost&&n<2*r.world.CombatRuntime.Rules.APPerTurn;n++{
+  posture:="crouch";if r.state.Combat.Actor(playerActorID).Crouched{posture="stand"}
+  if err:=r.combatCommand(&pb.PocCombatCommand{Action:posture,ExpectedTurn:r.state.Combat.Turn});err!=nil{t.Fatal(err)}
+ }
+ if r.state.Combat.Current().ID!=playerActorID||r.state.Combat.Actor(playerActorID).AP!=cost{t.Fatal("postures did not reach exact last-AP boundary")}
+ if err:=r.writeSave("slot2",r.snapshotState());err!=nil{t.Fatal(err)}
+ if _,_,err:=r.readSave("slot2");err!=nil{t.Fatal("strict last-AP fixture",err)}
+
+}
+
+func TestCombatPaceFinishedEventsRemainPublic(t *testing.T){
+ r,_,foe:=knifeMarketFixture(t)
+ if err:=r.openCombat(playerActorID,foe,"player","opposition");err!=nil{t.Fatal(err)}
+ hero:=r.state.Combat.Actor(playerActorID)
+ r.state.CombatPublicEvents=[]behavior.CombatEvent{{Type:"attack",ActorID:playerActorID,TargetID:foe,From:hero.Position,To:r.state.Combat.Actor(foe).Position,Turn:r.state.Combat.Turn,Sequence:1}}
+ r.state.Combat.Active=false
+ view:=&pb.PocGameState{};r.appendCombat(view)
+ if view.Combat==nil||view.Combat.Active||len(view.Combat.Events)!=1||view.Combat.Events[0].Type!="attack"{t.Fatal("terminal hit disappeared from the wire",view.Combat)}
+}
+
+func TestCombatPaceProjectionSearchMatchesExecution(t *testing.T){
+ r,c,foe:=knifeMarketFixture(t);combatStart(t,r,c,foe)
+ snapshot:=r.snapshotState()
+ for _,searchBudget:=range []int{r.world.CombatRuntime.Rules.MaxSearchCells,1}{
+ r.world.CombatRuntime.Rules.MaxSearchCells=searchBudget
+ for ap:=1;ap<=r.world.CombatRuntime.Rules.APPerTurn;ap++{
+  r.state=snapshot;r.state=r.snapshotState();hero:=r.state.Combat.Actor(playerActorID);hero.AP=ap
+  target:=r.state.Combat.Actor(foe)
+  for _,away:=range []bool{false,true}{
+   before:=r.snapshotState()
+   fast,ok:=r.combatStepFiltered(hero,target,away,true)
+   legacy,oldOK:=r.combatStepFiltered(hero,target,away,false)
+   if fast!=legacy||ok!=oldOK{t.Fatalf("AP %d away %v: %v/%v differs from %v/%v",ap,away,fast,ok,legacy,oldOK)}
+   if !reflect.DeepEqual(before,r.state){t.Fatal("projection probe mutated the authoritative world")}
+  }
+ }
+ }
+}
+
+func TestCombatPaceOptionsKeepFullValidationAndNoStateMutation(t *testing.T){
+ r,c,foe:=knifeMarketFixture(t);combatStart(t,r,c,foe)
+ for _,locale:=range []string{"ru","en"}{
+  before,_:=json.Marshal(r.state)
+  fast:=r.combatOptionsProbed(locale,true);legacy:=r.combatOptionsProbed(locale,false)
+  if !reflect.DeepEqual(fast,legacy){t.Fatal("cached/negative-preflight options differ from complete execution probes",locale)}
+  after,_:=json.Marshal(r.state)
+  if string(before)!=string(after)||r.combatProbes!=nil{t.Fatal("projection changed state or retained an action cache")}
+ }
+}
+
+func TestCombatPaceInventoryQueriesMatchSortedWorld(t *testing.T){
+ r,_,foe:=knifeMarketFixture(t)
+ actors:=[]string{playerActorID,foe};for _,a:=range r.state.Life.Actors{if len(actors)<7{actors=append(actors,a.ID)}}
+ s:=r.state.Inventory;keys:=combatItemKeys(s)
+ for _,actor:=range actors{
+  var item inv.Item;var weapon behavior.CombatWeapon;found:=false
+  for _,slot:=range []string{"hand.main","hand.off"}{for _,id:=range keys{
+   i:=s.Items[id];w,known:=r.world.CombatRuntime.Weapons[i.Definition];d:=r.world.Inventory.Definitions[i.Definition]
+   if !known||i.Location.Store!=inv.ActorStore(actor)||i.Location.Slot!=slot||i.Condition<d.WearPerUse||d.WearPerUse<1||!r.combatCarried(s,actor,i){continue};item,weapon,found=i,w,true;break
+  };if found{break}}
+  got,w,ok:=r.equippedCombatItem(s,actor);if got!=item||!reflect.DeepEqual(w,weapon)||ok!=found{t.Fatal("hand query changed lexical selection",actor)}
+  defs:=append([]string(nil),r.woundAidItems()...);for _,w:=range r.world.CombatRuntime.Weapons{if w.AmmoDefinition!=""{defs=append(defs,w.AmmoDefinition)}}
+  for _,definition:=range defs{for _,filter:=range []func(inv.Item)bool{nil,func(i inv.Item)bool{return i.Location.Store==inv.ActorStore(actor)},func(i inv.Item)bool{return !r.combatLoadedContainer(s,i)}}{
+   want:=int64(0);for _,id:=range keys{i:=s.Items[id];if i.Owner==actor&&i.Definition==definition&&r.combatCarried(s,actor,i)&&(filter==nil||filter(i)){want+=i.Quantity;if want>1000000{want=1000000;break}}}
+   if got:=r.combatCount(s,actor,definition,filter);got!=int(want){t.Fatal("stock query changed",actor,definition,got,want)}
+  }}
+ }
+}
+
+func TestCombatPaceFlightSearchKeepsRefuge(t *testing.T){
+ r,c,foe:=knifeMarketFixture(t);combatStart(t,r,c,foe)
+ before,_:=json.Marshal(r.state);checked:=0
+ for _,actor:=range r.state.Life.Actors{
+  if actor.Level!=r.currentLevel()||!actor.OnFloor(){continue}
+  observer:=combatLifeObserver{ID:actor.ID,Level:actor.Level,At:actor.Position}
+  threat:=r.state.Combat.Actor(playerActorID).Position
+  fast:=r.combatFlightRefugeSearch(observer,threat,true);legacy:=r.combatFlightRefugeSearch(observer,threat,false)
+  if !reflect.DeepEqual(fast,legacy){t.Fatal("memo changed civilian refuge",observer.ID,fast,legacy)}
+  checked++;if checked==5{break}
+ }
+ after,_:=json.Marshal(r.state);if checked<3||string(before)!=string(after){t.Fatal("refuge check changed state or lacked observers",checked)}
+}
+
+func TestCombatPaceRayMemoMatchesGeometryAndGateChanges(t *testing.T){
+ r,_,foe:=knifeMarketFixture(t)
+ if err:=r.openCombat(playerActorID,foe,"player","opposition");err!=nil{t.Fatal(err)}
+ level:=r.currentLevel();v:=r.world.Decks[level];boxes:=r.illuminationBoxes(r.world.Illumination.Levels[level])
+ if v==nil||len(boxes)==0{t.Fatal("fixture lacks actual market geometry")}
+ hero:=r.state.Combat.Actor(playerActorID);enemy:=r.state.Combat.Actor(foe)
+ check:=func(volume *behavior.DeckVolume,geometry []behavior.DeckRayBox){
+  for _,prone:=range []bool{false,true}{
+   pose:=*hero;pose.Prone=prone;a:=v.BodyLightPoints(hero.Position,pose)
+   for dy:=-3;dy<=3;dy++{for dx:=-3;dx<=3;dx++{
+    at:=behavior.Cell{X:enemy.Position.X+dx,Y:enemy.Position.Y+dy};b:=v.BodyLightPoints(at,*enemy)
+    for i:=range a{for j:=range b{want:=volume.CombatRayClearMM(a[i],b[j],geometry)
+     if got:=r.combatRayClear(volume,a[i],b[j],geometry);got!=want{t.Fatal("cached directed ray differs",a[i],b[j])}
+     if got:=r.combatRayClear(volume,a[i],b[j],geometry);got!=want{t.Fatal("repeated ray differs")}
+    }}
+   }}
+  }
+ }
+ before,_:=json.Marshal(r.state)
+ check(v,boxes)
+ shifted:=append([]behavior.DeckRayBox(nil),boxes...);shifted[0].Min.Z+=200000;shifted[0].Max.Z+=200000
+ check(v,shifted);check(v,boxes)
+ other:=*v;check(&other,boxes)
+ if r.combatRays.Volume!=&other{t.Fatal("volume identity did not invalidate cache")}
+ after,_:=json.Marshal(r.state);if string(before)!=string(after){t.Fatal("ray cache changed authoritative state")}
+}
+
+<<ANG if .CombatPace ANG>><<ANG if .CombatPace.V2 ANG>>
+<<ANG if .ViewDelivery ANG>>
+func TestCombatPaceEarlyFrameOnlyDedicatedPlayer(t *testing.T){
+ r,c,foe:=knifeMarketFixture(t);combatStart(t,r,c,foe)
+ initial:=r.snapshotState();var firstWorld,firstCombat []byte
+ for _,dedicated:=range []bool{false,true}{
+  r.state=initial;r.state=r.snapshotState();c.playerPackage=dedicated;c.delivery=pb.NewViewProjector(&pb.ViewSubscription{})
+  id:="pace-generic";if dedicated{id="pace-player"}
+  q:=&pb.PocCombatCommand{Epoch:r.state.Epoch,RequestId:id,Action:"attack",Mode:"quick",BodyPart:"chest",TargetId:foe,ExpectedTurn:r.state.Combat.Turn}
+  r.command(input{client:c,msg:&pb.ClientMessage{Msg:&pb.ClientMessage_CombatCommand{CombatCommand:q}}})
+  var views []*pb.PocGameState;receipts:=0
+  for len(c.out)>0{m:=<-c.out;if a:=m.GetActionResult();a!=nil{receipts++;if !a.Ok{t.Fatal(a.Message)}};if v:=m.GetGameState();v!=nil{views=append(views,v)}}
+  want:=1;if dedicated{want=2};if receipts!=1||len(views)!=want{t.Fatal("wrong response count",dedicated,receipts,len(views))}
+  if dedicated&&!views[0].CombatOptionsPending{t.Fatal("missing dedicated early marker")};if views[len(views)-1].CombatOptionsPending{t.Fatal("full options stayed pending")}
+  world,_:=json.Marshal(r.state);combat,_:=json.Marshal(views[len(views)-1].Combat)
+  if !dedicated{firstWorld,firstCombat=world,combat}else if string(firstWorld)!=string(world)||string(firstCombat)!=string(combat){t.Fatal("extra early projection changed the authoritative world or full combat response")}
+ }
+}
+<<ANG end ANG>>
+func TestCombatPaceFastFrameKeepsWorldAndQueueIntentions(t *testing.T){
+ r,c,foe:=knifeMarketFixture(t);combatStart(t,r,c,foe)
+ before,_:=json.Marshal(r.state)
+ cached,_:=json.Marshal(r.combatPanel.options)
+ r.combatProjectionPending=true
+ msg:=&pb.PocGameState{};r.appendCombat(msg);r.appendCombatPanel(msg,"ru")
+ r.combatProjectionPending=false
+ if !msg.CombatOptionsPending||msg.Combat==nil||msg.Combat.GridCellMm<=0||len(msg.Combat.Options)==0{t.Fatal("missing immediate combat decision",msg.CombatOptionsPending)}
+ for _,intent:=range msg.Combat.Options{if !intent.Enabled||intent.ChancePermille!=0{t.Fatal("pending options must queue without a stale probability")}}
+ after,_:=json.Marshal(r.state);still,_:=json.Marshal(r.combatPanel.options)
+ if string(before)!=string(after)||string(cached)!=string(still){t.Fatal("fast projection mutated the world or validated cache")}
+ full:=&pb.PocGameState{};r.appendCombat(full);r.appendCombatPanel(full,"ru")
+ if full.CombatOptionsPending{t.Fatal("full affordances stayed pending")}
+}
+<<ANG end ANG>><<ANG end ANG>>
+
+func TestCombatPacePhysicalLanesAndVisibility(t *testing.T){
+ events:=[]behavior.CombatEvent{{Type:"move",ActorID:"a",Turn:2,From:behavior.Cell{X:0,Y:0},To:behavior.Cell{X:1,Y:0}},{Type:"end",ActorID:"a",Turn:2},{Type:"move",ActorID:"b",Turn:3,From:behavior.Cell{X:0,Y:6},To:behavior.Cell{X:1,Y:6}},{Type:"end",ActorID:"b",Turn:3}}
+ if got:=combatPlaybackGroups(events,4,paceProjectionGeometry());len(got)!=2{t.Fatal("separate visible physical lanes must overlap",got)}
+ for _,name:=range []string{"folded nav bands","different deck","stairs","height change","prone move","large body","occluded lane","sight sweep","unknown geometry"}{t.Run(name,func(t *testing.T){
+  cfg:=paceProjectionGeometry();locate:=cfg.locate
+  switch name{
+  case "folded nav bands":cfg.locate=func(c behavior.Cell)(behavior.DeckPointMM,int,bool){if c.Y==6{c.Y=0};return locate(c)}
+  case "different deck","stairs","height change":cfg.locate=func(c behavior.Cell)(behavior.DeckPointMM,int,bool){p,l,ok:=locate(c);if c.Y==6{switch name{case "different deck":l=1;case "stairs":l=-1;default:p.Z=500}};return p,l,ok}
+  case "prone move":cfg.radius=func(id string)(float64,bool){return 550,id!="b"}
+  case "large body":cfg.radius=func(id string)(float64,bool){if id=="b"{return 5000,true};return 550,true}
+  case "occluded lane":cfg.visible=func(id string,_ behavior.Cell)bool{return id!="b"}
+  case "sight sweep":cfg.hero=behavior.DeckPointMM{};cfg.locate=func(c behavior.Cell)(behavior.DeckPointMM,int,bool){if c.Y==0{return behavior.DeckPointMM{X:3000+float64(c.X)*500},0,true};return behavior.DeckPointMM{X:1500,Y:-2000+float64(c.X)*4000},0,true}
+  case "unknown geometry":cfg.locate=nil
+  }
+  if groups:=combatPlaybackGroups(events,4,cfg);len(groups)!=0{t.Fatal("ambiguous physical/visibility interaction was certified",groups)}
+ })}
+}
+func TestCombatPaceRealDeckStairsAndProne(t *testing.T){
+ r,_,_:=combatLifeFixture(t,true);level:=r.currentLevel();l:=r.world.Life.Locations[level];l.CellMM=500;l.Terrain=nil
+ for y:=0;y<44;y++{l.Terrain=append(l.Terrain,"................................")};r.world.Life.Locations[level]=l
+ v:=&behavior.DeckVolume{Schema:"ang.multideck.v1",PlanWidth:32,PlanDepth:20,NavWidth:32,NavDepth:44,EyeMM:1600,TargetMM:[]int{450,1100,1650},SightRangeCells:40,
+ Surfaces:[]behavior.DeckSurface{{ID:"base",Index:0,Walkable:true,Grounded:true,Slab:[]behavior.DeckRect{{X:0,Y:0,W:32,H:20}}},{ID:"gallery",Index:1,ElevationMM:3000,SlabMM:100,Walkable:true,NavRow:20,Slab:[]behavior.DeckRect{{X:0,Y:0,W:32,H:20}}}},
+ Connectors:[]behavior.DeckConnector{{ID:"stair",Nodes:[]behavior.DeckNode{{Nav:behavior.Cell{X:0,Y:41},Plan:behavior.Cell{X:6,Y:10},HeightMM:500},{Nav:behavior.Cell{X:0,Y:42},Plan:behavior.Cell{X:7,Y:10},HeightMM:1000}}}}}
+ if err:=v.Prepare();err!=nil{t.Fatal(err)};r.world.Decks[level]=v
+ a,b:=behavior.Cell{X:6,Y:10},behavior.Cell{X:16,Y:6}
+ events:=[]behavior.CombatEvent{{Type:"move",ActorID:"a",Turn:2,From:a,To:behavior.Cell{X:7,Y:10}},{Type:"end",ActorID:"a",Turn:2},{Type:"move",ActorID:"b",Turn:3,From:b,To:behavior.Cell{X:17,Y:6}},{Type:"end",ActorID:"b",Turn:3}}
+ r.state.Combat=behavior.CombatState{Active:true,LevelID:level,Turn:4,Events:events,Actors:[]behavior.Combatant{{ID:playerActorID,Position:behavior.Cell{X:2,Y:2}},{ID:"a",Position:events[0].To},{ID:"b",Position:events[2].To}}}
+ check:=func()map[int64]int64{return combatPlaybackGroups(r.state.Combat.Events,4,r.combatPlaybackGeometry())}
+ if g:=check();len(g)!=2{t.Fatal("flat real deck lanes should be certified",g)}
+ initial:=r.state.Combat.Clone()
+ r.state.Combat.Events[0].From=behavior.Cell{X:0,Y:41};r.state.Combat.Events[0].To=behavior.Cell{X:0,Y:42};r.state.Combat.Actor("a").Position=r.state.Combat.Events[0].To
+ if g:=check();len(g)!=0{t.Fatal("actual stair connector certified",g)}
+ r.state.Combat=initial.Clone();r.state.Combat.Actor("a").Prone=true
+ if g:=check();len(g)!=0{t.Fatal("prone movement certified",g)}
+ r.state.Combat=initial.Clone();r.state.Combat.Actors=append(r.state.Combat.Actors,behavior.Combatant{ID:"lying",Position:behavior.Cell{X:6,Y:14},Prone:true})
+ if g:=check();len(g)!=0{t.Fatal("standing width used for a lying body's physical extent",g)}
+ r.state.Combat=initial.Clone();r.state.Combat.Events[0].From.Y+=20;r.state.Combat.Events[0].To.Y+=20;r.state.Combat.Actor("a").Position=r.state.Combat.Events[0].To
+ if g:=check();len(g)!=0{t.Fatal("overlapping plan on another deck certified",g)}
 }

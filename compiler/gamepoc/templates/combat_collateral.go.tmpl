@@ -102,6 +102,27 @@ func(r *Runtime)applyAmbientCombatBlasts(previous behavior.CombatState)error{
  return nil
 }
 
+// Derived geometry only: exact volume, moving boxes and directed ray endpoints.
+// The cache is bounded and never saved. Any gate geometry change invalidates it;
+// pose changes are already represented by the actual world-space endpoints.
+type combatRayKey struct{From,To behavior.DeckPointMM}
+type combatRayMemo struct{
+ Volume *behavior.DeckVolume
+ Boxes []behavior.DeckRayBox
+ Rays map[combatRayKey]bool
+}
+func(r *Runtime)combatRayClear(v *behavior.DeckVolume,from,to behavior.DeckPointMM,boxes []behavior.DeckRayBox)bool{
+ if r.combatRays==nil{r.combatRays=&combatRayMemo{}}
+ cache:=r.combatRays
+ same:=cache.Volume==v&&len(cache.Boxes)==len(boxes)
+ if same{for i,box:=range boxes{if cache.Boxes[i]!=box{same=false;break}}}
+ if !same||len(cache.Rays)>=16384{
+  *cache=combatRayMemo{Volume:v,Boxes:append([]behavior.DeckRayBox(nil),boxes...),Rays:map[combatRayKey]bool{}}
+ }
+ key:=combatRayKey{from,to};if result,ok:=cache.Rays[key];ok{return result}
+ result:=v.CombatRayClearMM(from,to,boxes);cache.Rays[key]=result;return result
+}
+
 // The same authored moving leaf bounds serve visual/targeted body rays. The
 // AP executor, injury model and static ballistic material rules stay shared.
 func(r *Runtime)combatPoseProtection(level string,from,to behavior.Cell,a,b behavior.Combatant,part string)float64{
@@ -111,6 +132,6 @@ func(r *Runtime)combatPoseProtection(level string,from,to behavior.Cell,a,b beha
  eye:=v.BodyLightPoints(from,a)[2];if !a.Prone{eye.Z-=50}
  points:=v.BodyLightPoints(to,b);parts:=[]int{0,1,2};if part!=""{index:=1;if part=="head"{index=2}else if part=="legs"{index=0};parts=[]int{index}}
  boxes:=r.illuminationBoxes(c);blocked:=0
- for _,i:=range parts{if !v.CombatRayClearMM(eye,points[i],boxes){blocked++}}
+ for _,i:=range parts{if !r.combatRayClear(v,eye,points[i],boxes){blocked++}}
  return float64(blocked)/float64(len(parts))
 }

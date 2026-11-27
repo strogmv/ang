@@ -886,12 +886,15 @@ func (r *Runtime) combatFlightDanger(level string, threat, at behavior.Cell) boo
 }
 
 func (r *Runtime) combatFlightStep(s *behavior.LifeSafetyOverride, from, to behavior.Cell) bool {
-	if s.ThreatLevel == "" || s.Level != s.ThreatLevel || !r.combatFlightDanger(s.Level, s.ThreatAt, to) {
+ return r.combatFlightStepWithDanger(s,from,to,func(at behavior.Cell)bool{return r.combatFlightDanger(s.Level,s.ThreatAt,at)})
+}
+func (r *Runtime) combatFlightStepWithDanger(s *behavior.LifeSafetyOverride, from, to behavior.Cell,danger func(behavior.Cell)bool) bool {
+ if s.ThreatLevel == "" || s.Level != s.ThreatLevel || !danger(to) {
 		return true
 	}
 	// A witness already inside can seek the edge. Someone outside cannot re-enter.
 	// Equal distance steps let a walker pass a corner instead of freezing there.
-	return r.combatFlightDanger(s.Level, s.ThreatAt, from) &&
+	return danger(from) &&
 		r.combatWorldDistance(s.Level, to, s.ThreatAt) >= r.combatWorldDistance(s.Level, from, s.ThreatAt)
 }
 
@@ -939,6 +942,17 @@ func (r *Runtime) rememberFight(o combatLifeObserver, at behavior.Cell, actor, t
 // A work-only pocket belongs to the seller and must also provide actual cover.
 // With no reachable authored destination, wait at the first safe floor cell.
 func (r *Runtime) combatFlightRefuge(o combatLifeObserver, at behavior.Cell) behavior.LifeSafetyOverride {
+ return r.combatFlightRefugeSearch(o,at,true)
+}
+func (r *Runtime) combatFlightRefugeSearch(o combatLifeObserver, at behavior.Cell,cached bool) behavior.LifeSafetyOverride {
+ // Geometry, gates and the threat stay fixed throughout this one read-only BFS.
+ // Neighbour checks revisit the same cells many times; compute danger once.
+ dangerMemo:=map[behavior.Cell]bool{}
+ danger:=func(cell behavior.Cell)bool{
+  if cached{if value,ok:=dangerMemo[cell];ok{return value}}
+  value:=r.combatFlightDanger(o.Level,at,cell)
+  if cached{dangerMemo[cell]=value};return value
+ }
 	model := r.state.Life.GateModel(r.world.Life)
 	space := model.SpaceFor(o.Level, nil, o.ID)
 	safety := behavior.LifeSafetyOverride{Level: o.Level, ThreatLevel: o.Level, Goal: o.At, ThreatAt: at,
@@ -975,7 +989,7 @@ func (r *Runtime) combatFlightRefuge(o combatLifeObserver, at behavior.Cell) beh
 	covered := false
 	for head := 0; head < len(queue) && head < r.world.CombatLife.Flight.RouteCells; head++ {
 		cell := queue[head]
-		if !r.combatFlightDanger(o.Level, at, cell) && !claims[cell] && !blocked[cell] {
+		if !danger(cell) && !claims[cell] && !blocked[cell] {
 			concealed := r.combatWorldDistance(o.Level, cell, at) > r.world.CombatLife.SightRangeMM || !r.combatSight(o.Level, at, cell)
 			if !found || concealed && !covered {
 				safety.Goal, found, covered = cell, true, concealed
@@ -990,7 +1004,7 @@ func (r *Runtime) combatFlightRefuge(o combatLifeObserver, at behavior.Cell) beh
 			safety.Goal = cell
 		}
 		for _, next := range model.StepNeighbours(o.Level, cell) {
-			if seen[next] || !space.CanStand(next) || !r.combatFlightStep(&safety, cell, next) {
+			if seen[next] || !space.CanStand(next) || !r.combatFlightStepWithDanger(&safety, cell, next,danger) {
 				continue
 			}
 			seen[next] = true

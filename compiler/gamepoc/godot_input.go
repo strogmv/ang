@@ -590,6 +590,11 @@ func checkInputActions(c *Compiled) error {
 		}
 	}
 	if p := c.CombatPace; p != nil {
+		if p.V2 != nil {
+			if err := known("world.combat_pace.v2.hold_action", p.V2.HoldAction); err != nil {
+				return err
+			}
+		}
 		if err := known("world.combat_pace.action", p.Action); err != nil {
 			return err
 		}

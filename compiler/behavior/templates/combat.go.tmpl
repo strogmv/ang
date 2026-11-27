@@ -1283,6 +1283,15 @@ func (s CombatState) canAttackAction(space CombatSpace, r CombatRules, a, b Comb
 	valid := (!q.Held||action.Unnoticed) && ((q.Mode!="stun_blow"&&q.Mode!="chokehold"&&!q.Held)||space.AttackAngle!=nil&&space.AttackAngle(a,b)=="rear") && (len(a.Body)==0||a.BodyCanHold) && !a.Noncombatant && a.Able() && a.StunTurns == 0 && (b.Able() || action.Type=="assault"&&b.HP>0&&!b.Withdrawn&&!b.Prone) && a.Team != b.Team && a.Weapon.Damage > 0 && ap >= q.Cost && c != nil && c.Visible && space.ActorVisible(observer, b, r) && space.rangeMM(from, b.Position) <= reach && space.protection(from, b.Position, a, b, r.PhysicalPart(q.BodyPart)) < 1 && space.ballisticClear(from, b.Position, observer, b, r.PhysicalPart(q.BodyPart)) && !s.friendlyFire(space, r, from, a, b, planning, r.PhysicalPart(q.BodyPart))
 	return q, valid
 }
+// CanAttackAction is a negative-only preflight over an already observed state.
+// Execute calls the same canAttackAction rule; a positive UI probe still runs
+// the full host transaction with resources, reactions and wound consequences.
+func(s CombatState)CanAttackAction(space CombatSpace,r CombatRules,id string,action CombatAction)bool{
+ a:=s.Current();b:=s.Actor(action.TargetID);if a==nil||a.ID!=id||b==nil{return false}
+ actor:=*a;if actor.WeaponUsesRemaining>0{actor.WeaponUsesLimited=true}
+ _,ok:=s.canAttackAction(space,r,actor,*b,actor.Position,actor.AP,false,action)
+ return ok&&(space.ExecutionShotBlocked==nil||!space.ExecutionShotBlocked(actor.Position,b.Position))
+}
 func (s CombatState) canAttack(space CombatSpace, r CombatRules, a, b Combatant, from Cell, ap int, planning bool) bool {
 	_, ok := s.canAttackAction(space, r, a, b, from, ap, planning, CombatAction{Type: "attack"})
 	return ok

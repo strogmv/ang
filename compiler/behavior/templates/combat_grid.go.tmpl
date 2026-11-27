@@ -206,9 +206,12 @@ func(s CombatState) AttackReason(space CombatSpace,r CombatRules,actorID,targetI
 }
 // Reach costs are also used for the two movement tints. Keep AP for the selected
 // weapon's ordinary attack, including the mover's wound/suppression movement scale.
-func(s CombatState) MoveReachCosts(space CombatSpace,r CombatRules,id string)map[Cell]int{
- seen:=s.Clone();seen.Observe(space,r);a:=seen.Actor(id);out:=map[Cell]int{};if a==nil||!a.Able()||a.StunTurns>0||a.AP<1{return out}
- options,_:=seen.reachable(space,r,*a,a.AP,true);for _,p:=range options{out[p.At]=p.AP};return out
+func(s CombatState) MoveReachCosts(space CombatSpace,r CombatRules,id string)map[Cell]int{out,_:=s.MoveReachCostSearch(space,r,id);return out}
+// MoveReachCostSearch also reports whether the bounded observed search was cut.
+// A truncated preview cannot safely exclude a destination from execution probes.
+func(s CombatState) MoveReachCostSearch(space CombatSpace,r CombatRules,id string)(map[Cell]int,bool){
+ seen:=s.Clone();seen.Observe(space,r);a:=seen.Actor(id);out:=map[Cell]int{};if a==nil||!a.Able()||a.StunTurns>0||a.AP<1{return out,false}
+ options,cut:=seen.reachable(space,r,*a,a.AP,true);for _,p:=range options{out[p.At]=p.AP};return out,cut
 }
 
 // Planning sees only individually observed ambient bodies. Coarse occupancy must

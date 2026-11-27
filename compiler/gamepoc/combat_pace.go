@@ -16,7 +16,23 @@ import (
 // no pace can change an outcome. The two modes the owner named must both exist; the settings entry that holds the
 // choice offers exactly these modes, in this order, with the pace's default. Action is the input action
 // (world.input_actions) that switches the pace; its key is shown on the HUD's tile.
+type CombatPaceV2 struct {
+	NormalPhaseS   float64 `json:"normal_phase_s"`
+	FastPhaseS     float64 `json:"fast_phase_s"`
+	FastMoveMaxS   float64 `json:"fast_move_max_s"`
+	InputBacklogS  float64 `json:"input_backlog_s"`
+	NormalTurnS    float64 `json:"normal_turn_s"`
+	FastTurnS      float64 `json:"fast_turn_s"`
+	MoveMPS        float64 `json:"move_mps"`
+	MoveMaxS       float64 `json:"move_max_s"`
+	HoldMultiplier float64 `json:"hold_multiplier"`
+	HoldAction     string  `json:"hold_action"`
+	CameraMargin   float64 `json:"camera_margin"`
+	StrikeImpactS  float64 `json:"strike_impact_s"`
+}
+
 type CombatPace struct {
+	V2           *CombatPaceV2      `json:"v2,omitempty"`
 	Default      string             `json:"default"`
 	Modes        []CombatPaceMode   `json:"modes"`
 	Setting      string             `json:"setting"`
@@ -166,6 +182,11 @@ func (p CombatPace) mode(id string) (CombatPaceMode, bool) {
 }
 
 func (p CombatPace) validate() error {
+	if v := p.V2; v != nil {
+		if v.NormalPhaseS <= 0 || v.NormalPhaseS > 5 || v.FastPhaseS <= 0 || v.FastPhaseS > 2.5 || v.FastPhaseS > v.NormalPhaseS || v.InputBacklogS <= 0 || v.InputBacklogS >= 0.5 || v.NormalTurnS <= 0 || v.NormalTurnS > 1.25 || v.FastTurnS <= 0 || v.FastTurnS > 0.625 || v.FastTurnS > v.NormalTurnS || v.MoveMPS <= 0 || v.MoveMPS > 4 || v.MoveMaxS <= 0 || v.MoveMaxS > 0.5 || v.FastMoveMaxS <= 0 || v.FastMoveMaxS > v.MoveMaxS || v.HoldMultiplier < 2 || v.HoldMultiplier > 3 || v.HoldAction == "" || v.CameraMargin <= 0 || v.CameraMargin >= 0.5 || v.StrikeImpactS <= 0 || v.StrikeImpactS >= 1 {
+			return fmt.Errorf("v2: invalid turn, movement, hold or camera budget")
+		}
+	}
 	if len(p.Modes) != len(combatPaceModes) {
 		return fmt.Errorf("modes: want exactly %v, got %d", combatPaceModes, len(p.Modes))
 	}

@@ -400,7 +400,7 @@ func (r *Runtime) advanceCombatAI() error {
 }
 func (r *Runtime) combatCommand(q *pb.PocCombatCommand) error {
  if !r.heroInCombat()&&q.Action=="stand"{
-  trial:=&Runtime{world:r.world,state:r.snapshotState(),npcAccountIDs:r.npcAccountIDs};c,ok:=trial.state.CombatRoster[playerActorID]
+  trial:=&Runtime{world:r.world,state:r.snapshotState(),npcAccountIDs:r.npcAccountIDs,combatRays:r.combatRays};c,ok:=trial.state.CombatRoster[playerActorID]
   if !ok||!c.Prone||!c.BodyCanStand||c.Surrendered{return textError{Key:"error.combat_actor_inactive"}}
   cost:=trial.world.CombatRuntime.Rules.GetUpAP;if cost<1||cost>trial.world.CombatRuntime.Rules.APPerTurn{return textError{Key:"error.combat_invalid_action"}}
   if err:=trial.advanceLifeFrameBy(int64(cost));err!=nil{return err};c=trial.state.CombatRoster[playerActorID];if !c.BodyCanStand{return textError{Key:"error.combat_actor_inactive"}}
@@ -410,7 +410,7 @@ func (r *Runtime) combatCommand(q *pb.PocCombatCommand) error {
  }
 
 	if !r.heroInCombat()&&(q.Action=="aid"||q.Action=="aid_continue"||q.Action=="bandage"||q.Action=="heal"){
- trial:=&Runtime{world:r.world,state:r.snapshotState(),npcAccountIDs:r.npcAccountIDs}
+ trial:=&Runtime{world:r.world,state:r.snapshotState(),npcAccountIDs:r.npcAccountIDs,combatRays:r.combatRays}
  act:=behavior.CombatAction{Type:q.Action,Mode:q.Mode,ItemID:q.ItemId,TargetID:q.TargetId};if q.Action=="bandage"||q.Action=="heal"{act.TargetID="";act.Mode="dressing";if q.Action=="heal"{act.Mode="medkit";act.ItemID="item.medkit_guard"}}
  if err:=trial.performWoundAid(playerActorID,act,false);err!=nil{return err};r.state=trial.state;return nil
  }
@@ -466,14 +466,15 @@ func (r *Runtime) combatMove(c *connection, m *pb.MoveTo) {
 // Commit the tactical action and physical equipment wear together. A rejected
 // use leaves HP/AP, random counter and the inventory transaction cursor intact.
 func (r *Runtime) commitCombat(candidate behavior.CombatState) error {
- trial:=&Runtime{world:r.world,state:r.snapshotState(),npcAccountIDs:r.npcAccountIDs}
+ trial:=&Runtime{world:r.world,state:r.snapshotState(),npcAccountIDs:r.npcAccountIDs,combatRays:r.combatRays}
  if err:=trial.commitCombatDraft(candidate,r.state.Combat.Clone(),nil);err!=nil{return err}
  r.state=trial.state;return nil
 }
 
 func(r *Runtime)performCombatAction(actor string,action *behavior.CombatAction)error{
+ if r.combatRays==nil{r.combatRays=&combatRayMemo{}}
  previous:=r.state.Combat.Clone()
- trial:=&Runtime{world:r.world,state:r.snapshotState(),npcAccountIDs:r.npcAccountIDs}
+ trial:=&Runtime{world:r.world,state:r.snapshotState(),npcAccountIDs:r.npcAccountIDs,combatRays:r.combatRays}
  if !trial.state.Combat.GridReady{if err:=trial.state.Combat.ResolveGridConflicts(trial.combatSpace(trial.state.Combat),trial.world.CombatRuntime.Rules);err==nil{trial.syncCombatLife();previous=trial.state.Combat.Clone()}}
  if action==nil{draft:=previous.Clone();decision:=draft.Decide(trial.combatSpace(draft),trial.world.CombatRuntime.Rules);if decision.Chosen.Action.Type=="aid"||decision.Chosen.Action.Type=="aid_continue"{q:=decision.Chosen.Action;action=&q;actor=draft.Current().ID}}
  if action!=nil&&(action.Type=="aid"||action.Type=="aid_continue"||action.Type=="bandage"||action.Type=="heal"){
@@ -612,7 +613,7 @@ func (r *Runtime) appendCombat(msg *pb.PocGameState) {
    if a.ID!=playerActorID&&!r.combatTargetVisible(a){continue}
    view.Actors=append(view.Actors,r.combatActorView(a,a.ID==playerActorID))
   }
-  msg.Combat=view;return
+  r.appendCombatPlayback(view);msg.Combat=view;return
  }
 	if a := s.Current(); a != nil {
 		if a.ID == playerActorID || r.combatTargetVisible(*a) {
@@ -625,10 +626,14 @@ func (r *Runtime) appendCombat(msg *pb.PocGameState) {
 		}
 view.Actors=append(view.Actors,r.combatActorView(a,a.ID==playerActorID))
 	}
-	for _, e := range r.state.CombatPublicEvents {
-		view.Events = append(view.Events, &pb.PocCombatEvent{Type: e.Type,Mode:e.Mode, ActorId: e.ActorID, TargetId: e.TargetID, FromX: int32(e.From.X), FromY: int32(e.From.Y), ToX: int32(e.To.X), ToY: int32(e.To.Y), Amount: int32(e.Amount), Hit: e.Hit, Turn: e.Turn, Sequence: e.Sequence,BodyPart:e.BodyPart,ItemId:e.ItemID})
-	}
+	r.appendCombatPlayback(view)
 	msg.Combat = view
+}
+func(r *Runtime)appendCombatPlayback(view *pb.PocCombatView){
+	groups:=combatPlaybackGroups(r.state.Combat.Events,r.state.Combat.Turn,r.combatPlaybackGeometry())
+	for _, e := range r.state.CombatPublicEvents {
+		view.Events = append(view.Events, &pb.PocCombatEvent{PlaybackGroup:groups[e.Turn],Type: e.Type,Mode:e.Mode, ActorId: e.ActorID, TargetId: e.TargetID, FromX: int32(e.From.X), FromY: int32(e.From.Y), ToX: int32(e.To.X), ToY: int32(e.To.Y), Amount: int32(e.Amount), Hit: e.Hit, Turn: e.Turn, Sequence: e.Sequence,BodyPart:e.BodyPart,ItemId:e.ItemID})
+	}
 }
 func (r *Runtime) validateCombatSave(s state) error {
  if s.CombatLifeSync.EncounterID!=""&&(s.CombatLifeSync.EncounterID!=s.Combat.ID||s.CombatLifeSync.Sequence>s.Combat.EventSeq){return errors.New("invalid encounter Life synchronization cursor")}

@@ -407,14 +407,14 @@ func _act(action: Dictionary, row: C.ProtoMessage = null, always := false) -> vo
 			_close()
 		return
 	# a screen's close always reaches the server (a talk holds the world until it hears it), even with an answer in flight
-	if state == null or busy and not always:
+	if state == null or busy and not always and screen_id != "combat":
 		return
 	var request := "screen-%d" % Time.get_ticks_usec()
 	var command := Catalog.command(action.ref, state, row, selected, request)
 	last_refusal = ""
 	if is_instance_valid(status):
 		status.hide()
-	busy = true
+	busy = screen_id != "combat"
 	if host != null:
 		host.send(command)
 	command_sent.emit(request, command)

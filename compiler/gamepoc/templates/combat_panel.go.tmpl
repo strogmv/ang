@@ -11,6 +11,9 @@ import (
 	"strconv"
 	"strings"
  "errors"
+// <<ANG if .CombatPace ANG>><<ANG if .CombatPace.V2 ANG>>
+ "google.golang.org/protobuf/proto"
+// <<ANG end ANG>><<ANG end ANG>>
 
 	"angelsdemons/server/internal/behavior"
 	pb "angelsdemons/server/internal/transport/grpc/pb/game/v1"
@@ -55,11 +58,7 @@ func (r *Runtime) appendCombatPanel(msg *pb.PocGameState, locale string) {
 	s := &r.state.Combat
 	// The decisive blow resolves the encounter inside the same command. Its public events stay on this level so the
 	// client can still show what already happened; positions of the finished encounter are not republished.
-	if !s.Active && s.ID != "" && s.LevelID == r.currentLevel() && len(view.Events) == 0 {
-		for _, e := range r.state.CombatPublicEvents {
-			view.Events = append(view.Events, &pb.PocCombatEvent{Type: e.Type,Mode:e.Mode, ActorId: e.ActorID, TargetId: e.TargetID, FromX: int32(e.From.X), FromY: int32(e.From.Y), ToX: int32(e.To.X), ToY: int32(e.To.Y), Amount: int32(e.Amount), Hit: e.Hit, Turn: e.Turn, Sequence: e.Sequence, BodyPart: e.BodyPart, ItemId: e.ItemID})
-		}
-	}
+
 	if len(view.Events) == len(r.state.CombatPublicEvents) {
 		for i, e := range r.state.CombatPublicEvents {
 			if view.Events[i].Sequence == e.Sequence {
@@ -95,6 +94,21 @@ func (r *Runtime) appendCombatPanel(msg *pb.PocGameState, locale string) {
 		return
 	}
 	view.TurnAp = int32(r.world.CombatRuntime.Rules.APPerTurn)
+ view.GridCellMm=int32(r.world.CombatRuntime.Rules.Grid.CellMM)
+<<ANG if .CombatPace ANG>><<ANG if .CombatPace.V2 ANG>>
+ if r.combatProjectionPending{
+  msg.CombatOptionsPending=true
+  view.Tiles=r.combatPanel.tiles;view.ReachX=r.combatPanel.reachX;view.ReachY=r.combatPanel.reachY
+  // These are explicitly input intentions, not a fresh promise of availability.
+  // The subsequent projection still executes every option on a full world copy.
+  for _,option:=range r.combatPanel.options{
+   intent:=proto.Clone(option).(*pb.PocCombatOption)
+   intent.Enabled=true;intent.Reason="";intent.ChancePermille=0;intent.TacticalReason=""
+   view.Options=append(view.Options,intent)
+  }
+  return
+ }
+<<ANG end ANG>><<ANG end ANG>>
 	key := fmt.Sprintf("%s|%d|%d|%d|%d|%t|%s", s.ID, s.EventSeq, s.Turn, hero.AP, hero.ReservedAP, r.state.Paused, r.validLocale(locale))
 	if r.combatPanel.key != key {
 		r.combatPanel = combatPanelCache{key: key, options: r.combatOptions(r.validLocale(locale))}
@@ -155,12 +169,35 @@ func (r *Runtime) combatPreview(c *connection, q *pb.PocCombatPreview) {
 func (r *Runtime) combatTry(action behavior.CombatAction) (int,error){
  ap,_,err:=r.combatTryDestination(action);return ap,err
 }
-func (r *Runtime) combatTryDestination(action behavior.CombatAction) (int,behavior.Cell,error){
- trial:=&Runtime{world:r.world,state:r.snapshotState(),npcAccountIDs:r.npcAccountIDs};before:=trial.state.Combat.Actor(playerActorID);if before==nil{return 0,behavior.Cell{},fmt.Errorf("missing hero")};ap:=before.AP;beforeSeq:=trial.state.Combat.EventSeq
+type combatProbeResult struct{AP int;At behavior.Cell;Err error}
+func (r *Runtime) combatTryDestination(action behavior.CombatAction) (cost int,destination behavior.Cell,resultErr error){
+ // This memo lives only during one immutable HUD projection. A new command,
+ // world tick or options projection can never reuse these hypothetical results.
+ if memo:=r.combatProbes;memo!=nil{
+  if old,ok:=memo[action];ok{return old.AP,old.At,old.Err}
+  defer func(){
+   value:=combatProbeResult{cost,destination,resultErr};memo[action]=value
+   if resultErr==nil&&action.Type=="move"&&r.state.Combat.GridReady{
+    hero:=r.state.Combat.Actor(playerActorID);space:=r.combatSpace(r.state.Combat)
+    if hero!=nil&&space.Grid!=nil&&r.state.Combat.SnapCombatCell(space,r.world.CombatRuntime.Rules,*hero,action.To,false)==destination{
+     canonical:=action;canonical.To=destination;memo[canonical]=value
+    }
+   }
+  }()
+ }
+ // performCombatAction creates and commits its own full transaction. The outer
+ // preview wrapper needs only a value copy; cloning here duplicated every world
+ // snapshot for every HUD option. The real transaction still validates everything.
+ if r.combatRays==nil{r.combatRays=&combatRayMemo{}}
+ trial:=&Runtime{world:r.world,state:r.state,npcAccountIDs:r.npcAccountIDs,combatRays:r.combatRays};before:=trial.state.Combat.Actor(playerActorID);if before==nil{return 0,behavior.Cell{},fmt.Errorf("missing hero")};ap:=before.AP;beforeSeq:=trial.state.Combat.EventSeq
  if err:=trial.performCombatAction(playerActorID,&action);err!=nil{return 0,behavior.Cell{},err};spent:=0;found:=false;for _,e:=range trial.state.Combat.Events{if e.Sequence>beforeSeq&&e.ActorID==playerActorID&&(e.Type==action.Type||action.Type=="aid"&&e.Type=="bandage"||action.Type=="aid_continue"&&e.Type=="bandage"){spent+=e.AP;found=true}};after:=trial.state.Combat.Actor(playerActorID);at:=behavior.Cell{};if after!=nil{at=after.Position};if found{return spent,at,nil};if after!=nil{return max(0,ap-after.AP),at,nil};return 0,at,nil
 }
 
-func (r *Runtime) combatOptions(locale string) []*pb.PocCombatOption {
+func(r *Runtime)combatOptions(locale string)[]*pb.PocCombatOption{return r.combatOptionsProbed(locale,true)}
+func (r *Runtime) combatOptionsProbed(locale string,fast bool) []*pb.PocCombatOption {
+ oldMemo:=r.combatProbes
+ if fast{r.combatProbes=map[behavior.CombatAction]combatProbeResult{}}
+ defer func(){r.combatProbes=oldMemo}()
 	s := &r.state.Combat
 	hero := s.Actor(playerActorID)
 	rules := r.world.CombatRuntime.Rules
@@ -175,6 +212,7 @@ func (r *Runtime) combatOptions(locale string) []*pb.PocCombatOption {
 		return m
 	}
 	current := s.Current()
+ attackSpace:=r.combatSpace(*s);attackState:=s.Clone();attackState.Observe(attackSpace,rules)
 	ready := current != nil && current.ID == playerActorID && !r.state.Paused && hero.Able() && hero.StunTurns == 0
 	needAP := func(need int) string {
 		return text("error.combat.need_ap", "{need}", strconv.Itoa(need), "{have}", strconv.Itoa(hero.AP))
@@ -188,7 +226,8 @@ func (r *Runtime) combatOptions(locale string) []*pb.PocCombatOption {
 		case action.Type == "end":
 			o.Enabled = true
 		default:
-			ap, err := r.combatTry(action)
+			var ap int;var err error
+   if fast&&s.GridReady&&action.Type=="attack"&&!attackState.CanAttackAction(attackSpace,rules,playerActorID,action){err=fmt.Errorf("attack unavailable")}else{ap,err=r.combatTry(action)}
 			if err == nil {
 				o.Enabled, o.Ap = true, int32(ap)
 			} else if nominal > hero.AP {
@@ -406,7 +445,9 @@ func (r *Runtime) combatBand(c *behavior.Combatant) (int, int) {
 // combatStep picks a destination the ordinary executor accepts this turn: at striking distance of the target, inside the
 // weapon's spacing band when one is reachable (approach), or as far as possible from it (retreat). Candidates are cells
 // on rays from the hero; each is checked on a copy of the encounter.
-func (r *Runtime) combatStep(hero *behavior.Combatant, target *behavior.Combatant, away bool) (behavior.Cell, bool) {
+func (r *Runtime) combatStep(hero *behavior.Combatant,target *behavior.Combatant,away bool)(behavior.Cell,bool){return r.combatStepFiltered(hero,target,away,true)}
+
+func (r *Runtime) combatStepFiltered(hero *behavior.Combatant, target *behavior.Combatant, away bool,filter bool) (behavior.Cell, bool) {
 	unit := r.world.Life.Locations[r.state.Combat.LevelID].CellMM
 	if unit < 1 {
 		unit = 1000
@@ -460,9 +501,24 @@ func (r *Runtime) combatStep(hero *behavior.Combatant, target *behavior.Combatan
 		}
 	}
 	space:=r.combatSpace(r.state.Combat)
+ // One observed reach search rejects destinations which the same executor
+ // cannot possibly reach. Positive candidates still run the full transaction,
+ // including physical occupancy, reactions and wound/resource effects.
+ canReach:=map[behavior.Cell]bool{}
+ if filter&&r.state.Combat.GridReady {
+  costs,cut:=r.state.Combat.MoveReachCostSearch(space,rules,hero.ID)
+  if cut{filter=false}
+  for at:=range costs{
+   if space.Grid!=nil{canReach[space.Grid.Tile[at]]=true}else{canReach[at]=true}
+  }
+  // The metre grid permits a physical contact adjustment inside the own tile.
+  // Those anchors must reach the executor even when the coarse search stays put.
+  if space.Grid!=nil{canReach[space.Grid.Tile[hero.Position]]=true}
+ }
  sort.SliceStable(list, func(i,j int)bool{if list[i].score!=list[j].score{return list[i].score<list[j].score};if space.PositionTie!=nil{return space.PositionTie(*hero,list[i].at)<space.PositionTie(*hero,list[j].at)};return false})
 	now := r.combatDistance(hero.Position, target.Position)
 	for n, c := range list {
+  if filter&&r.state.Combat.GridReady {key:=c.at;if space.Grid!=nil{var ok bool;key,ok=space.Grid.Tile[c.at];if !ok{continue}};if !canReach[key]{continue}}
 		if n >= 200 {
 			break
 		}

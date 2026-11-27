@@ -31,7 +31,10 @@ func (r *Runtime) combatCarried(s inv.State,actor string,item inv.Item) bool {
 
 func (r *Runtime) equippedCombatItem(s inv.State,actor string) (inv.Item,behavior.CombatWeapon,bool) {
 	for _,slot:=range []string{"hand.main","hand.off"}{
-	for _,id:=range combatItemKeys(s) {
+	// Sorting the world's stock for each hand dominated full HUD probes. Only
+	// this exact slot can win; preserve the original lexical tie breaker.
+	ids:=[]string{};for id,i:=range s.Items{if i.Location.Store==inv.ActorStore(actor)&&i.Location.Slot==slot{ids=append(ids,id)}};sort.Strings(ids)
+	for _,id:=range ids {
 		i:=s.Items[id];w,known:=r.world.CombatRuntime.Weapons[i.Definition];d:=r.world.Inventory.Definitions[i.Definition]
 		if !known||i.Location.Store!=inv.ActorStore(actor)||i.Location.Slot!=slot||i.Condition<d.WearPerUse||d.WearPerUse<1||!r.combatCarried(s,actor,i){continue}
 		return i,w,true
@@ -82,8 +85,8 @@ func (r *Runtime) combatLoadedContainer(s inv.State,item inv.Item) bool {
 
 func (r *Runtime) combatCount(s inv.State,actor,definition string,filter func(inv.Item)bool) int {
 	n:=int64(0)
-	for _,id:=range combatItemKeys(s) {
-		i:=s.Items[id]
+	// Quantities are positive; the bounded sum is independent of traversal.
+	for _,i:=range s.Items {
 		if i.Owner==actor&&i.Definition==definition&&r.combatCarried(s,actor,i)&&(filter==nil||filter(i)){n+=i.Quantity;if n>1000000{return 1000000}}
 	}
 	return int(n)
