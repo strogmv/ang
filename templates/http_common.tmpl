@@ -526,6 +526,15 @@ func captureRawBody(r *http.Request) *http.Request {
 	return r.WithContext(reqctx.WithRawBody(r.Context(), raw))
 }
 
+// isFormURLEncoded reports whether the request carries an
+// application/x-www-form-urlencoded body (payment-provider webhooks such as
+// Data=...&Signature=...). A raw-body operation reads the captured bytes
+// itself, so the JSON decode is skipped for such a request.
+func isFormURLEncoded(r *http.Request) bool {
+	mediatype, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	return err == nil && mediatype == "application/x-www-form-urlencoded"
+}
+
 func decodeJSONRequest(r *http.Request, out interface{}) error {
 	if r.Body == nil {
 		return io.EOF
