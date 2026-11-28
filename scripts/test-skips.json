@@ -1,0 +1,878 @@
+[
+  {
+    "key": "cmd/ang/build_csharp_test.go:TestRenderCSharpFilesWithProtoc:3ca8ae363414c0a4:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for cmd/ang/build_csharp_test.go:TestRenderCSharpFilesWithProtoc: t.Skip(\"protoc not installed\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "cmd/ang/build_scratch_sweep_test.go:TestBuildTransactionRecordsOwnerAndSweepsAbandonedScratch:bd5fd3511c99cce2:1",
+    "category": "platform",
+    "reason": "The OS cannot represent the tested process/permission semantics: t.Skip(\"liveness is not probed on windows\")",
+    "status": "allowed"
+  },
+  {
+    "key": "cmd/ang/build_scratch_sweep_test.go:TestSweepAbandonedBuildScratch:29a5c8fcb4012189:1",
+    "category": "platform",
+    "reason": "The OS cannot represent the tested process/permission semantics: t.Skip(\"liveness is not probed on windows; every owner counts as alive\")",
+    "status": "allowed"
+  },
+  {
+    "key": "cmd/ang/build_scratch_sweep_test.go:exitedProcessPID:8aedbed1eea56c3d:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for cmd/ang/build_scratch_sweep_test.go:exitedProcessPID: t.Skipf(\"cannot start a short-lived process: %v\", err). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "cmd/ang/build_transaction_test.go:TestBuildTransactionCommitRestoresProjectWhenPublishFails:4bd29fdf6582248d:1",
+    "category": "platform",
+    "reason": "The OS cannot represent the tested process/permission semantics: t.Skip(\"relies on a read-only directory refusing writes, which windows and root ignore\")",
+    "status": "allowed"
+  },
+  {
+    "key": "cmd/ang/init_templates/common/tests/contract/contract_test.go:TestContractPlaceholder:df6ebe4e85604e31:1",
+    "category": "scaffold",
+    "reason": "Inactive init template placeholder; generated real contract tests replace it. Not an ANG fixture.",
+    "status": "allowed"
+  },
+  {
+    "key": "cmd/ang/managed_fields_build_test.go:TestMappingABodyOntoALoadedRowKeepsProtectedFields:c4eb819fa01ab9b1:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for cmd/ang/managed_fields_build_test.go:TestMappingABodyOntoALoadedRowKeepsProtectedFields: t.Skip(\"go not on PATH\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "cmd/ang/managed_fields_build_test.go:TestMappingABodyOntoALoadedRowKeepsProtectedFields:d9603c7dc69c2849:1",
+    "category": "short-mode",
+    "reason": "Explicit testing.Short gate for the expensive integration scenario cmd/ang/managed_fields_build_test.go:TestMappingABodyOntoALoadedRowKeepsProtectedFields. Full go test -count=1 does not use -short.",
+    "status": "allowed"
+  },
+  {
+    "key": "cmd/ang/metrics_port_build_test.go:TestMetricsLeaveTheAPIPort:c4eb819fa01ab9b1:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for cmd/ang/metrics_port_build_test.go:TestMetricsLeaveTheAPIPort: t.Skip(\"go not on PATH\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "cmd/ang/metrics_port_build_test.go:TestMetricsLeaveTheAPIPort:d9603c7dc69c2849:1",
+    "category": "short-mode",
+    "reason": "Explicit testing.Short gate for the expensive integration scenario cmd/ang/metrics_port_build_test.go:TestMetricsLeaveTheAPIPort. Full go test -count=1 does not use -short.",
+    "status": "allowed"
+  },
+  {
+    "key": "cmd/ang/output_selfcheck_test.go:TestSameResolvedPathAcceptsSymlinkAlias:c876675407ae2525:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for cmd/ang/output_selfcheck_test.go:TestSameResolvedPathAcceptsSymlinkAlias: t.Skipf(\"symlinks unavailable: %v\", err). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "cmd/ang/rawgo_scope_build_test.go:TestRawGoCodeRunsInItsOwnScope:c4eb819fa01ab9b1:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for cmd/ang/rawgo_scope_build_test.go:TestRawGoCodeRunsInItsOwnScope: t.Skip(\"go not on PATH\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "cmd/ang/rawgo_scope_build_test.go:runGoOffline:21c4af6efc3b9a97:1",
+    "category": "offline-toolchain",
+    "reason": "Offline generated-module compilation requires external dependencies already in the Go cache. No downloads are authorized; cmd/ang/rawgo_scope_build_test.go:runGoOffline.",
+    "status": "allowed"
+  },
+  {
+    "key": "cmd/ang/rawgo_scope_build_test.go:runGoOffline:21c4af6efc3b9a97:2",
+    "category": "offline-toolchain",
+    "reason": "Offline generated-module compilation requires external dependencies already in the Go cache. No downloads are authorized; cmd/ang/rawgo_scope_build_test.go:runGoOffline.",
+    "status": "allowed"
+  },
+  {
+    "key": "cmd/ang/rawgo_scope_build_test.go:runGoOffline:74f11654b385c122:1",
+    "category": "offline-toolchain",
+    "reason": "Offline generated-module compilation requires external dependencies already in the Go cache. No downloads are authorized; cmd/ang/rawgo_scope_build_test.go:runGoOffline.",
+    "status": "allowed"
+  },
+  {
+    "key": "cmd/ang/rawgo_scope_build_test.go:runGoOffline:fd087e008e29f271:1",
+    "category": "offline-toolchain",
+    "reason": "Offline generated-module compilation requires external dependencies already in the Go cache. No downloads are authorized; cmd/ang/rawgo_scope_build_test.go:runGoOffline.",
+    "status": "allowed"
+  },
+  {
+    "key": "cmd/ang/release_baseline_test.go:releaseRepo:38e87ea71439f75c:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for cmd/ang/release_baseline_test.go:releaseRepo: t.Skip(\"git not installed\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "cmd/ang/request_log_mask_build_test.go:TestRequestLogAndMetricsMaskCredentials:c4eb819fa01ab9b1:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for cmd/ang/request_log_mask_build_test.go:TestRequestLogAndMetricsMaskCredentials: t.Skip(\"go not on PATH\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "cmd/ang/request_log_mask_build_test.go:TestRequestLogAndMetricsMaskCredentials:d9603c7dc69c2849:1",
+    "category": "short-mode",
+    "reason": "Explicit testing.Short gate for the expensive integration scenario cmd/ang/request_log_mask_build_test.go:TestRequestLogAndMetricsMaskCredentials. Full go test -count=1 does not use -short.",
+    "status": "allowed"
+  },
+  {
+    "key": "cmd/ang/sdk_copy_transaction_test.go:TestFrontendSDKCopyFailureDuringBuildLeavesAppSDKUntouched:4bd29fdf6582248d:1",
+    "category": "platform",
+    "reason": "The OS cannot represent the tested process/permission semantics: t.Skip(\"relies on a read-only directory refusing writes, which windows and root ignore\")",
+    "status": "allowed"
+  },
+  {
+    "key": "cmd/ang/session_cookie_build_test.go:TestLoginFailsLoudlyWhenTheSessionStoreDoesNotSave:c4eb819fa01ab9b1:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for cmd/ang/session_cookie_build_test.go:TestLoginFailsLoudlyWhenTheSessionStoreDoesNotSave: t.Skip(\"go not on PATH\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "cmd/ang/session_cookie_build_test.go:TestLoginFailsLoudlyWhenTheSessionStoreDoesNotSave:d9603c7dc69c2849:1",
+    "category": "short-mode",
+    "reason": "Explicit testing.Short gate for the expensive integration scenario cmd/ang/session_cookie_build_test.go:TestLoginFailsLoudlyWhenTheSessionStoreDoesNotSave. Full go test -count=1 does not use -short.",
+    "status": "allowed"
+  },
+  {
+    "key": "cmd/ang/toolchain_test.go:TestBuildHandsOverToThePinnedToolchain:82fb8d1a86a0f1c5:1",
+    "category": "short-mode",
+    "reason": "Explicit testing.Short gate for the expensive integration scenario cmd/ang/toolchain_test.go:TestBuildHandsOverToThePinnedToolchain. Full go test -count=1 does not use -short.",
+    "status": "allowed"
+  },
+  {
+    "key": "cmd/ang/toolchain_test.go:newFakeANGRepo:098bc6f13009a7f5:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for cmd/ang/toolchain_test.go:newFakeANGRepo: t.Skip(\"go not installed\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "cmd/ang/toolchain_test.go:newFakeANGRepo:38e87ea71439f75c:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for cmd/ang/toolchain_test.go:newFakeANGRepo: t.Skip(\"git not installed\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "cmd/ang/transactional_build_test.go:TestTransactionalOperationsCompile:c4eb819fa01ab9b1:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for cmd/ang/transactional_build_test.go:TestTransactionalOperationsCompile: t.Skip(\"go not on PATH\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/blender/assets_cache_test.go:TestPythonArtValidationCacheIsByteIdenticalAndKeyedByBuffers:d933e02f6dd2f782:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/blender/assets_cache_test.go:TestPythonArtValidationCacheIsByteIdenticalAndKeyedByBuffers: t.Skip(\"python3 unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/blender/authoring_test.go:TestClippedIntrusionAndShrinkingBaseline:d933e02f6dd2f782:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/blender/authoring_test.go:TestClippedIntrusionAndShrinkingBaseline: t.Skip(\"python3 unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/blender/authoring_test.go:TestPythonArtifactReuseRequiresUnchangedNamedMotionFrames:d933e02f6dd2f782:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/blender/authoring_test.go:TestPythonArtifactReuseRequiresUnchangedNamedMotionFrames: t.Skip(\"python3 unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/blender/authoring_test.go:TestPythonBatchPolicyUsesOnlyUsedAliasesAndRejectsLostBoundNames:d933e02f6dd2f782:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/blender/authoring_test.go:TestPythonBatchPolicyUsesOnlyUsedAliasesAndRejectsLostBoundNames: t.Skip(\"python3 unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/blender/authoring_test.go:TestPythonConcreteWallZonesAndImportGeometryMath:d933e02f6dd2f782:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/blender/authoring_test.go:TestPythonConcreteWallZonesAndImportGeometryMath: t.Skip(\"python3 unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/blender/authoring_test.go:TestPythonEqualDummyPBRNeverMergesDifferentCUEMaterialRoles:d933e02f6dd2f782:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/blender/authoring_test.go:TestPythonEqualDummyPBRNeverMergesDifferentCUEMaterialRoles: t.Skip(\"python3 unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/blender/authoring_test.go:TestPythonSATAndIdentityDiagnostics:d933e02f6dd2f782:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/blender/authoring_test.go:TestPythonSATAndIdentityDiagnostics: t.Skip(\"python3 unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/blender/authoring_test.go:TestPythonSelectiveBatchingRejectsMissingNodesAndAmbiguousFrames:d933e02f6dd2f782:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/blender/authoring_test.go:TestPythonSelectiveBatchingRejectsMissingNodesAndAmbiguousFrames: t.Skip(\"python3 unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/blender/authoring_test.go:TestPythonStaticBatchingNeverDropsAuthoredColourOrSecondUV:d933e02f6dd2f782:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/blender/authoring_test.go:TestPythonStaticBatchingNeverDropsAuthoredColourOrSecondUV: t.Skip(\"python3 unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/blender/authoring_test.go:TestReservedHiddenChecksActualTriangles:d933e02f6dd2f782:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/blender/authoring_test.go:TestReservedHiddenChecksActualTriangles: t.Skip(\"python3 unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/blender/recorded_asset_test.go:TestRecordedAssetRebindsRelocatedProvenanceToCurrentContract:d933e02f6dd2f782:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/blender/recorded_asset_test.go:TestRecordedAssetRebindsRelocatedProvenanceToCurrentContract: t.Skip(\"python3 unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/blender/triangle_budget_test.go:TestPythonExportRuntimeHelperBindings:d933e02f6dd2f782:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/blender/triangle_budget_test.go:TestPythonExportRuntimeHelperBindings: t.Skip(\"python3 unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/blender/triangle_budget_test.go:TestTriangleBudgetCountsSharedArtPerPlacementAndEmittedFloor:d933e02f6dd2f782:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/blender/triangle_budget_test.go:TestTriangleBudgetCountsSharedArtPerPlacementAndEmittedFloor: t.Skip(\"python3 unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/emitter/client_closed_request_test.go:TestEmitErrors_ClientClosedRequestAndBusyDatabase:05e1c3a109e98249:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/emitter/client_closed_request_test.go:TestEmitErrors_ClientClosedRequestAndBusyDatabase: t.Skip(\"go toolchain not found\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/emitter/client_closed_request_test.go:TestEmitErrors_ClientClosedRequestAndBusyDatabase:0f6d0c0c80204a5f:1",
+    "category": "short-mode",
+    "reason": "Explicit testing.Short gate for the expensive integration scenario compiler/emitter/client_closed_request_test.go:TestEmitErrors_ClientClosedRequestAndBusyDatabase. Full go test -count=1 does not use -short.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/emitter/domain_validation_test.go:TestDomainValidateOptionalEnumAndTypedError:8c031774371f98eb:1",
+    "category": "short-mode",
+    "reason": "Explicit testing.Short gate for the expensive integration scenario compiler/emitter/domain_validation_test.go:TestDomainValidateOptionalEnumAndTypedError. Full go test -count=1 does not use -short.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/emitter/jobqueue_test.go:TestGeneratedJobqueueRun:01420279c9ecb9e6:1",
+    "category": "short-mode",
+    "reason": "Explicit testing.Short gate for the expensive integration scenario compiler/emitter/jobqueue_test.go:TestGeneratedJobqueueRun. Full go test -count=1 does not use -short.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/emitter/jobqueue_test.go:TestQueueSQLOnPostgres:d3c5e0efb108e60e:1",
+    "category": "external-service",
+    "reason": "Explicit PostgreSQL service opt-in; requires a disposable database URL: compiler/emitter/jobqueue_test.go:TestQueueSQLOnPostgres.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/emitter/line_directives_test.go:TestFinalizeLineDirectivesCompilerReportsCUELines:c4eb819fa01ab9b1:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/emitter/line_directives_test.go:TestFinalizeLineDirectivesCompilerReportsCUELines: t.Skip(\"go not on PATH\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/emitter/operation_metrics_test.go:TestQueryTracerRecordsTheRepositoryMethod:4ed91a92b779e99e:1",
+    "category": "short-mode",
+    "reason": "Explicit testing.Short gate for the expensive integration scenario compiler/emitter/operation_metrics_test.go:TestQueryTracerRecordsTheRepositoryMethod. Full go test -count=1 does not use -short.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/emitter/operation_metrics_test.go:TestQueryTracerRecordsTheRepositoryMethod:d28a40fe8e6e4b29:1",
+    "category": "offline-toolchain",
+    "reason": "Offline generated-module compilation requires external dependencies already in the Go cache. No downloads are authorized; compiler/emitter/operation_metrics_test.go:TestQueryTracerRecordsTheRepositoryMethod.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/emitter/operation_metrics_test.go:TestQueryTracerRecordsTheRepositoryMethod:f19a14801934220f:1",
+    "category": "legacy-precondition",
+    "reason": "Existing ambiguous skip needs a dedicated fixture/capability gate: compiler/emitter/operation_metrics_test.go:TestQueryTracerRecordsTheRepositoryMethod. Listed explicitly; no new or reworded skip is grandfathered.",
+    "status": "to-fix"
+  },
+  {
+    "key": "compiler/emitter/port_mock_gen_test.go:TestEmitPortMocksConcurrentCallsPassRace:05e1c3a109e98249:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/emitter/port_mock_gen_test.go:TestEmitPortMocksConcurrentCallsPassRace: t.Skip(\"go toolchain not found\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/emitter/port_mock_gen_test.go:TestEmitPortMocksConcurrentCallsPassRace:a28beb798a797f2b:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/emitter/port_mock_gen_test.go:TestEmitPortMocksConcurrentCallsPassRace: t.Skipf(\"race detector unavailable: %s\", out). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/emitter/port_mock_gen_test.go:TestEmitPortMocksConcurrentCallsPassRace:a786862889bb8f36:1",
+    "category": "short-mode",
+    "reason": "Explicit testing.Short gate for the expensive integration scenario compiler/emitter/port_mock_gen_test.go:TestEmitPortMocksConcurrentCallsPassRace. Full go test -count=1 does not use -short.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/emitter/repo_postgres_run_test.go:TestGeneratedPostgresRepositoryRunsOnPostgres:d3c5e0efb108e60e:1",
+    "category": "external-service",
+    "reason": "Explicit PostgreSQL service opt-in; requires a disposable database URL: compiler/emitter/repo_postgres_run_test.go:TestGeneratedPostgresRepositoryRunsOnPostgres.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/emitter/scheduler_test.go:TestGeneratedCronNext:01420279c9ecb9e6:1",
+    "category": "short-mode",
+    "reason": "Explicit testing.Short gate for the expensive integration scenario compiler/emitter/scheduler_test.go:TestGeneratedCronNext. Full go test -count=1 does not use -short.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/emitter/service_flow_codegen_openai_budget_test.go:TestOpenAIChat_BudgetHook_Runs:3819fd62bccb7ef5:1",
+    "category": "short-mode",
+    "reason": "Explicit testing.Short gate for the expensive integration scenario compiler/emitter/service_flow_codegen_openai_budget_test.go:TestOpenAIChat_BudgetHook_Runs. Full go test -count=1 does not use -short.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/emitter/sql_schema_postgres_test.go:TestEmitSQLRunsOnPostgres:d3c5e0efb108e60e:1",
+    "category": "external-service",
+    "reason": "Explicit PostgreSQL service opt-in; requires a disposable database URL: compiler/emitter/sql_schema_postgres_test.go:TestEmitSQLRunsOnPostgres.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/emitter/system_tables_test.go:TestSystemRepositorySQLRunsOnPostgres:6535473a89de4722:1",
+    "category": "external-service",
+    "reason": "Explicit PostgreSQL service opt-in; requires a disposable database URL: compiler/emitter/system_tables_test.go:TestSystemRepositorySQLRunsOnPostgres.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/emitter/transport_file_response_test.go:TestFileResponseHelperWritesHeadersAndBody:3819fd62bccb7ef5:1",
+    "category": "short-mode",
+    "reason": "Explicit testing.Short gate for the expensive integration scenario compiler/emitter/transport_file_response_test.go:TestFileResponseHelperWritesHeadersAndBody. Full go test -count=1 does not use -short.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/emitter/transport_query_params_test.go:TestTypedQueryParamsAnswerOneProblemShape:3819fd62bccb7ef5:1",
+    "category": "short-mode",
+    "reason": "Explicit testing.Short gate for the expensive integration scenario compiler/emitter/transport_query_params_test.go:TestTypedQueryParamsAnswerOneProblemShape. Full go test -count=1 does not use -short.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/b7_floor_proof_test.go:TestB7ObservedInputRetainsDistantDestinationAroundVisibleBodies:7ad33a4bfed67cf2:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/b7_floor_proof_test.go:TestB7ObservedInputRetainsDistantDestinationAroundVisibleBodies: t.Skip(\"Mono unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/b7_floor_proof_test.go:TestB7ObservedInputRetainsDistantDestinationAroundVisibleBodies:8f9bae5d87227956:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/b7_floor_proof_test.go:TestB7ObservedInputRetainsDistantDestinationAroundVisibleBodies: t.Skip(\"Mono compiler unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/cart_parking_test.go:TestCartParkingAuthoredGeometryAndStrictValidation:1e2ff07e5f74cb3a:1",
+    "category": "opt-in",
+    "reason": "Explicit environment opt-in/output destination; this test can write saves/evidence, mutate a disposable project, or benchmark a reference machine: compiler/gamepoc/cart_parking_test.go:TestCartParkingAuthoredGeometryAndStrictValidation.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/copper_route_proof_test.go:TestCopperRouteRejectsBlackWorldEvenWithVisibleHUDNative:7ad33a4bfed67cf2:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/copper_route_proof_test.go:TestCopperRouteRejectsBlackWorldEvenWithVisibleHUDNative: t.Skip(\"Mono unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/copper_route_proof_test.go:TestCopperRouteRejectsBlackWorldEvenWithVisibleHUDNative:8f9bae5d87227956:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/copper_route_proof_test.go:TestCopperRouteRejectsBlackWorldEvenWithVisibleHUDNative: t.Skip(\"Mono compiler unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/copper_route_proof_test.go:TestCopperRouteTimingAndObservedExplorationNative:7ad33a4bfed67cf2:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/copper_route_proof_test.go:TestCopperRouteTimingAndObservedExplorationNative: t.Skip(\"Mono unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/copper_route_proof_test.go:TestCopperRouteTimingAndObservedExplorationNative:8f9bae5d87227956:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/copper_route_proof_test.go:TestCopperRouteTimingAndObservedExplorationNative: t.Skip(\"Mono compiler unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/depth_order_test.go:TestSceneDepthComparatorNative:2b707d220f45358f:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/depth_order_test.go:TestSceneDepthComparatorNative: t.Skip(\"Unity Mono compiler unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/depth_order_test.go:TestSceneDepthComparatorNative:dc5347b3413849e7:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/depth_order_test.go:TestSceneDepthComparatorNative: t.Skip(\"Mono unavailable; template contracts still tested\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/expanded_market_test.go:TestExpandedMarketActualAuthoring:85b262001b523f49:1",
+    "category": "opt-in",
+    "reason": "Explicit environment opt-in/output destination; this test can write saves/evidence, mutate a disposable project, or benchmark a reference machine: compiler/gamepoc/expanded_market_test.go:TestExpandedMarketActualAuthoring.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/hub_counter_source_test.go:TestAuthoredHubCounterPassportChangesOnlyItsFourCells:be6c87482933c2ea:1",
+    "category": "opt-in",
+    "reason": "Explicit environment opt-in/output destination; this test can write saves/evidence, mutate a disposable project, or benchmark a reference machine: compiler/gamepoc/hub_counter_source_test.go:TestAuthoredHubCounterPassportChangesOnlyItsFourCells.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/instant_travel_test.go:TestInstantTravelActualHostAndLife100ReplayNative:0a77758d9bcf9c52:1",
+    "category": "opt-in",
+    "reason": "Explicit environment opt-in/output destination; this test can write saves/evidence, mutate a disposable project, or benchmark a reference machine: compiler/gamepoc/instant_travel_test.go:TestInstantTravelActualHostAndLife100ReplayNative.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/localization_test.go:TestLocalizationCSharpPreferenceAndFallbackNative:7ad33a4bfed67cf2:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/localization_test.go:TestLocalizationCSharpPreferenceAndFallbackNative: t.Skip(\"Mono unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/localization_test.go:TestLocalizationCSharpPreferenceAndFallbackNative:8f9bae5d87227956:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/localization_test.go:TestLocalizationCSharpPreferenceAndFallbackNative: t.Skip(\"Mono compiler unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/location_sdk_camera_test.go:TestLocationSDKAuthoredCameraProjectionNative:7ad33a4bfed67cf2:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/location_sdk_camera_test.go:TestLocationSDKAuthoredCameraProjectionNative: t.Skip(\"Mono unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/location_sdk_camera_test.go:TestLocationSDKAuthoredCameraProjectionNative:8f9bae5d87227956:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/location_sdk_camera_test.go:TestLocationSDKAuthoredCameraProjectionNative: t.Skip(\"Mono compiler unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/location_sdk_depth_sprite_test.go:TestDepthSpriteGPUAcceptanceComparisonNative:7ad33a4bfed67cf2:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/location_sdk_depth_sprite_test.go:TestDepthSpriteGPUAcceptanceComparisonNative: t.Skip(\"Mono unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/location_sdk_depth_sprite_test.go:TestDepthSpriteGPUAcceptanceComparisonNative:8f9bae5d87227956:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/location_sdk_depth_sprite_test.go:TestDepthSpriteGPUAcceptanceComparisonNative: t.Skip(\"Mono compiler unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/location_sdk_overrides_test.go:TestLocationSDKOverrideMappingValidationAndPauseNative:7ad33a4bfed67cf2:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/location_sdk_overrides_test.go:TestLocationSDKOverrideMappingValidationAndPauseNative: t.Skip(\"Mono unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/location_sdk_overrides_test.go:TestLocationSDKOverrideMappingValidationAndPauseNative:8f9bae5d87227956:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/location_sdk_overrides_test.go:TestLocationSDKOverrideMappingValidationAndPauseNative: t.Skip(\"Mono compiler unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/location_sdk_renderer_test.go:TestLocationSDKProofUsesRealPointerStateAndWorldReadback:7ad33a4bfed67cf2:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/location_sdk_renderer_test.go:TestLocationSDKProofUsesRealPointerStateAndWorldReadback: t.Skip(\"Mono unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/location_sdk_renderer_test.go:TestLocationSDKProofUsesRealPointerStateAndWorldReadback:8f9bae5d87227956:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/location_sdk_renderer_test.go:TestLocationSDKProofUsesRealPointerStateAndWorldReadback: t.Skip(\"Mono compiler unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/location_sdk_renderer_test.go:TestLocationSDKRendererGeometryAndScaleNative:7ad33a4bfed67cf2:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/location_sdk_renderer_test.go:TestLocationSDKRendererGeometryAndScaleNative: t.Skip(\"Mono unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/location_sdk_renderer_test.go:TestLocationSDKRendererGeometryAndScaleNative:8f9bae5d87227956:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/location_sdk_renderer_test.go:TestLocationSDKRendererGeometryAndScaleNative: t.Skip(\"Mono compiler unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/location_sdk_surface_test.go:TestLocationSDKSurfaceImagesContainResources:c876675407ae2525:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/location_sdk_surface_test.go:TestLocationSDKSurfaceImagesContainResources: t.Skipf(\"symlinks unavailable: %v\", err). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/medical_capsules_test.go:TestMedicalCapsulesActualHost:34e1ba82b6af4002:1",
+    "category": "opt-in",
+    "reason": "Explicit environment opt-in/output destination; this test can write saves/evidence, mutate a disposable project, or benchmark a reference machine: compiler/gamepoc/medical_capsules_test.go:TestMedicalCapsulesActualHost.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/painted_ambient_proof_test.go:TestAmbientProofNativeWindowTargetsAndRateController:7ad33a4bfed67cf2:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/painted_ambient_proof_test.go:TestAmbientProofNativeWindowTargetsAndRateController: t.Skip(\"Mono unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/painted_ambient_test.go:TestPaintedAmbientNativeClockPathDaylightAndProjection:08827b4c9411466c:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/painted_ambient_test.go:TestPaintedAmbientNativeClockPathDaylightAndProjection: t.Skipf(\"Unity dependency unavailable: %s\", p). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/painted_ambient_test.go:TestPaintedAmbientNativeClockPathDaylightAndProjection:cb0a080a983cde78:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/painted_ambient_test.go:TestPaintedAmbientNativeClockPathDaylightAndProjection: t.Skip(\"Unity assemblies unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/painted_architecture_test.go:TestPaintedArchitectureAnchorPrivacyAndUpdatesNative:7ad33a4bfed67cf2:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/painted_architecture_test.go:TestPaintedArchitectureAnchorPrivacyAndUpdatesNative: t.Skip(\"Mono unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/painted_architecture_test.go:TestPaintedArchitectureAnchorPrivacyAndUpdatesNative:8f9bae5d87227956:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/painted_architecture_test.go:TestPaintedArchitectureAnchorPrivacyAndUpdatesNative: t.Skip(\"Mono compiler unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/painted_inspection_test.go:TestPaintedInspectionHotspotNative:08827b4c9411466c:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/painted_inspection_test.go:TestPaintedInspectionHotspotNative: t.Skipf(\"Unity dependency unavailable: %s\", p). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/painted_inspection_test.go:TestPaintedInspectionHotspotNative:cb0a080a983cde78:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/painted_inspection_test.go:TestPaintedInspectionHotspotNative: t.Skip(\"Unity assemblies unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/painted_optional_dto_test.go:TestAmbientGPUProbeTransfersActualRuntimeUniformsNative:7ad33a4bfed67cf2:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/painted_optional_dto_test.go:TestAmbientGPUProbeTransfersActualRuntimeUniformsNative: t.Skip(\"Mono unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/painted_optional_dto_test.go:TestPaintedAmbientBlitRestoresRenderTargetNative:7ad33a4bfed67cf2:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/painted_optional_dto_test.go:TestPaintedAmbientBlitRestoresRenderTargetNative: t.Skip(\"Mono unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/painted_optional_dto_test.go:TestPaintedOptionalDTONative:7ad33a4bfed67cf2:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/painted_optional_dto_test.go:TestPaintedOptionalDTONative: t.Skip(\"Mono unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/painted_test.go:TestPaintedAffineAndPolygonNative:7ad33a4bfed67cf2:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/painted_test.go:TestPaintedAffineAndPolygonNative: t.Skip(\"Mono unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/painted_test.go:TestPaintedAffineAndPolygonNative:8f9bae5d87227956:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/painted_test.go:TestPaintedAffineAndPolygonNative: t.Skip(\"Mono compiler unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/painted_test.go:TestPaintedControlledHeroCutawayNative:7ad33a4bfed67cf2:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/painted_test.go:TestPaintedControlledHeroCutawayNative: t.Skip(\"Mono unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/painted_test.go:TestPaintedControlledHeroCutawayNative:8f9bae5d87227956:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/painted_test.go:TestPaintedControlledHeroCutawayNative: t.Skip(\"Mono compiler unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/painted_test.go:TestPaintedFogFeatherPrivacyAndForegroundSeamsNative:7ad33a4bfed67cf2:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/painted_test.go:TestPaintedFogFeatherPrivacyAndForegroundSeamsNative: t.Skip(\"Mono unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/painted_test.go:TestPaintedFogFeatherPrivacyAndForegroundSeamsNative:8f9bae5d87227956:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/painted_test.go:TestPaintedFogFeatherPrivacyAndForegroundSeamsNative: t.Skip(\"Mono compiler unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/painted_test.go:TestPaintedKnownExitMarkersNative:7ad33a4bfed67cf2:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/painted_test.go:TestPaintedKnownExitMarkersNative: t.Skip(\"Mono unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/painted_test.go:TestPaintedKnownExitMarkersNative:8f9bae5d87227956:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/painted_test.go:TestPaintedKnownExitMarkersNative: t.Skip(\"Mono compiler unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/painted_test.go:TestPaintedPublicArchitectureNeverPromotesUnknownPlayableFloor:7ad33a4bfed67cf2:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/painted_test.go:TestPaintedPublicArchitectureNeverPromotesUnknownPlayableFloor: t.Skip(\"Mono unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/painted_test.go:TestPaintedPublicArchitectureNeverPromotesUnknownPlayableFloor:8f9bae5d87227956:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/painted_test.go:TestPaintedPublicArchitectureNeverPromotesUnknownPlayableFloor: t.Skip(\"Mono compiler unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/painted_texture_test.go:runPaintedTextureNative:7ad33a4bfed67cf2:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/painted_texture_test.go:runPaintedTextureNative: t.Skip(\"Mono unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/preview_test.go:TestPreviewLevel:e022491f5d83972e:1",
+    "category": "opt-in",
+    "reason": "Explicit environment opt-in/output destination; this test can write saves/evidence, mutate a disposable project, or benchmark a reference machine: compiler/gamepoc/preview_test.go:TestPreviewLevel.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/rail_schedule_test.go:TestAuthoredC7PassengerAndPaintedSchedulesAgree:9569263bb56939df:1",
+    "category": "opt-in",
+    "reason": "Explicit environment opt-in/output destination; this test can write saves/evidence, mutate a disposable project, or benchmark a reference machine: compiler/gamepoc/rail_schedule_test.go:TestAuthoredC7PassengerAndPaintedSchedulesAgree.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/region_ui_test.go:TestRegionUINativeProjectionKnowledgeAndTravel:6dc567706d00a128:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/region_ui_test.go:TestRegionUINativeProjectionKnowledgeAndTravel: t.Skip(\"Unity editor assemblies unavailable; wire/privacy contracts still tested\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/region_ui_test.go:TestRegionUINativeProjectionKnowledgeAndTravel:f74ca626e94fcd28:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/region_ui_test.go:TestRegionUINativeProjectionKnowledgeAndTravel: t.Skipf(\"Unity compile dependency unavailable: %s\", path). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/sanitary_services_client_test.go:TestSanitaryClientProtoContract:83894f2b257fc637:1",
+    "category": "opt-in",
+    "reason": "Explicit environment opt-in/output destination; this test can write saves/evidence, mutate a disposable project, or benchmark a reference machine: compiler/gamepoc/sanitary_services_client_test.go:TestSanitaryClientProtoContract.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/sdk_proof_test.go:TestSDKHousingPoseRequiresPhysicalArrivalNative:7ad33a4bfed67cf2:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/sdk_proof_test.go:TestSDKHousingPoseRequiresPhysicalArrivalNative: t.Skip(\"Mono unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/sdk_proof_test.go:TestSDKHousingPoseRequiresPhysicalArrivalNative:8f9bae5d87227956:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/sdk_proof_test.go:TestSDKHousingPoseRequiresPhysicalArrivalNative: t.Skip(\"Mono compiler unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/spatial_camera_test.go:TestSpatialCameraProjectionNative:7ad33a4bfed67cf2:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/spatial_camera_test.go:TestSpatialCameraProjectionNative: t.Skip(\"Mono unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/spatial_camera_test.go:TestSpatialCameraProjectionNative:8f9bae5d87227956:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/spatial_camera_test.go:TestSpatialCameraProjectionNative: t.Skip(\"Mono compiler unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/station_pose_source_test.go:TestStationBlenderLocatorsDriveAuthoritativeExitsAnchorsAndPaint:3dde4ecb9e532d39:1",
+    "category": "opt-in",
+    "reason": "Explicit environment opt-in/output destination; this test can write saves/evidence, mutate a disposable project, or benchmark a reference machine: compiler/gamepoc/station_pose_source_test.go:TestStationBlenderLocatorsDriveAuthoritativeExitsAnchorsAndPaint.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/storefront_test.go:TestStorefrontActualMarketBindings:d7f0b697a5d575bd:1",
+    "category": "opt-in",
+    "reason": "Explicit environment opt-in/output destination; this test can write saves/evidence, mutate a disposable project, or benchmark a reference machine: compiler/gamepoc/storefront_test.go:TestStorefrontActualMarketBindings.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/supply_integration_test.go:TestMarketSupplyActualHostOverlay:643031bcc58c74b9:1",
+    "category": "opt-in",
+    "reason": "Explicit environment opt-in/output destination; this test can write saves/evidence, mutate a disposable project, or benchmark a reference machine: compiler/gamepoc/supply_integration_test.go:TestMarketSupplyActualHostOverlay.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/train_motion_generate_test.go:TestTrainMotionFullGeneration:780e0dc64efe3fb3:1",
+    "category": "opt-in",
+    "reason": "Explicit environment opt-in/output destination; this test can write saves/evidence, mutate a disposable project, or benchmark a reference machine: compiler/gamepoc/train_motion_generate_test.go:TestTrainMotionFullGeneration.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/train_motion_test.go:TestTrainMotionAuthoredCUE:a006878b776a5122:1",
+    "category": "opt-in",
+    "reason": "Explicit environment opt-in/output destination; this test can write saves/evidence, mutate a disposable project, or benchmark a reference machine: compiler/gamepoc/train_motion_test.go:TestTrainMotionAuthoredCUE.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/wayfinding_server_test.go:TestAuthoredWayfindingGroundedConnectedAndLocalized:0a77758d9bcf9c52:1",
+    "category": "opt-in",
+    "reason": "Explicit environment opt-in/output destination; this test can write saves/evidence, mutate a disposable project, or benchmark a reference machine: compiler/gamepoc/wayfinding_server_test.go:TestAuthoredWayfindingGroundedConnectedAndLocalized.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/wayfinding_ui_test.go:TestWayfindingCSharpTemplatesCompileWithCurrentProtocol:718a7d441e9bcfab:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/wayfinding_ui_test.go:TestWayfindingCSharpTemplatesCompileWithCurrentProtocol: t.Skip(\"set ANG_WAYFINDING_PROJECT for exact CUE/Unity source compile\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/gamepoc/wayfinding_ui_test.go:TestWayfindingCSharpTemplatesCompileWithCurrentProtocol:cb0a080a983cde78:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for compiler/gamepoc/wayfinding_ui_test.go:TestWayfindingCSharpTemplatesCompileWithCurrentProtocol: t.Skip(\"Unity assemblies unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/godot/architecture_geometry_test.go:TestLiftingDeckCopperShellSecondLayoutByData:c5ff40967f0ec4fe:1",
+    "category": "opt-in",
+    "reason": "Explicit environment opt-in/output destination; this test can write saves/evidence, mutate a disposable project, or benchmark a reference machine: compiler/godot/architecture_geometry_test.go:TestLiftingDeckCopperShellSecondLayoutByData.",
+    "status": "allowed"
+  },
+  {
+    "key": "compiler/godot/rail_platform_data_test.go:TestRailPlatformSecondLayoutByData:de0699b3be3d9f0b:1",
+    "category": "opt-in",
+    "reason": "Explicit environment opt-in/output destination; this test can write saves/evidence, mutate a disposable project, or benchmark a reference machine: compiler/godot/rail_platform_data_test.go:TestRailPlatformSecondLayoutByData.",
+    "status": "allowed"
+  },
+  {
+    "key": "examples/blog/tests/contract/contract_test.go:TestContractHTTPPositive:a9f9a22902432b7c:1",
+    "category": "external-service",
+    "reason": "Generated HTTP contract integration requires explicit path parameters or authenticated service credentials: examples/blog/tests/contract/contract_test.go:TestContractHTTPPositive.",
+    "status": "allowed"
+  },
+  {
+    "key": "examples/blog/tests/contract/contract_test.go:TestContractHTTPPositive:a9f9a22902432b7c:10",
+    "category": "external-service",
+    "reason": "Generated HTTP contract integration requires explicit path parameters or authenticated service credentials: examples/blog/tests/contract/contract_test.go:TestContractHTTPPositive.",
+    "status": "allowed"
+  },
+  {
+    "key": "examples/blog/tests/contract/contract_test.go:TestContractHTTPPositive:a9f9a22902432b7c:11",
+    "category": "external-service",
+    "reason": "Generated HTTP contract integration requires explicit path parameters or authenticated service credentials: examples/blog/tests/contract/contract_test.go:TestContractHTTPPositive.",
+    "status": "allowed"
+  },
+  {
+    "key": "examples/blog/tests/contract/contract_test.go:TestContractHTTPPositive:a9f9a22902432b7c:12",
+    "category": "external-service",
+    "reason": "Generated HTTP contract integration requires explicit path parameters or authenticated service credentials: examples/blog/tests/contract/contract_test.go:TestContractHTTPPositive.",
+    "status": "allowed"
+  },
+  {
+    "key": "examples/blog/tests/contract/contract_test.go:TestContractHTTPPositive:a9f9a22902432b7c:13",
+    "category": "external-service",
+    "reason": "Generated HTTP contract integration requires explicit path parameters or authenticated service credentials: examples/blog/tests/contract/contract_test.go:TestContractHTTPPositive.",
+    "status": "allowed"
+  },
+  {
+    "key": "examples/blog/tests/contract/contract_test.go:TestContractHTTPPositive:a9f9a22902432b7c:2",
+    "category": "external-service",
+    "reason": "Generated HTTP contract integration requires explicit path parameters or authenticated service credentials: examples/blog/tests/contract/contract_test.go:TestContractHTTPPositive.",
+    "status": "allowed"
+  },
+  {
+    "key": "examples/blog/tests/contract/contract_test.go:TestContractHTTPPositive:a9f9a22902432b7c:3",
+    "category": "external-service",
+    "reason": "Generated HTTP contract integration requires explicit path parameters or authenticated service credentials: examples/blog/tests/contract/contract_test.go:TestContractHTTPPositive.",
+    "status": "allowed"
+  },
+  {
+    "key": "examples/blog/tests/contract/contract_test.go:TestContractHTTPPositive:a9f9a22902432b7c:4",
+    "category": "external-service",
+    "reason": "Generated HTTP contract integration requires explicit path parameters or authenticated service credentials: examples/blog/tests/contract/contract_test.go:TestContractHTTPPositive.",
+    "status": "allowed"
+  },
+  {
+    "key": "examples/blog/tests/contract/contract_test.go:TestContractHTTPPositive:a9f9a22902432b7c:5",
+    "category": "external-service",
+    "reason": "Generated HTTP contract integration requires explicit path parameters or authenticated service credentials: examples/blog/tests/contract/contract_test.go:TestContractHTTPPositive.",
+    "status": "allowed"
+  },
+  {
+    "key": "examples/blog/tests/contract/contract_test.go:TestContractHTTPPositive:a9f9a22902432b7c:6",
+    "category": "external-service",
+    "reason": "Generated HTTP contract integration requires explicit path parameters or authenticated service credentials: examples/blog/tests/contract/contract_test.go:TestContractHTTPPositive.",
+    "status": "allowed"
+  },
+  {
+    "key": "examples/blog/tests/contract/contract_test.go:TestContractHTTPPositive:a9f9a22902432b7c:7",
+    "category": "external-service",
+    "reason": "Generated HTTP contract integration requires explicit path parameters or authenticated service credentials: examples/blog/tests/contract/contract_test.go:TestContractHTTPPositive.",
+    "status": "allowed"
+  },
+  {
+    "key": "examples/blog/tests/contract/contract_test.go:TestContractHTTPPositive:a9f9a22902432b7c:8",
+    "category": "external-service",
+    "reason": "Generated HTTP contract integration requires explicit path parameters or authenticated service credentials: examples/blog/tests/contract/contract_test.go:TestContractHTTPPositive.",
+    "status": "allowed"
+  },
+  {
+    "key": "examples/blog/tests/contract/contract_test.go:TestContractHTTPPositive:a9f9a22902432b7c:9",
+    "category": "external-service",
+    "reason": "Generated HTTP contract integration requires explicit path parameters or authenticated service credentials: examples/blog/tests/contract/contract_test.go:TestContractHTTPPositive.",
+    "status": "allowed"
+  },
+  {
+    "key": "examples/blog/tests/contract/contract_test.go:TestContractHTTPValidation:a9f9a22902432b7c:1",
+    "category": "external-service",
+    "reason": "Generated HTTP contract integration requires explicit path parameters or authenticated service credentials: examples/blog/tests/contract/contract_test.go:TestContractHTTPValidation.",
+    "status": "allowed"
+  },
+  {
+    "key": "examples/blog/tests/contract/contract_test.go:TestContractHTTPValidation:a9f9a22902432b7c:2",
+    "category": "external-service",
+    "reason": "Generated HTTP contract integration requires explicit path parameters or authenticated service credentials: examples/blog/tests/contract/contract_test.go:TestContractHTTPValidation.",
+    "status": "allowed"
+  },
+  {
+    "key": "examples/blog/tests/contract/contract_test.go:TestContractHTTPValidation:a9f9a22902432b7c:3",
+    "category": "external-service",
+    "reason": "Generated HTTP contract integration requires explicit path parameters or authenticated service credentials: examples/blog/tests/contract/contract_test.go:TestContractHTTPValidation.",
+    "status": "allowed"
+  },
+  {
+    "key": "examples/blog/tests/contract/contract_test.go:TestContractHTTPValidation:a9f9a22902432b7c:4",
+    "category": "external-service",
+    "reason": "Generated HTTP contract integration requires explicit path parameters or authenticated service credentials: examples/blog/tests/contract/contract_test.go:TestContractHTTPValidation.",
+    "status": "allowed"
+  },
+  {
+    "key": "examples/blog/tests/contract/contract_test.go:ensureAuth:d4d7ae4125d0a142:1",
+    "category": "external-service",
+    "reason": "Generated HTTP contract integration requires explicit path parameters or authenticated service credentials: examples/blog/tests/contract/contract_test.go:ensureAuth.",
+    "status": "allowed"
+  },
+  {
+    "key": "examples/blog/tests/contract/contract_test.go:fillPathParamsRequired:b5aee8ac229ab6c2:1",
+    "category": "external-service",
+    "reason": "Generated HTTP contract integration requires explicit path parameters or authenticated service credentials: examples/blog/tests/contract/contract_test.go:fillPathParamsRequired.",
+    "status": "allowed"
+  },
+  {
+    "key": "examples/minimal/tests/contract/contract_test.go:ensureAuth:d4d7ae4125d0a142:1",
+    "category": "external-service",
+    "reason": "Generated HTTP contract integration requires explicit path parameters or authenticated service credentials: examples/minimal/tests/contract/contract_test.go:ensureAuth.",
+    "status": "allowed"
+  },
+  {
+    "key": "examples/minimal/tests/contract/contract_test.go:fillPathParamsRequired:b5aee8ac229ab6c2:1",
+    "category": "external-service",
+    "reason": "Generated HTTP contract integration requires explicit path parameters or authenticated service credentials: examples/minimal/tests/contract/contract_test.go:fillPathParamsRequired.",
+    "status": "allowed"
+  },
+  {
+    "key": "tool/mcp/policy_test.go:TestGitStatusLogic:1b2ce6210c41cb60:1",
+    "category": "external-tool",
+    "reason": "Optional external/platform capability for tool/mcp/policy_test.go:TestGitStatusLogic: t.Skip(\"git executable unavailable\"). This is not a project fixture; source-level coverage still runs.",
+    "status": "allowed"
+  }
+]

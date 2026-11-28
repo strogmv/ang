@@ -47,10 +47,13 @@ func TestValidateReadPath(t *testing.T) {
 
 func TestGitStatusLogic(t *testing.T) {
 	// Проверяем, что команда git status --porcelain работает и возвращает что-то вменяемое
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git executable unavailable")
+	}
 	cmd := exec.Command("git", "status", "--porcelain")
 	out, err := cmd.Output()
 	if err != nil {
-		t.Skip("Git not available or not a git repo")
+		t.Fatalf("required Git working tree unavailable: %v", err)
 	}
 	t.Logf("Git status output:\n%s", string(out))
 }

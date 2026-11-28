@@ -1080,12 +1080,12 @@ func writeGodotScreens(project string, c Compiled, def *normalizer.GRPCDef) erro
 	}
 	for _, target := range c.GodotTargets {
 		if settings != nil {
-			if err := os.WriteFile(filepath.Join(project, target, "generated/settings.gd"), settings, 0644); err != nil {
+			if err := writeGeneratedFile(filepath.Join(project, target, "generated/settings.gd"), settings, 0644); err != nil {
 				return err
 			}
 		}
 		if input != nil {
-			if err := os.WriteFile(filepath.Join(project, target, "generated/input_actions.gd"), input, 0644); err != nil {
+			if err := writeGeneratedFile(filepath.Join(project, target, "generated/input_actions.gd"), input, 0644); err != nil {
 				return err
 			}
 		}
@@ -1102,7 +1102,7 @@ func writeGodotScreens(project string, c Compiled, def *normalizer.GRPCDef) erro
 		hashes := map[string]string{}
 		for _, name := range sortedScreenKeys(outputs) {
 			data := outputs[name]
-			if err := os.WriteFile(filepath.Join(folder, name), data, 0644); err != nil {
+			if err := writeGeneratedFile(filepath.Join(folder, name), data, 0644); err != nil {
 				return err
 			}
 			sum := sha256.Sum256(data)
@@ -1132,7 +1132,7 @@ func writeGodotScreens(project string, c Compiled, def *normalizer.GRPCDef) erro
 			}
 		}
 		manifest, _ := json.MarshalIndent(hashes, "", "  ")
-		if err := os.WriteFile(filepath.Join(folder, "manifest.json"), append(manifest, '\n'), 0644); err != nil {
+		if err := writeGeneratedFile(filepath.Join(folder, "manifest.json"), append(manifest, '\n'), 0644); err != nil {
 			return err
 		}
 	}

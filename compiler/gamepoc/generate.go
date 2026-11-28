@@ -1268,10 +1268,24 @@ func generatePOC(project string, legacyUnity bool) error {
 	if err != nil {
 		return err
 	}
+	endInventory := beginGeneratedOutputs()
+	defer endInventory()
 	phases = startPhaseClock()
 	defer func() { phases = nil }()
-	if _, err := schemavendor.Sync(project, schemavendor.Options{Always: true}); err != nil {
+	vendor, err := schemavendor.Sync(project, schemavendor.Options{Always: true})
+	if err != nil {
 		return err
+	}
+	if vendor.Applies {
+		expected, err := schemavendor.Expected()
+		if err != nil {
+			return err
+		}
+		outputWrites.Lock()
+		for name := range expected {
+			outputWrites.paths[filepath.Join(schemavendor.Dir(project), name)] = true
+		}
+		outputWrites.Unlock()
 	}
 	phases.mark("schema vendor sync")
 	compiled, def, err := readCompiled(project)
@@ -1894,7 +1908,7 @@ func generatePOC(project string, legacyUnity bool) error {
 				return err
 			}
 		}
-		if err := os.WriteFile(p, files[p], 0644); err != nil {
+		if err := writeGeneratedFile(p, files[p], 0644); err != nil {
 			return err
 		}
 	}
@@ -1906,6 +1920,9 @@ func generatePOC(project string, legacyUnity bool) error {
 		}
 	}
 	if !legacyUnity {
+		if err := finishGeneratedOutputs(project); err != nil {
+			return err
+		}
 		fmt.Printf("Generated active server and Godot from CUE: %s, content %s\n", compiled.Config.LevelID, compiled.ContentHash[:12])
 		return nil
 	}
@@ -1915,6 +1932,22 @@ func generatePOC(project string, legacyUnity bool) error {
 	cmd := exec.Command("protoc", "-I", filepath.Join(project, "api/grpc"), "--csharp_out="+filepath.Join(csDir, "Messages"), protoRel)
 	if b, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("protoc: %w: %s", err, b)
+	}
+	if err := filepath.WalkDir(filepath.Join(csDir, "Messages"), func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !entry.IsDir() && strings.HasSuffix(path, ".cs") {
+			outputWrites.Lock()
+			outputWrites.paths[path] = true
+			outputWrites.Unlock()
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	if err := finishGeneratedOutputs(project); err != nil {
+		return err
 	}
 	fmt.Printf("Generated local POC from CUE: %s, %d x %d, %d world NPCs + %d demo NPCs, content %s\n", compiled.Config.LevelID, len(compiled.Terrain[0]), len(compiled.Terrain), len(compiled.Entities), len(compiled.Config.CaptureDemo.Agents), compiled.ContentHash[:12])
 	return nil

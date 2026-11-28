@@ -249,14 +249,14 @@ func writeGodotWorldText(project string, c Compiled) error {
 			if err = os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 				return err
 			}
-			if err = os.WriteFile(path, b, 0644); err != nil {
+			if err = writeGeneratedFile(path, b, 0644); err != nil {
 				return err
 			}
 		}
 		if err = os.MkdirAll(dir, 0755); err != nil {
 			return err
 		}
-		if err = os.WriteFile(filepath.Join(dir, "runtime.json"), payload, 0644); err != nil {
+		if err = writeGeneratedFile(filepath.Join(dir, "runtime.json"), payload, 0644); err != nil {
 			return err
 		}
 		for _, file := range []string{"world_text.gd", "world_text.gdshader", "world_text_deformation.gdshaderinc"} {
@@ -264,7 +264,7 @@ func writeGodotWorldText(project string, c Compiled) error {
 			if e != nil {
 				return e
 			}
-			if err = os.WriteFile(filepath.Join(dir, file), b, 0644); err != nil {
+			if err = writeGeneratedFile(filepath.Join(dir, file), b, 0644); err != nil {
 				return err
 			}
 		}
@@ -279,6 +279,8 @@ func GenerateGodot(project string) error {
 	if err != nil {
 		return err
 	}
+	endInventory := beginGeneratedOutputs()
+	defer endInventory()
 	compiled, def, err := readCompiled(project)
 	if err != nil {
 		return err
@@ -296,5 +298,8 @@ func GenerateGodot(project string) error {
 	if err = writeGodotTheme(project, compiled.GodotTheme); err != nil {
 		return err
 	}
-	return writeGodotWorldText(project, compiled)
+	if err := writeGodotWorldText(project, compiled); err != nil {
+		return err
+	}
+	return finishGeneratedOutputs(project)
 }

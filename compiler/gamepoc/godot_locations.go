@@ -213,11 +213,11 @@ func writeGodotLocations(project string, c Compiled) error {
 				if err != nil {
 					return err
 				}
-				if err = os.WriteFile(filepath.Join(folder, name), append(data, '\n'), 0644); err != nil {
+				if err = writeGeneratedFile(filepath.Join(folder, name), append(data, '\n'), 0644); err != nil {
 					return err
 				}
 			}
-			if err = os.WriteFile(filepath.Join(folder, "location.tscn"), scene, 0644); err != nil {
+			if err = writeGeneratedFile(filepath.Join(folder, "location.tscn"), scene, 0644); err != nil {
 				return err
 			}
 		}
@@ -228,7 +228,7 @@ func writeGodotLocations(project string, c Compiled) error {
 		return err
 	}
 	for _, target := range c.GodotTargets {
-		if err := os.WriteFile(filepath.Join(project, target, "generated/locations.json"), append(data, '\n'), 0644); err != nil {
+		if err := writeGeneratedFile(filepath.Join(project, target, "generated/locations.json"), append(data, '\n'), 0644); err != nil {
 			return err
 		}
 	}

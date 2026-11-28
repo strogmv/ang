@@ -18,7 +18,7 @@ func TestCompilerPhaseBoundaries_NoReverseImports(t *testing.T) {
 	root := repoRootForPhaseBoundaryTest(t)
 	angIRRoot, err := angIRRootForPhaseBoundaryTest(t)
 	if err != nil {
-		t.Skipf("Skipping phase boundary test because ang-ir root could not be found: %v", err)
+		t.Fatalf("required angir source root missing: %v", err)
 	}
 
 	type phaseRule struct {

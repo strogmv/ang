@@ -132,11 +132,13 @@ func TestQueryTracerRecordsTheRepositoryMethod(t *testing.T) {
 	// module cache, so the temporary module resolves offline.
 	angMod, err := os.ReadFile(filepath.Join("..", "..", "go.mod"))
 	if err != nil {
-		t.Skipf("ANG go.mod: %v", err)
+		t.Fatalf("ANG go.mod: %v", err)
 	}
 	gomod := strings.Replace(string(angMod), "module github.com/strogmv/ang", "module example.com/shop", 1)
 	for _, dep := range []string{"github.com/jackc/pgx/v5", "github.com/prometheus/client_golang", "go.opentelemetry.io/otel ", "go.opentelemetry.io/otel/trace"} {
 		if !strings.Contains(gomod, dep) {
+			// Known hole (quick wins 28.11): ANG's go.mod dropped Prometheus and OpenTelemetry, so this
+			// test of the generated tracer has not run since. Listed as "to fix" in scripts/test-skips.json.
 			t.Skipf("ANG no longer requires %s", dep)
 		}
 	}

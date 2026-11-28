@@ -114,11 +114,11 @@ func writeGodotTranslations(project string, targets []string, c LocalizationCata
 			return err
 		}
 		for locale, content := range files {
-			if err := os.WriteFile(filepath.Join(dest, locale+".po"), content, 0o644); err != nil {
+			if err := writeGeneratedFile(filepath.Join(dest, locale+".po"), content, 0o644); err != nil {
 				return err
 			}
 		}
-		if err := os.WriteFile(path, []byte(godotProjectLocales(string(raw), c)), 0o644); err != nil {
+		if err := writeGeneratedFile(path, []byte(godotProjectLocales(string(raw), c)), 0o644); err != nil {
 			return err
 		}
 	}

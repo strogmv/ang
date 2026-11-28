@@ -21,12 +21,16 @@ CHECKS="${STATICCHECK_CHECKS:-U1000,SA*,S*}"
 
 echo "== gofmt =="
 # Only files under version control: ignored build output (dist/, bin/) is not ours to format.
-unformatted="$(git ls-files -z -- '*.go' ':!:examples/**' | xargs -0 gofmt -l)"
+unformatted="$(git ls-files -z --cached --others --exclude-standard -- '*.go' ':!:examples/**' ':!:.local/**' | xargs -0 gofmt -l)"
 if [ -n "$unformatted" ]; then
 	echo "gofmt -w these files:"
 	echo "$unformatted"
 	exit 1
 fi
+
+# The skip scanner needs no module cache: it runs before staticcheck, which cannot start offline (GOPROXY=off).
+echo "== test skips =="
+go run ./scripts/check_test_skips
 
 echo "== staticcheck -checks $CHECKS =="
 if [ -n "${STATICCHECK:-}" ]; then

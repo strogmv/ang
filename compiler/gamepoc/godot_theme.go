@@ -302,7 +302,7 @@ func writeGodotTheme(project string, t *GodotTheme) error {
 		return err
 	}
 	for name, raw := range files {
-		if err := os.WriteFile(filepath.Join(root, outputDir, name), raw, 0o644); err != nil {
+		if err := writeGeneratedFile(filepath.Join(root, outputDir, name), raw, 0o644); err != nil {
 			return err
 		}
 	}
@@ -313,5 +313,5 @@ func writeGodotTheme(project string, t *GodotTheme) error {
 	if err := os.MkdirAll(filepath.Join(root, "generated"), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(root, "generated/theme-contrast.json"), append(raw, '\n'), 0o644)
+	return writeGeneratedFile(filepath.Join(root, "generated/theme-contrast.json"), append(raw, '\n'), 0o644)
 }
